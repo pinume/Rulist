@@ -1,0 +1,51 @@
+[package]
+name = "tinylist"
+version = "0.1.0"
+edition = "2024"
+authors = ["ubuntu <mhy2253@qq.com>"]
+description = "A lightweight, high-performance file listing tool written in Rust"
+
+[dependencies]
+# Async runtime & HTTP server
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.8" }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "fs", "compression-gzip"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# CLI
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+
+# Cryptography & Security
+argon2 = "0.5"
+jsonwebtoken = "9"
+sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+rand = "0.8"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Static asset embedding
+rust-embed = "8.5"
+mime_guess = "2.0"
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2.0"
+anyhow = "1.0"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
