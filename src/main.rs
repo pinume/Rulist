@@ -167,7 +167,10 @@ async fn main() -> Result<()> {
                             .bind(user.id)
                             .execute(&pool)
                             .await?;
-                        println!("2FA has been successfully cancelled for user '{}'", target_name);
+                        println!(
+                            "2FA has been successfully cancelled for user '{}'",
+                            target_name
+                        );
                     } else {
                         eprintln!("User '{}' not found in database", target_name);
                     }
