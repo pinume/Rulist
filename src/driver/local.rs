@@ -32,18 +32,29 @@ pub struct LocalDriver {
 impl LocalDriver {
     pub fn new(addition_json: &str) -> Result<Self> {
         let addition: LocalAddition = if addition_json.is_empty() {
-            LocalAddition::default()
+            return Err(anyhow!("storage configuration is empty"));
         } else {
-            serde_json::from_str(addition_json).unwrap_or_default()
+            serde_json::from_str(addition_json).context("failed to parse storage configuration")?
         };
 
-        let root_str = if addition.root_folder_path.is_empty() {
-            "."
-        } else {
-            &addition.root_folder_path
-        };
+        let root_str = addition.root_folder_path.trim();
+        if root_str.is_empty() {
+            return Err(anyhow!("root_folder_path cannot be empty"));
+        }
 
-        let root_path = fs_canonical_or_abs(root_str)?;
+        let path = Path::new(root_str);
+        if !path.is_absolute() {
+            return Err(anyhow!(
+                "root_folder_path must be an absolute path: {}",
+                root_str
+            ));
+        }
+
+        if !path.exists() {
+            return Err(anyhow!("root_folder_path does not exist: {:?}", path));
+        }
+
+        let root_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
         let mkdir_perm =
             u32::from_str_radix(addition.mkdir_perm.trim_start_matches("0o"), 8).unwrap_or(0o755);
 
@@ -326,16 +337,6 @@ pub(crate) async fn remove_path_recursive(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn fs_canonical_or_abs(p: &str) -> Result<PathBuf> {
-    let path = Path::new(p);
-    let abs = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir()?.join(path)
-    };
-    Ok(abs)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -568,5 +569,35 @@ mod tests {
         std::os::unix::fs::symlink(&secret, dir_with_link.join("link_file")).unwrap();
 
         assert!(driver.copy_to("dir_with_link", "dir_copy").await.is_err());
+    }
+
+    #[test]
+    fn test_local_driver_new_validation() {
+        let tmp = tempdir().unwrap();
+
+        // 1. Empty root_folder_path -> fails
+        assert!(LocalDriver::new(r#"{"root_folder_path":""}"#).is_err());
+        assert!(LocalDriver::new(r#"{}"#).is_err());
+        assert!(LocalDriver::new("").is_err());
+
+        // 2. Relative path -> fails
+        assert!(LocalDriver::new(r#"{"root_folder_path":"./relative/path"}"#).is_err());
+        assert!(LocalDriver::new(r#"{"root_folder_path":"relative"}"#).is_err());
+
+        // 3. Non-existent path -> fails
+        let non_existent = tmp.path().join("does_not_exist");
+        let json_non_existent = format!(
+            r#"{{"root_folder_path":"{}"}}"#,
+            non_existent.to_str().unwrap()
+        );
+        assert!(LocalDriver::new(&json_non_existent).is_err());
+
+        // 4. Valid absolute path -> succeeds
+        let valid_json = format!(
+            r#"{{"root_folder_path":"{}"}}"#,
+            tmp.path().to_str().unwrap()
+        );
+        let driver = LocalDriver::new(&valid_json).unwrap();
+        assert_eq!(driver.root_path, tmp.path().canonicalize().unwrap());
     }
 }

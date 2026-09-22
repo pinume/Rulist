@@ -36,53 +36,12 @@ impl StorageManager {
                 }
                 Err(err) => {
                     tracing::warn!("failed to mount storage {}: {:?}", s.mount_path, err);
+                    let _ =
+                        sqlx::query("UPDATE `x_storages` SET `status` = 'invalid' WHERE `id` = ?")
+                            .bind(s.id)
+                            .execute(pool)
+                            .await;
                 }
-            }
-        }
-
-        // If no storages exist in database, create a default local mount at /Local pointing to current directory
-        if storages.is_empty() {
-            let current_dir = std::env::current_dir()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|_| ".".to_string());
-
-            let addition = format!(
-                r#"{{"root_folder_path":"{}","show_hidden":false,"mkdir_perm":"0755"}}"#,
-                current_dir
-            );
-
-            let default_storage = Storage {
-                id: 1,
-                mount_path: "/Local".to_string(),
-                order: 0,
-                driver: "Local".to_string(),
-                cache_expiration: 0,
-                status: Some("work".to_string()),
-                addition: Some(addition.clone()),
-                remark: Some("Default local storage".to_string()),
-                disabled: false,
-                enable_sign: false,
-                order_by: None,
-                order_direction: None,
-            };
-
-            // Save to DB
-            let _ = sqlx::query(
-                r#"
-                INSERT OR IGNORE INTO `x_storages`
-                (`mount_path`, `order`, `driver`, `cache_expiration`, `status`, `addition`, `remark`, `disabled`, `enable_sign`)
-                VALUES ('/Local', 0, 'Local', 0, 'work', ?, 'Default local storage', 0, 0)
-                "#,
-            )
-            .bind(&addition)
-            .execute(pool)
-            .await;
-
-            if let Ok(driver) = LocalDriver::new(&addition) {
-                storages.push(MountedStorage {
-                    storage: default_storage,
-                    driver,
-                });
             }
         }
 
