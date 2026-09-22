@@ -26,28 +26,26 @@ import {
 import { changeToken, handleResp, notify, r } from "~/utils"
 
 const Profile = () => {
-  let authPopup: Window | null = null
   const t = useT()
   useManageTitle("manage.sidemenu.profile")
-  const { searchParams, to } = useRouter()
+  const { to } = useRouter()
   const [username, setUsername] = createSignal(me().username)
   const [currentPassword, setCurrentPassword] = createSignal("")
   const [password, setPassword] = createSignal("")
   const [confirmPassword, setConfirmPassword] = createSignal("")
-  const [loading, save] = useFetch((ssoID?: boolean): PEmptyResp =>
+  const [loading, save] = useFetch((): PEmptyResp =>
     r.post("/me/update", {
-      username: ssoID ? me().username : username(),
-      password: ssoID ? "" : password(),
-      current_password: ssoID ? "" : currentPassword(),
-      sso_id: me().sso_id,
+      username: username(),
+      password: password(),
+      current_password: currentPassword(),
     }),
   )
   const [logoutLoading, logout] = useFetch((): PEmptyResp =>
     r.get("/auth/logout"),
   )
 
-  const saveMe = async (ssoID?: boolean) => {
-    if (!ssoID && (password() || username() !== me().username)) {
+  const saveMe = async () => {
+    if (password() || username() !== me().username) {
       if (!currentPassword()) {
         notify.warning(t("users.current_password_empty"))
         return
@@ -57,34 +55,13 @@ const Profile = () => {
         return
       }
     }
-    const resp = await save(ssoID)
+    const resp = await save()
     handleResp(resp, () => {
       setMe({ ...me(), username: username() })
-      if (!ssoID) {
-        notify.success(t("users.update_profile_success"))
-        to(`/@login?redirect=${encodeURIComponent(location.pathname)}`)
-      } else {
-        to("")
-      }
+      notify.success(t("users.update_profile_success"))
+      to(`/@login?redirect=${encodeURIComponent(location.pathname)}`)
     })
   }
-  const ssoID = searchParams["sso_id"]
-  if (ssoID) {
-    setMe({ ...me(), sso_id: ssoID })
-    saveMe(true)
-  }
-  function messageEvent(event: MessageEvent) {
-    if (event.origin !== window.location.origin || event.source !== authPopup) return
-    const data = event.data
-    if (data.sso_id) {
-      setMe({ ...me(), sso_id: data.sso_id })
-      saveMe(true)
-    }
-  }
-  window.addEventListener("message", messageEvent)
-  onCleanup(() => {
-    window.removeEventListener("message", messageEvent)
-  })
 
   const cardBorder = useColorModeValue("$neutral4", "$neutral6")
   const cardBg = useColorModeValue("$background", "$neutral3")
@@ -231,46 +208,6 @@ const Profile = () => {
                 {t("manage.logout")}
               </Button>
             </HStack>
-
-            {/* SSO 登录区域 */}
-            <Show when={getSettingBool("sso_login_enabled")}>
-              <Box pt="$3" borderTop="1px solid" borderColor={dividerColor()}>
-                <Text fontWeight="$medium" fontSize="$sm" mb="$2">
-                  {t("users.sso_login")}
-                </Text>
-                <HStack spacing="$2">
-                  <Show
-                    when={me().sso_id}
-                    fallback={
-                      <Button
-                        size="sm"
-                        variant="subtle"
-                        onClick={() => {
-                          const url =
-                            r.getUri() + "/auth/sso?method=get_sso_id"
-                          authPopup = window.open(url, "authPopup", "width=500,height=600")
-                        }}
-                      >
-                        {t("users.connect_sso")}
-                      </Button>
-                    }
-                  >
-                    <Button
-                      size="sm"
-                      colorScheme="danger"
-                      variant="subtle"
-                      loading={loading()}
-                      onClick={() => {
-                        setMe({ ...me(), sso_id: "" })
-                        saveMe(true)
-                      }}
-                    >
-                      {t("users.disconnect_sso")}
-                    </Button>
-                  </Show>
-                </HStack>
-              </Box>
-            </Show>
           </VStack>
         </Box>
       </Box>

@@ -107,7 +107,6 @@ async fn seed_settings(pool: &DbPool) -> Result<()> {
             ('home_container', 'max_980px', 'select', 1, 0),
             ('home_icon', '🏠', 'string', 1, 0),
             ('package_download', 'true', 'bool', 0, 0),
-            ('sso_login_enabled', 'false', 'bool', 0, 0),
             ('sign_all', 'false', 'bool', 0, 0)
         "#,
     )

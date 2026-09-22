@@ -11,14 +11,11 @@ export interface User {
   local_path: string
   role: UserRole
   permission: number
-  sso_id: string
   disabled: boolean
   // otp: boolean;
 }
 
 export const UserPermissionBits = {
-  see_hides: 0,
-  access_without_password: 1,
   write_content: 3,
   rename: 4,
   move: 5,

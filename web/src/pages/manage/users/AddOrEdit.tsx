@@ -74,7 +74,6 @@ const AddOrEdit = () => {
     role: 0,
     permission: 0,
     disabled: false,
-    sso_id: "",
   })
   const [userLoading, loadUser] = useFetch(
     (): PResp<User> => r.get(`/admin/user/get?id=${id}`),

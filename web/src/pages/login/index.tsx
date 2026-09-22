@@ -25,7 +25,6 @@ import { Resp } from "~/types"
 import LoginBg from "./LoginBg"
 import { createStorageSignal } from "@solid-primitives/storage"
 import { getSetting, getSettingBool } from "~/store"
-import { SSOLogin } from "./SSOLogin"
 
 const Login = () => {
   const logos = getSetting("logo").split("\n")
@@ -177,15 +176,6 @@ const Login = () => {
             {t("login.login")}
           </Button>
         </HStack>
-        <Flex
-          mt="$2"
-          justifyContent="space-evenly"
-          alignItems="center"
-          color="$neutral10"
-          w="$full"
-        >
-          <SSOLogin />
-        </Flex>
       </VStack>
       <LoginBg />
     </Center>
