@@ -77,6 +77,12 @@ enum AdminSubcommand {
     Set { password: String },
     /// Show admin token
     Token,
+    /// Cancel/disable 2FA for a user (defaults to admin)
+    #[command(alias = "cancel_2fa")]
+    Cancel2fa {
+        /// Username to cancel 2FA for (defaults to admin)
+        username: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -152,6 +158,18 @@ async fn main() -> Result<()> {
                         println!("Admin token: {}", token);
                     } else {
                         eprintln!("Admin token not found");
+                    }
+                }
+                Some(AdminSubcommand::Cancel2fa { username }) => {
+                    let target_name = username.as_deref().unwrap_or("admin");
+                    if let Some(user) = db::get_user_by_name(&pool, target_name).await? {
+                        sqlx::query("UPDATE `x_users` SET `otp_secret` = '' WHERE `id` = ?")
+                            .bind(user.id)
+                            .execute(&pool)
+                            .await?;
+                        println!("2FA has been successfully cancelled for user '{}'", target_name);
+                    } else {
+                        eprintln!("User '{}' not found in database", target_name);
                     }
                 }
             }
