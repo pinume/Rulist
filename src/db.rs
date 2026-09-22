@@ -107,6 +107,23 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
         );
     }
 
+    let admin_fix = sqlx::query(
+        "UPDATE `x_users`
+         SET `base_path` = '/'
+         WHERE `role` = ?
+           AND `base_path` LIKE '/.users/%'",
+    )
+    .bind(ROLE_ADMIN)
+    .execute(&pool)
+    .await?;
+
+    if admin_fix.rows_affected() > 0 {
+        tracing::info!(
+            admins = admin_fix.rows_affected(),
+            "restored base_path='/' for admin users"
+        );
+    }
+
     Ok(pool)
 }
 

@@ -2098,6 +2098,18 @@ mod tests {
         .unwrap()
         .last_insert_rowid();
 
+        // 5. Verify admin base_path restoration if it had an abnormal /.users/% path
+        let admin_abnormal_id = sqlx::query(
+            "INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `salt`, `base_path`, `role`, `disabled`, `permission`) VALUES (?, ?, 0, ?, '/.users/99', 2, 0, 0)",
+        )
+        .bind("abnormal_admin")
+        .bind(&encoded_pwd)
+        .bind(&salt)
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_rowid();
+
         // Run db init again on this db_path to simulate restart / migration
         let re_pool = crate::db::init_db(&db_path).await.unwrap();
         let migrated_user = crate::db::get_user_by_id(&re_pool, legacy_id)
@@ -2106,6 +2118,39 @@ mod tests {
             .unwrap();
         assert_eq!(migrated_user.base_path, format!("/.users/{}", legacy_id));
         assert!(migrated_user.disabled);
+
+        let restored_admin = crate::db::get_user_by_id(&re_pool, admin_abnormal_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(restored_admin.base_path, "/");
+
+        // 6. Verify updating admin does NOT change base_path to /.users/{id}
+        let admin_user = crate::db::get_user_by_name(&pool, "admin")
+            .await
+            .unwrap()
+            .unwrap();
+        let admin_update_req = AdminUserSaveReq {
+            id: Some(admin_user.id),
+            username: "admin".to_string(),
+            password: None,
+            role: Some(2),
+            permission: Some(0),
+            disabled: Some(false),
+            local_path: Some(user1_dir.to_str().unwrap().to_string()),
+        };
+        let resp = users::admin_user_update_handler(
+            admin_headers.clone(),
+            State(state.clone()),
+            Json(admin_update_req),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let updated_admin = crate::db::get_user_by_id(&pool, admin_user.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated_admin.base_path, "/");
     }
 
     #[tokio::test]

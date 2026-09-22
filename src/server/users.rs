@@ -40,7 +40,11 @@ pub async fn admin_user_list_handler(
     let content: Vec<UserWithMount> = users
         .into_iter()
         .map(|u| {
-            let local_path = compute_local_path(&u.base_path, &storages);
+            let local_path = if u.is_admin() {
+                String::new()
+            } else {
+                compute_local_path(&u.base_path, &storages)
+            };
             UserWithMount {
                 id: u.id,
                 username: u.username,
@@ -94,7 +98,11 @@ pub async fn admin_user_get_handler(
     };
 
     let storages = get_storages(&state.pool).await.unwrap_or_default();
-    let local_path = compute_local_path(&target_user.base_path, &storages);
+    let local_path = if target_user.is_admin() {
+        String::new()
+    } else {
+        compute_local_path(&target_user.base_path, &storages)
+    };
 
     let res = UserWithMount {
         id: target_user.id,
@@ -252,28 +260,6 @@ pub async fn admin_user_create_handler(
                 "Internal server error",
             );
         }
-    } else if !local_path.is_empty() {
-        let mount_path = format!("/.users/{new_id}");
-        let addition = serde_json::json!({
-            "root_folder_path": local_path
-        })
-        .to_string();
-
-        if let Err(e) = sqlx::query(
-            "INSERT INTO `x_storages` (`mount_path`, `order`, `driver`, `addition`, `status`, `disabled`) VALUES (?, 0, 'Local', ?, 'work', 0)",
-        )
-        .bind(&mount_path)
-        .bind(&addition)
-        .execute(&mut *tx)
-        .await
-        {
-            tracing::error!(error = %e, "failed to create admin user storage");
-            return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Internal server error",
-            );
-        }
     }
 
     if let Err(e) = tx.commit().await {
@@ -415,7 +401,8 @@ pub async fn admin_user_update_handler(
         );
     }
 
-    if let Some(local_path) = req.local_path
+    if !target_user.is_admin()
+        && let Some(local_path) = req.local_path
         && !local_path.trim().is_empty()
     {
         let user_mount = format!("/.users/{}", target_id);
@@ -463,24 +450,9 @@ pub async fn admin_user_update_handler(
                     "Internal server error",
                 );
             }
-
-            if let Err(e) = sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
-                .bind(&user_mount)
-                .bind(target_id)
-                .execute(&mut *tx)
-                .await
-            {
-                tracing::error!(error = %e, "failed to update user mount path");
-                return api_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    500,
-                    "Internal server error",
-                );
-            }
         }
 
-        if !target_user.is_admin()
-            && target_user.base_path != user_mount
+        if target_user.base_path != user_mount
             && let Err(e) = sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
                 .bind(&user_mount)
                 .bind(target_id)
@@ -494,6 +466,11 @@ pub async fn admin_user_update_handler(
                 "Internal server error",
             );
         }
+    } else if target_user.is_admin() && target_user.base_path != "/" {
+        let _ = sqlx::query("UPDATE `x_users` SET `base_path` = '/' WHERE `id` = ?")
+            .bind(target_id)
+            .execute(&mut *tx)
+            .await;
     }
 
     if let Err(e) = tx.commit().await {

@@ -22,6 +22,7 @@ import {
   UserMethods,
   UserPermissionBits,
   UserPermissions,
+  UserRole,
 } from "~/types"
 import { createStore } from "solid-js/store"
 import { For, Show } from "solid-js"
@@ -150,18 +151,20 @@ const AddOrEdit = () => {
             />
           </FormControl>
 
-          <FormControl w="$full" display="flex" flexDirection="column" required>
-            <FormLabel for="local_path" display="flex" alignItems="center">
-              {t(`users.local_path`)}
-            </FormLabel>
-            <Input
-              id="local_path"
-              w="$full"
-              value={user.local_path}
-              placeholder="/home/ubuntu"
-              onInput={(e) => setUser("local_path", e.currentTarget.value)}
-            />
-          </FormControl>
+          <Show when={user.role !== UserRole.ADMIN}>
+            <FormControl w="$full" display="flex" flexDirection="column" required>
+              <FormLabel for="local_path" display="flex" alignItems="center">
+                {t(`users.local_path`)}
+              </FormLabel>
+              <Input
+                id="local_path"
+                w="$full"
+                value={user.local_path}
+                placeholder="/home/ubuntu"
+                onInput={(e) => setUser("local_path", e.currentTarget.value)}
+              />
+            </FormControl>
+          </Show>
           <FormControl w="$full" required>
             <FormLabel display="flex" alignItems="center">
               {t(`users.permission`)}
