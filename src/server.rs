@@ -1717,6 +1717,17 @@ async fn admin_user_create_handler(
         .unwrap_or_default()
         .as_secs() as i64;
 
+    let mut tx = match state.pool.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(500, e.to_string())),
+            )
+                .into_response();
+        }
+    };
+
     let res = sqlx::query(
         "INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `salt`, `base_path`, `role`, `disabled`, `permission`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     )
@@ -1728,7 +1739,7 @@ async fn admin_user_create_handler(
     .bind(req.role.unwrap_or(0))
     .bind(if req.disabled.unwrap_or(false) { 1 } else { 0 })
     .bind(req.permission.unwrap_or(0))
-    .execute(&state.pool)
+    .execute(&mut *tx)
     .await;
 
     let new_id = match res {
@@ -1751,22 +1762,44 @@ async fn admin_user_create_handler(
         })
         .to_string();
 
-        let _ = sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
+        if let Err(e) = sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
             .bind(&mount_path)
             .bind(new_id)
-            .execute(&state.pool)
-            .await;
-
-        let _ = sqlx::query(
-                "INSERT INTO `x_storages` (`mount_path`, `order`, `driver`, `addition`, `status`, `disabled`) VALUES (?, 0, 'Local', ?, 'work', 0)"
+            .execute(&mut *tx)
+            .await
+        {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(500, e.to_string())),
             )
-            .bind(&mount_path)
-            .bind(&addition)
-            .execute(&state.pool)
-            .await;
+                .into_response();
+        }
 
-        let _ = state.storage.reload_from_db(&state.pool).await;
+        if let Err(e) = sqlx::query(
+            "INSERT INTO `x_storages` (`mount_path`, `order`, `driver`, `addition`, `status`, `disabled`) VALUES (?, 0, 'Local', ?, 'work', 0)"
+        )
+        .bind(&mount_path)
+        .bind(&addition)
+        .execute(&mut *tx)
+        .await
+        {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(500, e.to_string())),
+            )
+                .into_response();
+        }
     }
+
+    if let Err(e) = tx.commit().await {
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(500, e.to_string())),
+        )
+            .into_response();
+    }
+
+    let _ = state.storage.reload_from_db(&state.pool).await;
 
     Json(ApiResponse::success(())).into_response()
 }
@@ -1850,7 +1883,18 @@ async fn admin_user_update_handler(
         target_user.permission = perm;
     }
 
-    let _ = sqlx::query(
+    let mut tx = match state.pool.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(500, e.to_string())),
+            )
+                .into_response();
+        }
+    };
+
+    if let Err(e) = sqlx::query(
         "UPDATE `x_users` SET `username` = ?, `pwd_hash` = ?, `salt` = ?, `pwd_ts` = ?, `disabled` = ?, `permission` = ? WHERE `id` = ?"
     )
     .bind(&target_user.username)
@@ -1860,8 +1904,15 @@ async fn admin_user_update_handler(
     .bind(if target_user.disabled { 1 } else { 0 })
     .bind(target_user.permission)
     .bind(target_id)
-    .execute(&state.pool)
-    .await;
+    .execute(&mut *tx)
+    .await
+    {
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(500, e.to_string())),
+        )
+            .into_response();
+    }
 
     if let Some(local_path) = req.local_path
         && !local_path.trim().is_empty()
@@ -1876,33 +1927,64 @@ async fn admin_user_update_handler(
         let exists: Option<i64> =
             sqlx::query_scalar("SELECT `id` FROM `x_storages` WHERE `mount_path` = ?")
                 .bind(&user_mount)
-                .fetch_optional(&state.pool)
+                .fetch_optional(&mut *tx)
                 .await
                 .unwrap_or(None);
 
         if exists.is_some() {
-            let _ = sqlx::query("UPDATE `x_storages` SET `addition` = ? WHERE `mount_path` = ?")
-                .bind(&addition)
-                .bind(&user_mount)
-                .execute(&state.pool)
-                .await;
-        } else {
-            let _ = sqlx::query(
-                    "INSERT INTO `x_storages` (`mount_path`, `order`, `driver`, `addition`, `status`, `disabled`) VALUES (?, 0, 'Local', ?, 'work', 0)"
+            if let Err(e) =
+                sqlx::query("UPDATE `x_storages` SET `addition` = ? WHERE `mount_path` = ?")
+                    .bind(&addition)
+                    .bind(&user_mount)
+                    .execute(&mut *tx)
+                    .await
+            {
+                return (
+                    StatusCode::OK,
+                    Json(ApiResponse::<()>::error(500, e.to_string())),
                 )
-                .bind(&user_mount)
-                .bind(&addition)
-                .execute(&state.pool)
-                .await;
+                    .into_response();
+            }
+        } else {
+            if let Err(e) = sqlx::query(
+                "INSERT INTO `x_storages` (`mount_path`, `order`, `driver`, `addition`, `status`, `disabled`) VALUES (?, 0, 'Local', ?, 'work', 0)"
+            )
+            .bind(&user_mount)
+            .bind(&addition)
+            .execute(&mut *tx)
+            .await
+            {
+                return (
+                    StatusCode::OK,
+                    Json(ApiResponse::<()>::error(500, e.to_string())),
+                )
+                    .into_response();
+            }
 
-            let _ = sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
+            if let Err(e) = sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
                 .bind(&user_mount)
                 .bind(target_id)
-                .execute(&state.pool)
-                .await;
+                .execute(&mut *tx)
+                .await
+            {
+                return (
+                    StatusCode::OK,
+                    Json(ApiResponse::<()>::error(500, e.to_string())),
+                )
+                    .into_response();
+            }
         }
-        let _ = state.storage.reload_from_db(&state.pool).await;
     }
+
+    if let Err(e) = tx.commit().await {
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(500, e.to_string())),
+        )
+            .into_response();
+    }
+
+    let _ = state.storage.reload_from_db(&state.pool).await;
 
     Json(ApiResponse::success(())).into_response()
 }
@@ -1949,12 +2031,112 @@ async fn admin_user_delete_handler(
             .into_response();
     }
 
-    let _ = crate::db::delete_user_by_id(&state.pool, id).await;
+    let mut tx = match state.pool.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(500, e.to_string())),
+            )
+                .into_response();
+        }
+    };
+
+    let target_user = match sqlx::query_as::<_, User>("SELECT * FROM `x_users` WHERE `id` = ?")
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await
+    {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(404, "user not found")),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(500, e.to_string())),
+            )
+                .into_response();
+        }
+    };
+
+    if target_user.is_admin() {
+        let admin_count: i64 =
+            match sqlx::query_scalar("SELECT count(*) FROM `x_users` WHERE `role` = ?")
+                .bind(crate::model::ROLE_ADMIN)
+                .fetch_one(&mut *tx)
+                .await
+            {
+                Ok(c) => c,
+                Err(e) => {
+                    return (
+                        StatusCode::OK,
+                        Json(ApiResponse::<()>::error(500, e.to_string())),
+                    )
+                        .into_response();
+                }
+            };
+        if admin_count <= 1 {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(
+                    400,
+                    "cannot delete last admin user",
+                )),
+            )
+                .into_response();
+        }
+    }
+
+    if let Err(e) = sqlx::query("DELETE FROM `x_otp_pending` WHERE `user_id` = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+    {
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(500, e.to_string())),
+        )
+            .into_response();
+    }
+
+    if let Err(e) = sqlx::query("DELETE FROM `x_users` WHERE `id` = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+    {
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(500, e.to_string())),
+        )
+            .into_response();
+    }
+
     let user_mount = format!("/.users/{}", id);
-    let _ = sqlx::query("DELETE FROM `x_storages` WHERE `mount_path` = ?")
+    if let Err(e) = sqlx::query("DELETE FROM `x_storages` WHERE `mount_path` = ?")
         .bind(&user_mount)
-        .execute(&state.pool)
-        .await;
+        .execute(&mut *tx)
+        .await
+    {
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(500, e.to_string())),
+        )
+            .into_response();
+    }
+
+    if let Err(e) = tx.commit().await {
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(500, e.to_string())),
+        )
+            .into_response();
+    }
+
     let _ = state.storage.reload_from_db(&state.pool).await;
 
     Json(ApiResponse::success(())).into_response()
@@ -2686,5 +2868,190 @@ mod tests {
             b"file1 v1"
         );
         assert!(!src_dir.join("file1.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn test_user_administration_transactional_and_last_admin_protection() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "AdminPassword123!")
+            .await
+            .unwrap();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let config = Config::default();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: config.clone(),
+            storage: Arc::new(storage_mgr),
+        });
+
+        // Get admin token
+        let login_req = LoginReq {
+            username: "admin".to_string(),
+            password: "AdminPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = login_handler(State(state.clone()), Json(login_req)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let token = json["data"]["token"].as_str().unwrap().to_string();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+        );
+
+        // 1. 普通用户创建：user + permissions + base_path 均成功
+        let user_home = tmp.path().join("user_home");
+        tokio::fs::create_dir_all(&user_home).await.unwrap();
+        let create_req = AdminUserSaveReq {
+            id: None,
+            username: "regular_user".to_string(),
+            password: Some("UserPass123!".to_string()),
+            role: Some(0),
+            permission: Some(255),
+            disabled: Some(false),
+            local_path: Some(user_home.to_str().unwrap().to_string()),
+        };
+        let resp =
+            admin_user_create_handler(headers.clone(), State(state.clone()), Json(create_req))
+                .await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 200);
+
+        let created_user = crate::db::get_user_by_name(&pool, "regular_user")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(created_user.permission, 255);
+        assert_eq!(created_user.role, 0);
+        assert_eq!(
+            created_user.base_path,
+            format!("/.users/{}", created_user.id)
+        );
+        let storage_row: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM x_storages WHERE mount_path = ?")
+                .bind(&created_user.base_path)
+                .fetch_optional(&pool)
+                .await
+                .unwrap();
+        assert!(storage_row.is_some());
+
+        // 2. 中途失败：事务回滚，无孤立 user 记录
+        // Trying to create a user with duplicate username
+        let dup_req = AdminUserSaveReq {
+            id: None,
+            username: "regular_user".to_string(),
+            password: Some("AnotherPass123!".to_string()),
+            role: Some(0),
+            permission: Some(10),
+            disabled: Some(false),
+            local_path: None,
+        };
+        let resp =
+            admin_user_create_handler(headers.clone(), State(state.clone()), Json(dup_req)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 400);
+
+        // 3. 最后一个 admin 删除保护：必须返回错误，不能删空管理员
+        // Trying to delete admin (id=1)
+        let resp = admin_user_delete_handler(
+            headers.clone(),
+            Query(IdQuery { id: Some(1) }),
+            State(state.clone()),
+        )
+        .await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 400);
+
+        // Create a second admin user
+        let second_admin_req = AdminUserSaveReq {
+            id: None,
+            username: "second_admin".to_string(),
+            password: Some("Admin2Pass123!".to_string()),
+            role: Some(crate::model::ROLE_ADMIN),
+            permission: Some(0),
+            disabled: Some(false),
+            local_path: None,
+        };
+        let resp = admin_user_create_handler(
+            headers.clone(),
+            State(state.clone()),
+            Json(second_admin_req),
+        )
+        .await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 200);
+
+        let second_admin = crate::db::get_user_by_name(&pool, "second_admin")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(second_admin.is_admin());
+
+        // Deleting second admin succeeds because admin (id=1) still exists
+        let resp = admin_user_delete_handler(
+            headers.clone(),
+            Query(IdQuery {
+                id: Some(second_admin.id),
+            }),
+            State(state.clone()),
+        )
+        .await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 200);
+        assert!(
+            crate::db::get_user_by_id(&pool, second_admin.id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        // Now delete regular_user and verify user + storage cleanup
+        let resp = admin_user_delete_handler(
+            headers.clone(),
+            Query(IdQuery {
+                id: Some(created_user.id),
+            }),
+            State(state.clone()),
+        )
+        .await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 200);
+        assert!(
+            crate::db::get_user_by_id(&pool, created_user.id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let storage_row_after: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM x_storages WHERE mount_path = ?")
+                .bind(&created_user.base_path)
+                .fetch_optional(&pool)
+                .await
+                .unwrap();
+        assert!(storage_row_after.is_none());
     }
 }

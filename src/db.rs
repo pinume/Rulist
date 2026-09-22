@@ -271,14 +271,6 @@ pub async fn get_user_by_id(pool: &DbPool, id: i64) -> Result<Option<User>> {
     Ok(user)
 }
 
-pub async fn delete_user_by_id(pool: &DbPool, id: i64) -> Result<()> {
-    sqlx::query("DELETE FROM `x_users` WHERE `id` = ?")
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
 pub async fn get_storages(pool: &DbPool) -> Result<Vec<crate::model::Storage>> {
     let storages = sqlx::query_as::<_, crate::model::Storage>(
         "SELECT * FROM `x_storages` WHERE `disabled` = 0",
