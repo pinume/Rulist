@@ -5,7 +5,6 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
 };
 use rust_embed::RustEmbed;
-use serde::Serialize;
 use std::sync::Arc;
 
 use crate::server::AppState;
@@ -16,23 +15,6 @@ pub struct DistAssets;
 
 pub const RULIST_SVG: &[u8] = include_bytes!("../public/rulist.svg");
 pub const RULIST_PNG: &[u8] = include_bytes!("../public/rulist.png");
-
-#[derive(Serialize)]
-struct ManifestIcon {
-    src: String,
-    sizes: String,
-    #[serde(rename = "type")]
-    icon_type: String,
-}
-
-#[derive(Serialize)]
-struct Manifest {
-    display: String,
-    scope: String,
-    start_url: String,
-    name: String,
-    icons: Vec<ManifestIcon>,
-}
 
 pub fn serve_dist_asset(path: &str) -> Option<Response<Body>> {
     let clean_path = path.trim_start_matches('/');
@@ -148,17 +130,17 @@ pub async fn manifest_handler(State(state): State<Arc<AppState>>) -> impl IntoRe
         .unwrap_or_else(|| "favicon.ico".to_string());
     let logo_first = logo.lines().next().unwrap_or(&logo).to_string();
 
-    let manifest = Manifest {
-        display: "standalone".to_string(),
-        scope: "/".to_string(),
-        start_url: "/".to_string(),
-        name: site_title,
-        icons: vec![ManifestIcon {
-            src: logo_first,
-            sizes: "512x512".to_string(),
-            icon_type: "image/png".to_string(),
-        }],
-    };
+    let manifest = serde_json::json!({
+        "display": "standalone",
+        "scope": "/",
+        "start_url": "/",
+        "name": site_title,
+        "icons": [{
+            "src": logo_first,
+            "sizes": "512x512",
+            "type": "image/png"
+        }]
+    });
 
     let mut res = axum::Json(manifest).into_response();
     res.headers_mut().insert(

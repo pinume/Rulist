@@ -30,8 +30,6 @@ impl<T> ApiResponse<T> {
     }
 }
 
-pub const ROLE_GENERAL: i32 = 0;
-pub const ROLE_GUEST: i32 = 1;
 pub const ROLE_ADMIN: i32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

@@ -209,13 +209,6 @@ impl StorageManager {
             .await
     }
 
-    /// Rename file or directory
-    pub async fn rename(&self, req_path: &str, new_name: &str) -> Result<()> {
-        self.rename_safe(req_path, new_name, false)
-            .await
-            .map_err(|e| anyhow!("{e}"))
-    }
-
     /// Two-phase batch rename within a directory
     pub async fn batch_rename(
         &self,
@@ -227,11 +220,6 @@ impl StorageManager {
         })?;
 
         storage.driver.batch_rename(&subpath, pairs).await
-    }
-
-    /// Move file or directory
-    pub async fn move_to(&self, src_path: &str, dst_path: &str) -> Result<()> {
-        self.move_to_safe(src_path, dst_path, true).await
     }
 
     /// Safely move a file or directory with overwrite conflict handling and rollback
@@ -265,11 +253,6 @@ impl StorageManager {
             )
             .await
         }
-    }
-
-    /// Copy file or directory
-    pub async fn copy_to(&self, src_path: &str, dst_path: &str) -> Result<()> {
-        self.copy_to_safe(src_path, dst_path, true).await
     }
 
     /// Safely copy a file or directory with staging, overwrite backup, and rollback

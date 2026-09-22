@@ -148,12 +148,6 @@ async fn seed_settings(pool: &DbPool) -> Result<()> {
     .execute(pool)
     .await?;
 
-    let _ = sqlx::query(
-        "UPDATE `x_setting_items` SET `value` = 'Rulist' WHERE `key` = 'site_title' AND `value` = 'TinyList'",
-    )
-    .execute(pool)
-    .await;
-
     let existing: Option<String> =
         sqlx::query_scalar("SELECT `value` FROM `x_setting_items` WHERE `key` = 'token'")
             .fetch_optional(pool)
