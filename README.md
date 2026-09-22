@@ -2,6 +2,12 @@
 
 A lightweight, high-performance file listing tool written in Rust (Rulist).
 
+## 开发与构建环境
+
+- **Rust**: 1.80+
+- **Node.js**: 24（推荐，最低 `>=22.13`）
+- **Package Manager**: pnpm 11.10.0（支持 `corepack enable`）
+
 ## 部署与安全要求
 
 > [!IMPORTANT]
