@@ -1477,4 +1477,69 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_ne!(json["code"], 200);
     }
+
+    #[tokio::test]
+    async fn test_admin_user_invalid_local_path_rejected_before_persistence() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "AdminPassword123!")
+            .await
+            .unwrap();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let config = Config::default();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: config.clone(),
+            storage: Arc::new(storage_mgr),
+        });
+
+        let admin_login = LoginReq {
+            username: "admin".to_string(),
+            password: "AdminPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(admin_login)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let admin_token = json["data"]["token"].as_str().unwrap().to_string();
+        let mut admin_headers = HeaderMap::new();
+        admin_headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", admin_token)).unwrap(),
+        );
+
+        // Attempt to create user with non-existent local path
+        let invalid_req = AdminUserSaveReq {
+            id: None,
+            username: "bad_user".to_string(),
+            password: Some("BadPassword123!".to_string()),
+            role: Some(0),
+            permission: Some(15),
+            disabled: Some(false),
+            local_path: Some("/non/existent/path/for/bad_user".to_string()),
+        };
+        let resp = users::admin_user_create_handler(
+            admin_headers.clone(),
+            State(state.clone()),
+            Json(invalid_req),
+        )
+        .await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 400);
+
+        // Verify user was NOT persisted to DB
+        assert!(
+            crate::db::get_user_by_name(&pool, "bad_user")
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
 }

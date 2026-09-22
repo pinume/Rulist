@@ -97,6 +97,17 @@ pub async fn admin_user_get_handler(
     api_success(res)
 }
 
+fn validate_local_path(path: &str) -> Result<(), anyhow::Error> {
+    let addition = serde_json::json!({
+        "root_folder_path": path.trim()
+    })
+    .to_string();
+
+    crate::driver::local::LocalDriver::new(&addition)?;
+
+    Ok(())
+}
+
 pub async fn admin_user_create_handler(
     headers: HeaderMap,
     State(state): State<SharedState>,
@@ -113,6 +124,14 @@ pub async fn admin_user_create_handler(
     let raw_pwd = req.password.as_deref().unwrap_or("").trim();
     if raw_pwd.is_empty() {
         return api_error(StatusCode::OK, 400, "password is required");
+    }
+
+    if let Some(local_path) = req.local_path.as_deref()
+        && !local_path.trim().is_empty()
+        && let Err(err) = validate_local_path(local_path)
+    {
+        tracing::warn!(error = %err, "invalid user local path");
+        return api_error(StatusCode::BAD_REQUEST, 400, "Invalid local directory");
     }
 
     let salt = crate::auth::rand_string(16);
@@ -181,7 +200,17 @@ pub async fn admin_user_create_handler(
         return api_error(StatusCode::OK, 500, e.to_string());
     }
 
-    let _ = state.storage.reload_from_db(&state.pool).await;
+    if let Err(err) = state.storage.reload_from_db(&state.pool).await {
+        tracing::error!(
+            error = %err,
+            "failed to reload storage manager"
+        );
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Storage configuration was saved but failed to reload",
+        );
+    }
 
     api_success(())
 }
@@ -234,6 +263,14 @@ pub async fn admin_user_update_handler(
     }
     if let Some(perm) = req.permission {
         target_user.permission = perm;
+    }
+
+    if let Some(local_path) = req.local_path.as_deref()
+        && !local_path.trim().is_empty()
+        && let Err(err) = validate_local_path(local_path)
+    {
+        tracing::warn!(error = %err, "invalid user local path");
+        return api_error(StatusCode::BAD_REQUEST, 400, "Invalid local directory");
     }
 
     let mut tx = match state.pool.begin().await {
@@ -311,7 +348,17 @@ pub async fn admin_user_update_handler(
         return api_error(StatusCode::OK, 500, e.to_string());
     }
 
-    let _ = state.storage.reload_from_db(&state.pool).await;
+    if let Err(err) = state.storage.reload_from_db(&state.pool).await {
+        tracing::error!(
+            error = %err,
+            "failed to reload storage manager"
+        );
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Storage configuration was saved but failed to reload",
+        );
+    }
 
     api_success(())
 }
@@ -397,7 +444,17 @@ pub async fn admin_user_delete_handler(
         return api_error(StatusCode::OK, 500, e.to_string());
     }
 
-    let _ = state.storage.reload_from_db(&state.pool).await;
+    if let Err(err) = state.storage.reload_from_db(&state.pool).await {
+        tracing::error!(
+            error = %err,
+            "failed to reload storage manager"
+        );
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Storage configuration was saved but failed to reload",
+        );
+    }
 
     api_success(())
 }
@@ -415,11 +472,18 @@ pub async fn admin_user_cancel_2fa_handler(
         return api_error(StatusCode::OK, 403, "Permission denied");
     }
 
-    if let Some(id) = query.id {
-        let _ = sqlx::query("UPDATE `x_users` SET `otp_secret` = '' WHERE `id` = ?")
+    if let Some(id) = query.id
+        && let Err(err) = sqlx::query("UPDATE `x_users` SET `otp_secret` = '' WHERE `id` = ?")
             .bind(id)
             .execute(&state.pool)
-            .await;
+            .await
+    {
+        tracing::error!(error = %err, "failed to cancel 2fa");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Failed to cancel 2FA",
+        );
     }
     api_success(())
 }
