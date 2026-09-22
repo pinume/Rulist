@@ -121,12 +121,11 @@ impl StorageManager {
                 return Some((ms.clone(), String::new()));
             } else if clean_path.starts_with(mount)
                 && clean_path.as_bytes().get(mount.len()) == Some(&b'/')
+                && mount.len() > max_prefix_len
             {
-                if mount.len() > max_prefix_len {
-                    max_prefix_len = mount.len();
-                    let sub = &clean_path[mount.len()..];
-                    matched = Some((ms.clone(), sub.trim_start_matches('/').to_string()));
-                }
+                max_prefix_len = mount.len();
+                let sub = &clean_path[mount.len()..];
+                matched = Some((ms.clone(), sub.trim_start_matches('/').to_string()));
             }
         }
 
@@ -139,10 +138,10 @@ impl StorageManager {
 
         // Root virtual directory listing when no storage is mounted directly at '/'
         if clean_path.is_empty() {
-            if let Some((ms, sub)) = self.find_storage("/") {
-                if ms.storage.mount_path == "/" {
-                    return ms.driver.list(&sub).await;
-                }
+            if let Some((ms, sub)) = self.find_storage("/")
+                && ms.storage.mount_path == "/"
+            {
+                return ms.driver.list(&sub).await;
             }
 
             // Return virtual folders for all mount paths

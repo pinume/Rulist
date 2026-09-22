@@ -8,7 +8,7 @@ use subtle::ConstantTimeEq;
 
 type HmacSha256 = Hmac<Sha256>;
 
-const SIGN_SALT: &str = ":tinylist-link-signer";
+const SIGN_SALT: &str = ":rulist-link-signer";
 const DEFAULT_LIFETIME_SECS: i64 = 300; // 5 minutes
 
 fn derive_key(token: &str) -> [u8; 32] {
@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn test_sign_and_verify() {
-        let token = "openlist-abcdef123456";
+        let token = "rulist-abcdef123456";
         let path = "/Local/test.mp4";
         let s = sign_path(token, path);
 

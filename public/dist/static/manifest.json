@@ -2,7 +2,7 @@
   "display": "standalone",
   "scope": "/",
   "start_url": "/",
-  "name": "TinyList",
+  "name": "Rulist",
   "icons": [
     {
       "src": "/favicon.ico",

@@ -63,16 +63,8 @@ pub async fn run_server(
         .route("/favicon.ico", get(crate::static_files::favicon_handler))
         .route("/robots.txt", get(crate::static_files::robots_handler))
         .route("/manifest.json", get(crate::static_files::manifest_handler))
-        .route(
-            "/tinylist.svg",
-            get(crate::static_files::dist_assets_handler),
-        )
-        .route(
-            "/tinylist.png",
-            get(crate::static_files::dist_assets_handler),
-        )
-        .route("/rulist.svg", get(crate::static_files::dist_assets_handler))
-        .route("/rulist.png", get(crate::static_files::dist_assets_handler))
+        .route("/rulist.svg", get(crate::static_files::rulist_svg_handler))
+        .route("/rulist.png", get(crate::static_files::rulist_png_handler))
         // Static assets from frontend dist
         .route(
             "/assets/{*path}",
@@ -211,23 +203,23 @@ async fn login_handler(State(state): State<SharedState>, Json(req): Json<LoginRe
     }
 
     // Check 2FA if enabled
-    if let Some(ref secret) = user.otp_secret {
-        if !secret.trim().is_empty() {
-            let otp_code = req.otp_code.as_deref().unwrap_or("").trim();
-            if otp_code.is_empty() {
-                return (
-                    StatusCode::OK,
-                    Json(ApiResponse::<()>::error(402, "OTP code is required")),
-                )
-                    .into_response();
-            }
-            if !verify_totp(secret, otp_code) {
-                return (
-                    StatusCode::OK,
-                    Json(ApiResponse::<()>::error(400, "invalid otp code")),
-                )
-                    .into_response();
-            }
+    if let Some(ref secret) = user.otp_secret
+        && !secret.trim().is_empty()
+    {
+        let otp_code = req.otp_code.as_deref().unwrap_or("").trim();
+        if otp_code.is_empty() {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(402, "OTP code is required")),
+            )
+                .into_response();
+        }
+        if !verify_totp(secret, otp_code) {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(400, "invalid otp code")),
+            )
+                .into_response();
         }
     }
 
@@ -291,23 +283,23 @@ async fn login_hash_handler(
     }
 
     // Check 2FA if enabled
-    if let Some(ref secret) = user.otp_secret {
-        if !secret.trim().is_empty() {
-            let otp_code = req.otp_code.as_deref().unwrap_or("").trim();
-            if otp_code.is_empty() {
-                return (
-                    StatusCode::OK,
-                    Json(ApiResponse::<()>::error(402, "OTP code is required")),
-                )
-                    .into_response();
-            }
-            if !verify_totp(secret, otp_code) {
-                return (
-                    StatusCode::OK,
-                    Json(ApiResponse::<()>::error(400, "invalid otp code")),
-                )
-                    .into_response();
-            }
+    if let Some(ref secret) = user.otp_secret
+        && !secret.trim().is_empty()
+    {
+        let otp_code = req.otp_code.as_deref().unwrap_or("").trim();
+        if otp_code.is_empty() {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(402, "OTP code is required")),
+            )
+                .into_response();
+        }
+        if !verify_totp(secret, otp_code) {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(400, "invalid otp code")),
+            )
+                .into_response();
         }
     }
 
@@ -451,73 +443,72 @@ async fn update_current_handler(
         }
     };
 
-    if let Some(new_pwd) = &req.password {
-        if !new_pwd.is_empty() {
-            let cur_pwd = req.current_password.as_deref().unwrap_or("");
-            if cur_pwd.is_empty() {
-                return (
-                    StatusCode::OK,
-                    Json(ApiResponse::<()>::error(
-                        400,
-                        "Current password is required",
-                    )),
-                )
-                    .into_response();
-            }
-            if !verify_password(cur_pwd, &user.pwd_hash, &user.salt) {
-                return (
-                    StatusCode::OK,
-                    Json(ApiResponse::<()>::error(
-                        403,
-                        "Current password is incorrect",
-                    )),
-                )
-                    .into_response();
-            }
-
-            let salt = crate::auth::rand_string(16);
-            let s_hash = crate::auth::static_hash(new_pwd);
-            let encoded_pwd = crate::auth::encode_argon2_hash(&s_hash, &salt);
-            let now_ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as i64;
-
-            if let Err(e) = sqlx::query(
-                "UPDATE `x_users` SET `pwd_hash` = ?, `salt` = ?, `pwd_ts` = ? WHERE `id` = ?",
+    if let Some(new_pwd) = &req.password
+        && !new_pwd.is_empty()
+    {
+        let cur_pwd = req.current_password.as_deref().unwrap_or("");
+        if cur_pwd.is_empty() {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(
+                    400,
+                    "Current password is required",
+                )),
             )
-            .bind(&encoded_pwd)
-            .bind(&salt)
-            .bind(now_ts)
+                .into_response();
+        }
+        if !verify_password(cur_pwd, &user.pwd_hash, &user.salt) {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(
+                    403,
+                    "Current password is incorrect",
+                )),
+            )
+                .into_response();
+        }
+
+        let salt = crate::auth::rand_string(16);
+        let s_hash = crate::auth::static_hash(new_pwd);
+        let encoded_pwd = crate::auth::encode_argon2_hash(&s_hash, &salt);
+        let now_ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        if let Err(e) = sqlx::query(
+            "UPDATE `x_users` SET `pwd_hash` = ?, `salt` = ?, `pwd_ts` = ? WHERE `id` = ?",
+        )
+        .bind(&encoded_pwd)
+        .bind(&salt)
+        .bind(now_ts)
+        .bind(user.id)
+        .execute(&state.pool)
+        .await
+        {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::<()>::error(500, e.to_string())),
+            )
+                .into_response();
+        }
+        user.pwd_ts = now_ts;
+    }
+
+    if let Some(new_name) = &req.username
+        && !new_name.is_empty()
+        && new_name != &user.username
+        && let Err(e) = sqlx::query("UPDATE `x_users` SET `username` = ? WHERE `id` = ?")
+            .bind(new_name)
             .bind(user.id)
             .execute(&state.pool)
             .await
-            {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ApiResponse::<()>::error(500, e.to_string())),
-                )
-                    .into_response();
-            }
-            user.pwd_ts = now_ts;
-        }
-    }
-
-    if let Some(new_name) = &req.username {
-        if !new_name.is_empty() && new_name != &user.username {
-            if let Err(e) = sqlx::query("UPDATE `x_users` SET `username` = ? WHERE `id` = ?")
-                .bind(new_name)
-                .bind(user.id)
-                .execute(&state.pool)
-                .await
-            {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ApiResponse::<()>::error(500, e.to_string())),
-                )
-                    .into_response();
-            }
-        }
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::<()>::error(500, e.to_string())),
+        )
+            .into_response();
     }
 
     Json(ApiResponse::success(())).into_response()
@@ -528,10 +519,11 @@ async fn authenticate_user(headers: &HeaderMap, state: &AppState) -> Option<User
     let token = auth_header.strip_prefix("Bearer ").unwrap_or(auth_header);
 
     // Check if token matches admin token
-    if let Ok(Some(admin_token)) = get_setting(&state.pool, "token").await {
-        if !admin_token.is_empty() && admin_token.as_bytes().ct_eq(token.as_bytes()).into() {
-            return get_admin(&state.pool).await.ok().flatten();
-        }
+    if let Ok(Some(admin_token)) = get_setting(&state.pool, "token").await
+        && !admin_token.is_empty()
+        && admin_token.as_bytes().ct_eq(token.as_bytes()).into()
+    {
+        return get_admin(&state.pool).await.ok().flatten();
     }
 
     // Parse JWT
@@ -1061,14 +1053,14 @@ async fn fs_put_handler(
         )
             .into_response();
     }
-    if let Some(parent) = target.parent() {
-        if let Err(err) = tokio::fs::create_dir_all(parent).await {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::<()>::error(500, err.to_string())),
-            )
-                .into_response();
-        }
+    if let Some(parent) = target.parent()
+        && let Err(err) = tokio::fs::create_dir_all(parent).await
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::<()>::error(500, err.to_string())),
+        )
+            .into_response();
     }
 
     use futures_util::StreamExt;
@@ -1189,14 +1181,14 @@ fn percent_decode(s: &str) -> String {
     let input = s.as_bytes();
     let mut i = 0;
     while i < input.len() {
-        if input[i] == b'%' && i + 2 < input.len() {
-            if let Ok(hex) = std::str::from_utf8(&input[i + 1..i + 3]) {
-                if let Ok(byte) = u8::from_str_radix(hex, 16) {
-                    bytes.push(byte);
-                    i += 3;
-                    continue;
-                }
-            }
+        if input[i] == b'%'
+            && i + 2 < input.len()
+            && let Ok(hex) = std::str::from_utf8(&input[i + 1..i + 3])
+            && let Ok(byte) = u8::from_str_radix(hex, 16)
+        {
+            bytes.push(byte);
+            i += 3;
+            continue;
         }
         bytes.push(input[i]);
         i += 1;
@@ -1212,6 +1204,9 @@ async fn stream_file(
     as_attachment: bool,
 ) -> Response {
     let clean_path = format!("/{}", raw_path.trim_start_matches('/'));
+    if clean_path.split(['/', '\\']).any(|p| p == "." || p == "..") {
+        return (StatusCode::BAD_REQUEST, "Invalid path").into_response();
+    }
 
     // Check signature if sign_all is enabled or sign is provided
     let sign_all = get_setting(&state.pool, "sign_all")
@@ -1285,37 +1280,35 @@ async fn stream_file(
     // Range header handling
     let range_header = headers.get("range").and_then(|r| r.to_str().ok());
 
-    if let Some(range_val) = range_header {
-        if let Some((start, end)) = parse_range(range_val, file_size) {
-            let part_len = end - start + 1;
-            if file.seek(SeekFrom::Start(start)).await.is_err() {
-                return (StatusCode::RANGE_NOT_SATISFIABLE, "Range Not Satisfiable")
-                    .into_response();
-            }
-
-            let stream = ReaderStream::new(file.take(part_len));
-            let body = Body::from_stream(stream);
-
-            let mut resp = (StatusCode::PARTIAL_CONTENT, body).into_response();
-            let h = resp.headers_mut();
-            h.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-            h.insert(
-                CONTENT_TYPE,
-                HeaderValue::from_str(&content_type)
-                    .unwrap_or(HeaderValue::from_static("application/octet-stream")),
-            );
-            h.insert(
-                CONTENT_LENGTH,
-                HeaderValue::from_str(&part_len.to_string())
-                    .unwrap_or(HeaderValue::from_static("0")),
-            );
-            h.insert(
-                CONTENT_RANGE,
-                HeaderValue::from_str(&format!("bytes {}-{}/{}", start, end, file_size)).unwrap(),
-            );
-            h.insert(CONTENT_DISPOSITION, disposition.clone());
-            return resp;
+    if let Some(range_val) = range_header
+        && let Some((start, end)) = parse_range(range_val, file_size)
+    {
+        let part_len = end - start + 1;
+        if file.seek(SeekFrom::Start(start)).await.is_err() {
+            return (StatusCode::RANGE_NOT_SATISFIABLE, "Range Not Satisfiable").into_response();
         }
+
+        let stream = ReaderStream::new(file.take(part_len));
+        let body = Body::from_stream(stream);
+
+        let mut resp = (StatusCode::PARTIAL_CONTENT, body).into_response();
+        let h = resp.headers_mut();
+        h.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+        h.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_str(&content_type)
+                .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+        );
+        h.insert(
+            CONTENT_LENGTH,
+            HeaderValue::from_str(&part_len.to_string()).unwrap_or(HeaderValue::from_static("0")),
+        );
+        h.insert(
+            CONTENT_RANGE,
+            HeaderValue::from_str(&format!("bytes {}-{}/{}", start, end, file_size)).unwrap(),
+        );
+        h.insert(CONTENT_DISPOSITION, disposition.clone());
+        return resp;
     }
 
     // Full response
@@ -1596,21 +1589,22 @@ async fn admin_user_create_handler(
         }
     };
 
-    if let Some(local_path) = req.local_path {
-        if !local_path.trim().is_empty() {
-            let mount_path = format!("/.users/{}", new_id);
-            let addition = serde_json::json!({
-                "root_folder_path": local_path.trim()
-            })
-            .to_string();
+    if let Some(local_path) = req.local_path
+        && !local_path.trim().is_empty()
+    {
+        let mount_path = format!("/.users/{}", new_id);
+        let addition = serde_json::json!({
+            "root_folder_path": local_path.trim()
+        })
+        .to_string();
 
-            let _ = sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
-                .bind(&mount_path)
-                .bind(new_id)
-                .execute(&state.pool)
-                .await;
+        let _ = sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
+            .bind(&mount_path)
+            .bind(new_id)
+            .execute(&state.pool)
+            .await;
 
-            let _ = sqlx::query(
+        let _ = sqlx::query(
                 "INSERT INTO `x_storages` (`mount_path`, `order`, `driver`, `addition`, `status`, `disabled`) VALUES (?, 0, 'Local', ?, 'work', 0)"
             )
             .bind(&mount_path)
@@ -1618,8 +1612,7 @@ async fn admin_user_create_handler(
             .execute(&state.pool)
             .await;
 
-            let _ = state.storage.reload_from_db(&state.pool).await;
-        }
+        let _ = state.storage.reload_from_db(&state.pool).await;
     }
 
     Json(ApiResponse::success(())).into_response()
@@ -1681,19 +1674,19 @@ async fn admin_user_update_handler(
             .into_response();
     }
 
-    if let Some(pwd) = req.password {
-        if !pwd.trim().is_empty() {
-            let salt = crate::auth::rand_string(16);
-            let s_hash = crate::auth::static_hash(&pwd);
-            let encoded_pwd = crate::auth::encode_argon2_hash(&s_hash, &salt);
-            let now_ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as i64;
-            target_user.pwd_hash = encoded_pwd;
-            target_user.salt = salt;
-            target_user.pwd_ts = now_ts;
-        }
+    if let Some(pwd) = req.password
+        && !pwd.trim().is_empty()
+    {
+        let salt = crate::auth::rand_string(16);
+        let s_hash = crate::auth::static_hash(&pwd);
+        let encoded_pwd = crate::auth::encode_argon2_hash(&s_hash, &salt);
+        let now_ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        target_user.pwd_hash = encoded_pwd;
+        target_user.salt = salt;
+        target_user.pwd_ts = now_ts;
     }
 
     target_user.username = req.username;
@@ -1717,31 +1710,31 @@ async fn admin_user_update_handler(
     .execute(&state.pool)
     .await;
 
-    if let Some(local_path) = req.local_path {
-        if !local_path.trim().is_empty() {
-            let user_mount = format!("/.users/{}", target_id);
-            let addition = serde_json::json!({
-                "root_folder_path": local_path.trim()
-            })
-            .to_string();
+    if let Some(local_path) = req.local_path
+        && !local_path.trim().is_empty()
+    {
+        let user_mount = format!("/.users/{}", target_id);
+        let addition = serde_json::json!({
+            "root_folder_path": local_path.trim()
+        })
+        .to_string();
 
-            // Check if storage exists
-            let exists: Option<i64> =
-                sqlx::query_scalar("SELECT `id` FROM `x_storages` WHERE `mount_path` = ?")
-                    .bind(&user_mount)
-                    .fetch_optional(&state.pool)
-                    .await
-                    .unwrap_or(None);
+        // Check if storage exists
+        let exists: Option<i64> =
+            sqlx::query_scalar("SELECT `id` FROM `x_storages` WHERE `mount_path` = ?")
+                .bind(&user_mount)
+                .fetch_optional(&state.pool)
+                .await
+                .unwrap_or(None);
 
-            if exists.is_some() {
-                let _ =
-                    sqlx::query("UPDATE `x_storages` SET `addition` = ? WHERE `mount_path` = ?")
-                        .bind(&addition)
-                        .bind(&user_mount)
-                        .execute(&state.pool)
-                        .await;
-            } else {
-                let _ = sqlx::query(
+        if exists.is_some() {
+            let _ = sqlx::query("UPDATE `x_storages` SET `addition` = ? WHERE `mount_path` = ?")
+                .bind(&addition)
+                .bind(&user_mount)
+                .execute(&state.pool)
+                .await;
+        } else {
+            let _ = sqlx::query(
                     "INSERT INTO `x_storages` (`mount_path`, `order`, `driver`, `addition`, `status`, `disabled`) VALUES (?, 0, 'Local', ?, 'work', 0)"
                 )
                 .bind(&user_mount)
@@ -1749,14 +1742,13 @@ async fn admin_user_update_handler(
                 .execute(&state.pool)
                 .await;
 
-                let _ = sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
-                    .bind(&user_mount)
-                    .bind(target_id)
-                    .execute(&state.pool)
-                    .await;
-            }
-            let _ = state.storage.reload_from_db(&state.pool).await;
+            let _ = sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
+                .bind(&user_mount)
+                .bind(target_id)
+                .execute(&state.pool)
+                .await;
         }
+        let _ = state.storage.reload_from_db(&state.pool).await;
     }
 
     Json(ApiResponse::success(())).into_response()
@@ -1965,6 +1957,8 @@ mod tests {
         );
         assert_eq!(user_path(&user, "/").unwrap(), "/.users/2");
         assert!(user_path(&user, "../Local/secret.txt").is_err());
+        assert!(user_path(&user, "/foo/../secret.txt").is_err());
+        assert!(user_path(&user, "/foo/./secret.txt").is_err());
         assert!(!permitted(&user, 3));
         assert!(!permitted(&user, 7));
         assert!(!valid_name(""));

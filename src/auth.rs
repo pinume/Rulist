@@ -28,11 +28,11 @@ pub fn rand_string(n: usize) -> String {
         .collect()
 }
 
-/// Generate random token formatted as openlist-<hex>
+/// Generate random token formatted as rulist-<hex>
 pub fn rand_token() -> String {
     let mut bytes = [0u8; 48];
     thread_rng().fill(&mut bytes[..]);
-    format!("openlist-{}", hex::encode(bytes))
+    format!("rulist-{}", hex::encode(bytes))
 }
 
 /// Compute initial static hash: SHA256(password + "-" + STATIC_HASH_SALT)
@@ -49,7 +49,7 @@ pub fn legacy_hash(pwd_static_hash: &str, salt: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-/// Create Argon2id instance with TinyList's exact parameter configuration
+/// Create Argon2id instance with Rulist's exact parameter configuration
 fn get_argon2_instance() -> Argon2<'static> {
     let params = Params::new(
         ARGON2_MEMORY_KB,
@@ -77,23 +77,21 @@ pub fn encode_argon2_hash(pwd_static_hash: &str, salt: &str) -> String {
 /// Verify password when the client already sent the static hash (SHA256(pwd + "-https://github.com/alist-org/alist"))
 pub fn verify_password_static_hash(static_h: &str, pwd_hash: &str, salt: &str) -> bool {
     if let Some(payload) = pwd_hash.strip_prefix(ARGON2_PREFIX) {
-        if let Some((salt_b64, expected_hash_b64)) = payload.split_once('$') {
-            if let (Ok(decoded_salt), Ok(expected_hash)) =
+        if let Some((salt_b64, expected_hash_b64)) = payload.split_once('$')
+            && let (Ok(decoded_salt), Ok(expected_hash)) =
                 (BASE64.decode(salt_b64), BASE64.decode(expected_hash_b64))
+            && expected_hash.len() == ARGON2_KEY_LEN
+        {
+            let argon2 = get_argon2_instance();
+            let mut actual_hash = [0u8; ARGON2_KEY_LEN];
+            if argon2
+                .hash_password_into(static_h.as_bytes(), &decoded_salt, &mut actual_hash)
+                .is_ok()
             {
-                if expected_hash.len() == ARGON2_KEY_LEN {
-                    let argon2 = get_argon2_instance();
-                    let mut actual_hash = [0u8; ARGON2_KEY_LEN];
-                    if argon2
-                        .hash_password_into(static_h.as_bytes(), &decoded_salt, &mut actual_hash)
-                        .is_ok()
-                    {
-                        return actual_hash
-                            .as_slice()
-                            .ct_eq(expected_hash.as_slice())
-                            .into();
-                    }
-                }
+                return actual_hash
+                    .as_slice()
+                    .ct_eq(expected_hash.as_slice())
+                    .into();
             }
         }
         return false;
@@ -234,10 +232,10 @@ pub fn verify_totp(secret: &str, code: &str) -> bool {
     };
     let step = now / 30;
     for s in [step.saturating_sub(1), step, step + 1] {
-        if let Some(expected) = compute_totp(secret, s) {
-            if expected.as_bytes().ct_eq(clean_code.as_bytes()).into() {
-                return true;
-            }
+        if let Some(expected) = compute_totp(secret, s)
+            && expected.as_bytes().ct_eq(clean_code.as_bytes()).into()
+        {
+            return true;
         }
     }
     false
@@ -292,8 +290,8 @@ mod tests {
     fn test_rand_token() {
         let t1 = rand_token();
         let t2 = rand_token();
-        assert!(t1.starts_with("openlist-"));
-        assert!(t2.starts_with("openlist-"));
+        assert!(t1.starts_with("rulist-"));
+        assert!(t2.starts_with("rulist-"));
         assert_ne!(t1, t2);
     }
 

@@ -45,7 +45,7 @@ impl LocalDriver {
 
         let root_path = fs_canonical_or_abs(root_str)?;
         let mkdir_perm =
-            u32::from_str_radix(&addition.mkdir_perm.trim_start_matches("0o"), 8).unwrap_or(0o755);
+            u32::from_str_radix(addition.mkdir_perm.trim_start_matches("0o"), 8).unwrap_or(0o755);
 
         Ok(Self {
             root_path,

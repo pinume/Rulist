@@ -14,8 +14,8 @@ use crate::server::AppState;
 #[folder = "public/dist/"]
 pub struct DistAssets;
 
-pub const TINYLIST_SVG: &[u8] = include_bytes!("../public/tinylist.svg");
-pub const TINYLIST_PNG: &[u8] = include_bytes!("../public/tinylist.png");
+pub const RULIST_SVG: &[u8] = include_bytes!("../public/rulist.svg");
+pub const RULIST_PNG: &[u8] = include_bytes!("../public/rulist.png");
 
 #[derive(Serialize)]
 struct ManifestIcon {
@@ -100,10 +100,6 @@ pub async fn render_html(pool: &crate::db::DbPool, is_manage: bool) -> String {
             &escape_html(logo_first),
         )
         .replace(
-            "<title>TinyList</title>",
-            &format!("<title>{}</title>", safe_site_title),
-        )
-        .replace(
             "<title>Rulist</title>",
             &format!("<title>{}</title>", safe_site_title),
         )
@@ -176,17 +172,17 @@ pub async fn favicon_handler(State(state): State<Arc<AppState>>) -> impl IntoRes
     let favicon_url = crate::db::get_setting(&state.pool, "favicon")
         .await
         .unwrap_or_default();
-    if let Some(fav) = favicon_url {
-        if !fav.trim().is_empty() {
-            return Redirect::temporary(&fav).into_response();
-        }
+    if let Some(fav) = favicon_url
+        && !fav.trim().is_empty()
+    {
+        return Redirect::temporary(&fav).into_response();
     }
 
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "image/svg+xml")
         .header(header::CACHE_CONTROL, "public, max-age=86400")
-        .body(Body::from(TINYLIST_SVG))
+        .body(Body::from(RULIST_SVG))
         .unwrap()
         .into_response()
 }
@@ -207,6 +203,24 @@ pub async fn robots_handler(State(state): State<Arc<AppState>>) -> impl IntoResp
 
 pub async fn ping_handler() -> impl IntoResponse {
     (StatusCode::OK, "pong")
+}
+
+pub async fn rulist_svg_handler() -> impl IntoResponse {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "image/svg+xml")
+        .header(header::CACHE_CONTROL, "public, max-age=86400")
+        .body(Body::from(RULIST_SVG))
+        .unwrap()
+}
+
+pub async fn rulist_png_handler() -> impl IntoResponse {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "image/png")
+        .header(header::CACHE_CONTROL, "public, max-age=86400")
+        .body(Body::from(RULIST_PNG))
+        .unwrap()
 }
 
 pub async fn dist_assets_handler(uri: Uri) -> impl IntoResponse {
@@ -234,18 +248,18 @@ pub async fn spa_fallback_handler(
     if let Some(res) = serve_dist_asset(path) {
         return res;
     }
-    if path == "tinylist.svg" || path == "rulist.svg" {
+    if path == "rulist.svg" {
         return Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "image/svg+xml")
-            .body(Body::from(TINYLIST_SVG))
+            .body(Body::from(RULIST_SVG))
             .unwrap();
     }
-    if path == "tinylist.png" || path == "rulist.png" {
+    if path == "rulist.png" {
         return Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "image/png")
-            .body(Body::from(TINYLIST_PNG))
+            .body(Body::from(RULIST_PNG))
             .unwrap();
     }
 

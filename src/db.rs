@@ -108,6 +108,12 @@ async fn seed_settings(pool: &DbPool) -> Result<()> {
     .execute(pool)
     .await?;
 
+    let _ = sqlx::query(
+        "UPDATE `x_setting_items` SET `value` = 'Rulist' WHERE `key` = 'site_title' AND `value` = 'TinyList'",
+    )
+    .execute(pool)
+    .await;
+
     let existing: Option<String> =
         sqlx::query_scalar("SELECT `value` FROM `x_setting_items` WHERE `key` = 'token'")
             .fetch_optional(pool)
@@ -133,10 +139,11 @@ async fn seed_admin(pool: &DbPool) -> Result<()> {
 
     if admin_count == 0 {
         let mut admin_password = rand_string(8);
-        if let Ok(env_pass) = env::var("OPENLIST_ADMIN_PASSWORD") {
-            if !env_pass.is_empty() {
-                admin_password = env_pass;
-            }
+        if let Ok(env_pass) =
+            env::var("RULIST_ADMIN_PASSWORD").or_else(|_| env::var("OPENLIST_ADMIN_PASSWORD"))
+            && !env_pass.is_empty()
+        {
+            admin_password = env_pass;
         }
 
         let salt = rand_string(16);
@@ -281,31 +288,29 @@ pub fn compute_local_path(base_path: &str, storages: &[crate::model::Storage]) -
         if s.driver == "Local"
             && (base_path == s.mount_path
                 || base_path.starts_with(&format!("{}/", s.mount_path.trim_end_matches('/'))))
+            && (matched.is_none() || s.mount_path.len() > matched.unwrap().mount_path.len())
         {
-            if matched.is_none() || s.mount_path.len() > matched.unwrap().mount_path.len() {
-                matched = Some(s);
-            }
+            matched = Some(s);
         }
     }
 
-    if let Some(s) = matched {
-        if let Some(ref addition_str) = s.addition {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(addition_str) {
-                let root = val
-                    .get("root_folder_path")
-                    .or_else(|| val.get("root_folder"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                if !root.is_empty() {
-                    let sub = base_path
-                        .trim_start_matches(&s.mount_path)
-                        .trim_start_matches('/');
-                    if sub.is_empty() {
-                        return root.to_string();
-                    } else {
-                        return format!("{}/{}", root.trim_end_matches('/'), sub);
-                    }
-                }
+    if let Some(s) = matched
+        && let Some(ref addition_str) = s.addition
+        && let Ok(val) = serde_json::from_str::<serde_json::Value>(addition_str)
+    {
+        let root = val
+            .get("root_folder_path")
+            .or_else(|| val.get("root_folder"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if !root.is_empty() {
+            let sub = base_path
+                .trim_start_matches(&s.mount_path)
+                .trim_start_matches('/');
+            if sub.is_empty() {
+                return root.to_string();
+            } else {
+                return format!("{}/{}", root.trim_end_matches('/'), sub);
             }
         }
     }
