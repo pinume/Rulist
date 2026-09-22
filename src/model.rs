@@ -213,10 +213,15 @@ pub struct UserWithMount {
     pub otp: bool,
 }
 
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct TwoFaGenerateReq {
+    #[serde(default)]
+    pub current_password: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct TwoFaVerifyReq {
     pub code: String,
-    pub secret: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

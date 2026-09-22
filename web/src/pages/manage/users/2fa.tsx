@@ -13,29 +13,39 @@ interface Generate2FA {
 
 const TwoFA = () => {
   const { back } = useRouter()
-  const [generateLoading, generate] = useFetch(
-    (): PResp<Generate2FA> => r.post("/auth/2fa/generate"),
-  )
   const t = useT()
+  const [currentPassword, setCurrentPassword] = createSignal("")
   const [otpData, setOtpData] = createSignal<Generate2FA>()
-  const init = async () => {
+  const [code, setCode] = createSignal("")
+
+  const [generateLoading, generate] = useFetch(
+    (): PResp<Generate2FA> =>
+      r.post("/auth/2fa/generate", {
+        current_password: currentPassword(),
+      }),
+  )
+
+  const handleGenerate = async () => {
     if (me().otp) {
       notify.warning(t("users.2fa_already_enabled"))
       back()
       return
     }
+    if (!currentPassword().trim()) {
+      notify.warning(t("users.current_password_empty"))
+      return
+    }
     const resp = await generate()
     handleResp(resp, setOtpData)
   }
-  const [code, setCode] = createSignal("")
-  init()
+
   const [verifyLoading, verify] = useFetch(
     (): PEmptyResp =>
       r.post("/auth/2fa/verify", {
         code: code(),
-        secret: otpData()?.secret,
       }),
   )
+
   const verify2FA = async () => {
     const resp = await verify()
     handleRespWithNotifySuccess(resp, () => {
@@ -43,9 +53,32 @@ const TwoFA = () => {
       back()
     })
   }
+
   return (
     <MaybeLoading loading={generateLoading()}>
-      <Show when={otpData()}>
+      <Show
+        when={otpData()}
+        fallback={
+          <VStack spacing="$2" alignItems="start">
+            <Heading>{t("users.current_password")}</Heading>
+            <Input
+              maxW="$xs"
+              type="password"
+              placeholder={t("users.current_password-tips")}
+              value={currentPassword()}
+              onInput={(e) => setCurrentPassword(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleGenerate()
+                }
+              }}
+            />
+            <Button loading={generateLoading()} onClick={handleGenerate}>
+              {t("global.confirm")}
+            </Button>
+          </VStack>
+        }
+      >
         <VStack spacing="$2" alignItems="start">
           <Heading>{t("users.scan_qr")}</Heading>
           <Image boxSize="$xs" rounded="$lg" src={otpData()?.qr} />

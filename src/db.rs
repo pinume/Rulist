@@ -74,6 +74,12 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
             `order_by` TEXT,
             `order_direction` TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS `x_otp_pending` (
+            `user_id` INTEGER PRIMARY KEY,
+            `secret` TEXT NOT NULL,
+            `expires_at` INTEGER NOT NULL
+        );
         "#,
     )
     .execute(&pool)
