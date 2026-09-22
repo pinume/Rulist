@@ -282,8 +282,8 @@ async fn shutdown_signal() {
 mod tests {
     use super::*;
     use crate::model::{
-        AdminUserSaveReq, ConflictPolicy, FsRecursiveMoveReq, LoginReq, TwoFaGenerateReq,
-        TwoFaVerifyReq, UpdateCurrentReq,
+        AdminUserSaveReq, ConflictPolicy, FsMoveCopyReq, FsRecursiveMoveReq, LoginReq,
+        TwoFaGenerateReq, TwoFaVerifyReq, UpdateCurrentReq,
     };
     use axum::http::HeaderValue;
 
@@ -1103,5 +1103,138 @@ mod tests {
                 .await
                 .unwrap();
         assert!(storage_row_after.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_prevent_destructive_self_overwrite_during_copy_and_move() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "AdminPassword123!")
+            .await
+            .unwrap();
+
+        let storage_root = tmp.path().join("storage");
+        tokio::fs::create_dir_all(&storage_root).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO `x_storages` (`mount_path`, `driver`, `addition`) VALUES (?, ?, ?)",
+        )
+        .bind("/local")
+        .bind("Local")
+        .bind(
+            serde_json::json!({
+                "root_folder_path": storage_root.to_str().unwrap()
+            })
+            .to_string(),
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let config = Config::default();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: config.clone(),
+            storage: Arc::new(storage_mgr),
+        });
+
+        let login_req = LoginReq {
+            username: "admin".to_string(),
+            password: "AdminPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(login_req)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let token = json["data"]["token"].as_str().unwrap().to_string();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+        );
+
+        // Setup test files:
+        // /local/a.txt
+        // /local/dir/test.txt
+        // /local/dir/sub/
+        let a_txt = storage_root.join("a.txt");
+        tokio::fs::write(&a_txt, b"source a.txt content")
+            .await
+            .unwrap();
+
+        let dir_path = storage_root.join("dir");
+        let dir_sub = dir_path.join("sub");
+        tokio::fs::create_dir_all(&dir_sub).await.unwrap();
+        tokio::fs::write(dir_path.join("test.txt"), b"test inside dir")
+            .await
+            .unwrap();
+
+        // Case 1: move /a.txt -> current dir with overwrite
+        let move_self = FsMoveCopyReq {
+            src_dir: "/local".to_string(),
+            dst_dir: "/local".to_string(),
+            names: vec!["a.txt".to_string()],
+            conflict_policy: Some(ConflictPolicy::Overwrite),
+            overwrite: None,
+            skip_existing: None,
+        };
+        let resp =
+            fs::fs_move_handler(State(state.clone()), headers.clone(), Json(move_self)).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert!(a_txt.exists());
+        assert_eq!(
+            tokio::fs::read(&a_txt).await.unwrap(),
+            b"source a.txt content"
+        );
+
+        // Case 2: copy /a.txt -> current dir with overwrite
+        let copy_self = FsMoveCopyReq {
+            src_dir: "/local".to_string(),
+            dst_dir: "/local".to_string(),
+            names: vec!["a.txt".to_string()],
+            conflict_policy: Some(ConflictPolicy::Overwrite),
+            overwrite: None,
+            skip_existing: None,
+        };
+        let resp =
+            fs::fs_copy_handler(State(state.clone()), headers.clone(), Json(copy_self)).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert!(a_txt.exists());
+        assert_eq!(
+            tokio::fs::read(&a_txt).await.unwrap(),
+            b"source a.txt content"
+        );
+
+        // Case 3: move /dir -> /dir/sub
+        let move_into_sub = FsMoveCopyReq {
+            src_dir: "/local".to_string(),
+            dst_dir: "/local/dir/sub".to_string(),
+            names: vec!["dir".to_string()],
+            conflict_policy: Some(ConflictPolicy::Overwrite),
+            overwrite: None,
+            skip_existing: None,
+        };
+        let resp =
+            fs::fs_move_handler(State(state.clone()), headers.clone(), Json(move_into_sub)).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert!(dir_path.join("test.txt").exists());
+
+        // Case 4: copy /dir -> /dir/sub
+        let copy_into_sub = FsMoveCopyReq {
+            src_dir: "/local".to_string(),
+            dst_dir: "/local/dir/sub".to_string(),
+            names: vec!["dir".to_string()],
+            conflict_policy: Some(ConflictPolicy::Overwrite),
+            overwrite: None,
+            skip_existing: None,
+        };
+        let resp =
+            fs::fs_copy_handler(State(state.clone()), headers.clone(), Json(copy_into_sub)).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert!(dir_path.join("test.txt").exists());
     }
 }

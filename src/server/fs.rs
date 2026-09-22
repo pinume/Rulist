@@ -179,6 +179,21 @@ pub async fn fs_rename_handler(
     }
 }
 
+fn validate_transfer_paths(src: &str, dst: &str) -> Result<(), &'static str> {
+    let src = src.trim_end_matches('/');
+    let dst = dst.trim_end_matches('/');
+
+    if src == dst {
+        return Err("source and destination are identical");
+    }
+
+    if dst.starts_with(&format!("{src}/")) {
+        return Err("destination cannot be inside source");
+    }
+
+    Ok(())
+}
+
 pub async fn fs_move_handler(
     State(state): State<SharedState>,
     headers: HeaderMap,
@@ -203,6 +218,9 @@ pub async fn fs_move_handler(
     for name in &req.names {
         let src = format!("{}/{}", src_dir.trim_end_matches('/'), name);
         let dst = format!("{}/{}", dst_dir.trim_end_matches('/'), name);
+        if let Err(msg) = validate_transfer_paths(&src, &dst) {
+            return api_error(StatusCode::BAD_REQUEST, 400, msg);
+        }
         let dst_exists = state.storage.get(&dst).await.is_ok();
         if dst_exists {
             match policy {
@@ -220,7 +238,17 @@ pub async fn fs_move_handler(
 
     for (src, dst) in moves {
         if policy == ConflictPolicy::Overwrite && state.storage.get(&dst).await.is_ok() {
-            let _ = state.storage.remove(&dst).await;
+            match state.storage.remove(&dst).await {
+                Ok(_) => {}
+                Err(err) => {
+                    tracing::error!(error = %err, path = %dst, "failed to remove destination");
+                    return api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        500,
+                        "Failed to overwrite destination",
+                    );
+                }
+            }
         }
         if let Err(err) = state.storage.move_to(&src, &dst).await {
             return api_error(StatusCode::OK, 500, err.to_string());
@@ -248,8 +276,8 @@ pub async fn fs_recursive_move_handler(
         (Ok(src), Ok(dst)) => (src, dst),
         _ => return permission_denied(),
     };
-    if src_dir == dst_dir || dst_dir.starts_with(&format!("{}/", src_dir.trim_end_matches('/'))) {
-        return api_error(StatusCode::OK, 400, "invalid destination");
+    if let Err(msg) = validate_transfer_paths(&src_dir, &dst_dir) {
+        return api_error(StatusCode::BAD_REQUEST, 400, msg);
     }
 
     let mut dirs_to_visit = vec![src_dir.clone()];
@@ -257,31 +285,35 @@ pub async fn fs_recursive_move_handler(
     let mut files = Vec::new();
 
     let src_prefix = src_dir.trim_end_matches('/');
+    let dst_prefix = dst_dir.trim_end_matches('/');
 
-    while let Some(dir) = dirs_to_visit.pop() {
-        let entries = match state.storage.list(&dir).await {
-            Ok(entries) => entries,
-            Err(err) => return api_error(StatusCode::OK, 500, err.to_string()),
-        };
-        for entry in entries {
-            let path = format!("{}/{}", dir.trim_end_matches('/'), entry.name);
-            let rel_path = path
-                .strip_prefix(src_prefix)
-                .unwrap_or(&path)
-                .trim_start_matches('/')
-                .to_string();
+    while let Some(current_dir) = dirs_to_visit.pop() {
+        match state.storage.list(&current_dir).await {
+            Ok(entries) => {
+                for entry in entries {
+                    let full_path = format!("{}/{}", current_dir.trim_end_matches('/'), entry.name);
+                    let rel_path = full_path
+                        .strip_prefix(src_prefix)
+                        .unwrap_or(&full_path)
+                        .trim_start_matches('/')
+                        .to_string();
 
-            if entry.is_dir {
-                dirs_to_create.push(rel_path.clone());
-                dirs_to_visit.push(path);
-            } else {
-                files.push((path, rel_path));
+                    if entry.is_dir {
+                        dirs_to_create.push(rel_path);
+                        dirs_to_visit.push(full_path);
+                    } else {
+                        files.push((full_path, rel_path));
+                    }
+                }
             }
+            Err(err) => return api_error(StatusCode::OK, 500, err.to_string()),
         }
     }
 
+    // Sort directories by length so parents are created first
+    dirs_to_create.sort_by_key(|a| a.len());
+
     let policy = req.conflict_policy;
-    let dst_prefix = dst_dir.trim_end_matches('/');
     let mut moves = Vec::new();
 
     for (src_file, rel_path) in files {
@@ -291,7 +323,11 @@ pub async fn fs_recursive_move_handler(
         if dst_exists {
             match policy {
                 ConflictPolicy::Cancel => {
-                    return api_error(StatusCode::OK, 403, format!("file [{rel_path}] exists"));
+                    return api_error(
+                        StatusCode::OK,
+                        403,
+                        format!("destination path already exists: {dst_file}"),
+                    );
                 }
                 ConflictPolicy::Skip => {
                     continue;
@@ -310,7 +346,17 @@ pub async fn fs_recursive_move_handler(
 
     for (src, dst) in moves {
         if policy == ConflictPolicy::Overwrite && state.storage.get(&dst).await.is_ok() {
-            let _ = state.storage.remove(&dst).await;
+            match state.storage.remove(&dst).await {
+                Ok(_) => {}
+                Err(err) => {
+                    tracing::error!(error = %err, path = %dst, "failed to remove destination");
+                    return api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        500,
+                        "Failed to overwrite destination",
+                    );
+                }
+            }
         }
         if let Err(err) = state.storage.move_to(&src, &dst).await {
             return api_error(StatusCode::OK, 500, err.to_string());
@@ -344,6 +390,9 @@ pub async fn fs_copy_handler(
     for name in &req.names {
         let src = format!("{}/{}", src_dir.trim_end_matches('/'), name);
         let dst = format!("{}/{}", dst_dir.trim_end_matches('/'), name);
+        if let Err(msg) = validate_transfer_paths(&src, &dst) {
+            return api_error(StatusCode::BAD_REQUEST, 400, msg);
+        }
         let dst_exists = state.storage.get(&dst).await.is_ok();
         if dst_exists {
             match policy {
@@ -361,7 +410,17 @@ pub async fn fs_copy_handler(
 
     for (src, dst) in copies {
         if policy == ConflictPolicy::Overwrite && state.storage.get(&dst).await.is_ok() {
-            let _ = state.storage.remove(&dst).await;
+            match state.storage.remove(&dst).await {
+                Ok(_) => {}
+                Err(err) => {
+                    tracing::error!(error = %err, path = %dst, "failed to remove destination");
+                    return api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        500,
+                        "Failed to overwrite destination",
+                    );
+                }
+            }
         }
         if let Err(err) = state.storage.copy_to(&src, &dst).await {
             return api_error(StatusCode::OK, 500, err.to_string());
