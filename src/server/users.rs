@@ -413,11 +413,25 @@ pub async fn admin_user_update_handler(
 
         // Check if storage exists
         let exists: Option<i64> =
-            sqlx::query_scalar("SELECT `id` FROM `x_storages` WHERE `mount_path` = ?")
+            match sqlx::query_scalar("SELECT `id` FROM `x_storages` WHERE `mount_path` = ?")
                 .bind(&user_mount)
                 .fetch_optional(&mut *tx)
                 .await
-                .unwrap_or(None);
+            {
+                Ok(value) => value,
+                Err(err) => {
+                    tracing::error!(
+                        error = %err,
+                        mount_path = %user_mount,
+                        "failed to query user storage"
+                    );
+                    return api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        500,
+                        "Internal server error",
+                    );
+                }
+            };
 
         if exists.is_some() {
             if let Err(e) =
@@ -467,10 +481,22 @@ pub async fn admin_user_update_handler(
             );
         }
     } else if target_user.is_admin() && target_user.base_path != "/" {
-        let _ = sqlx::query("UPDATE `x_users` SET `base_path` = '/' WHERE `id` = ?")
+        if let Err(err) = sqlx::query("UPDATE `x_users` SET `base_path` = '/' WHERE `id` = ?")
             .bind(target_id)
             .execute(&mut *tx)
-            .await;
+            .await
+        {
+            tracing::error!(
+                error = %err,
+                user_id = target_id,
+                "failed to restore admin base path"
+            );
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
     }
 
     if let Err(e) = tx.commit().await {

@@ -1085,6 +1085,36 @@ mod tests {
             .unwrap();
         assert!(second_admin.is_admin());
 
+        // Verify admin base_path restoration on update
+        sqlx::query("UPDATE x_users SET base_path = '/non_root' WHERE id = ?")
+            .bind(second_admin.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let update_admin_req = AdminUserSaveReq {
+            id: Some(second_admin.id),
+            username: "second_admin".to_string(),
+            password: None,
+            role: Some(crate::model::ROLE_ADMIN),
+            permission: Some(0),
+            disabled: Some(false),
+            local_path: None,
+        };
+        let resp = users::admin_user_update_handler(
+            headers.clone(),
+            State(state.clone()),
+            Json(update_admin_req),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let rechecked_admin = crate::db::get_user_by_id(&pool, second_admin.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(rechecked_admin.base_path, "/");
+
         // Deleting second admin succeeds because admin (id=1) still exists
         let resp = users::admin_user_delete_handler(
             headers.clone(),
