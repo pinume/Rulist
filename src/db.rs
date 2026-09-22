@@ -249,3 +249,24 @@ pub async fn get_public_settings(pool: &DbPool) -> Result<HashMap<String, String
     }
     Ok(map)
 }
+
+pub async fn get_user_by_name(pool: &DbPool, username: &str) -> Result<Option<User>> {
+    let user = sqlx::query_as::<_, User>(
+        "SELECT * FROM `x_users` WHERE `username` = ? LIMIT 1",
+    )
+    .bind(username)
+    .fetch_optional(pool)
+    .await?;
+    Ok(user)
+}
+
+#[allow(dead_code)]
+pub async fn get_meta_for_path(pool: &DbPool, path: &str) -> Result<Option<crate::model::Meta>> {
+    let meta = sqlx::query_as::<_, crate::model::Meta>(
+        "SELECT * FROM `x_meta` WHERE `path` = ? LIMIT 1",
+    )
+    .bind(path)
+    .fetch_optional(pool)
+    .await?;
+    Ok(meta)
+}

@@ -5,6 +5,7 @@ use base64::engine::general_purpose::STANDARD_NO_PAD as BASE64;
 use base64::Engine;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 
@@ -109,6 +110,54 @@ pub fn verify_password(raw_password: &str, pwd_hash: &str, salt: &str) -> bool {
     // Fallback: Legacy SHA256 hash comparison
     let expected_legacy = legacy_hash(&static_h, salt);
     pwd_hash.as_bytes().ct_eq(expected_legacy.as_bytes()).into()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserClaims {
+    pub username: String,
+    pub pwd_ts: i64,
+    pub jti: String,
+    pub exp: usize,
+    pub iat: usize,
+    pub nbf: usize,
+}
+
+pub fn generate_jwt(username: &str, pwd_ts: i64, secret: &str, expires_in_hours: u32) -> anyhow::Result<String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as usize;
+
+    let mut nonce = [0u8; 16];
+    thread_rng().fill(&mut nonce[..]);
+    let jti = hex::encode(nonce);
+
+    let exp = now + (expires_in_hours as usize * 3600);
+
+    let claims = UserClaims {
+        username: username.to_string(),
+        pwd_ts,
+        jti,
+        exp,
+        iat: now,
+        nbf: now,
+    };
+
+    let token = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &claims,
+        &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
+    )?;
+    Ok(token)
+}
+
+pub fn parse_jwt(token_str: &str, secret: &str) -> anyhow::Result<UserClaims> {
+    let token_data = jsonwebtoken::decode::<UserClaims>(
+        token_str,
+        &jsonwebtoken::DecodingKey::from_secret(secret.as_bytes()),
+        &jsonwebtoken::Validation::default(),
+    )?;
+    Ok(token_data.claims)
 }
 
 #[cfg(test)]

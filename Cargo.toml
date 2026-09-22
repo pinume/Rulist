@@ -8,6 +8,7 @@ description = "A lightweight, high-performance file listing tool written in Rust
 [dependencies]
 # Async runtime & HTTP server
 tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
 axum = { version = "0.8" }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "fs", "compression-gzip"] }
@@ -44,6 +45,7 @@ mime_guess = "2.0"
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2.0"
 anyhow = "1.0"
+futures-util = "0.3"
 
 [dev-dependencies]
 tempfile = "3"

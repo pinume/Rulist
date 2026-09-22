@@ -185,6 +185,43 @@ pub struct FsGetReq {
     pub password: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct LoginReq {
+    pub username: String,
+    pub password: String,
+    #[serde(default)]
+    pub otp_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct FsPathReq {
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FsRenameReq {
+    pub path: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct FsDirNamesReq {
+    #[serde(default)]
+    pub dir: String,
+    #[serde(default)]
+    pub names: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct FsMoveCopyReq {
+    #[serde(default)]
+    pub src_dir: String,
+    #[serde(default)]
+    pub dst_dir: String,
+    #[serde(default)]
+    pub names: Vec<String>,
+}
+
 impl FileObj {
     pub fn new(name: impl Into<String>, size: i64, is_dir: bool, modified: impl Into<String>) -> Self {
         let name_str = name.into();
