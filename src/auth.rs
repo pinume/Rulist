@@ -75,7 +75,7 @@ pub fn encode_argon2_hash(pwd_static_hash: &str, salt: &str) -> String {
 }
 
 /// Verify password when the client already sent the static hash (SHA256(pwd + "-https://github.com/alist-org/alist"))
-pub fn verify_password_static_hash(static_h: &str, pwd_hash: &str, salt: &str) -> bool {
+fn verify_password_static_hash(static_h: &str, pwd_hash: &str, salt: &str) -> bool {
     if let Some(payload) = pwd_hash.strip_prefix(ARGON2_PREFIX) {
         if let Some((salt_b64, expected_hash_b64)) = payload.split_once('$')
             && let (Ok(decoded_salt), Ok(expected_hash)) =

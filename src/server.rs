@@ -20,8 +20,7 @@ use tower_http::trace::TraceLayer;
 use tracing::info;
 
 use crate::auth::{
-    generate_jwt, generate_otp_secret, generate_totp_qr, parse_jwt, verify_password,
-    verify_password_static_hash, verify_totp,
+    generate_jwt, generate_otp_secret, generate_totp_qr, parse_jwt, verify_password, verify_totp,
 };
 use crate::config::Config;
 use crate::db::{DbPool, get_admin, get_public_settings, get_setting, get_user_by_name};
@@ -85,7 +84,6 @@ pub async fn run_server(
         )
         // Authentication
         .route("/api/auth/login", post(login_handler))
-        .route("/api/auth/login/hash", post(login_hash_handler))
         .route("/api/auth/me", get(current_user_handler))
         .route("/api/me", get(current_user_handler))
         .route("/api/me/update", post(update_current_handler))
@@ -192,86 +190,6 @@ async fn login_handler(State(state): State<SharedState>, Json(req): Json<LoginRe
     }
 
     if !verify_password(&req.password, &user.pwd_hash, &user.salt) {
-        return (
-            StatusCode::OK,
-            Json(ApiResponse::<()>::error(
-                400,
-                "invalid username or password",
-            )),
-        )
-            .into_response();
-    }
-
-    // Check 2FA if enabled
-    if let Some(ref secret) = user.otp_secret
-        && !secret.trim().is_empty()
-    {
-        let otp_code = req.otp_code.as_deref().unwrap_or("").trim();
-        if otp_code.is_empty() {
-            return (
-                StatusCode::OK,
-                Json(ApiResponse::<()>::error(402, "OTP code is required")),
-            )
-                .into_response();
-        }
-        if !verify_totp(secret, otp_code) {
-            return (
-                StatusCode::OK,
-                Json(ApiResponse::<()>::error(400, "invalid otp code")),
-            )
-                .into_response();
-        }
-    }
-
-    match generate_jwt(
-        &user.username,
-        user.pwd_ts,
-        &state.config.jwt_secret,
-        state.config.token_expires_in,
-    ) {
-        Ok(token) => Json(ApiResponse::success(serde_json::json!({
-            "token": token
-        })))
-        .into_response(),
-        Err(err) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiResponse::<()>::error(500, err.to_string())),
-        )
-            .into_response(),
-    }
-}
-
-async fn login_hash_handler(
-    State(state): State<SharedState>,
-    Json(req): Json<LoginReq>,
-) -> Response {
-    let user = match get_user_by_name(&state.pool, &req.username).await {
-        Ok(Some(u)) => u,
-        Ok(None) => {
-            return (
-                StatusCode::OK,
-                Json(ApiResponse::<()>::error(400, "user not found")),
-            )
-                .into_response();
-        }
-        Err(err) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::<()>::error(500, err.to_string())),
-            )
-                .into_response();
-        }
-    };
-
-    if user.disabled {
-        return (
-            StatusCode::OK,
-            Json(ApiResponse::<()>::error(400, "user is disabled")),
-        )
-            .into_response();
-    }
-
-    if !verify_password_static_hash(&req.password, &user.pwd_hash, &user.salt) {
         return (
             StatusCode::OK,
             Json(ApiResponse::<()>::error(
@@ -2056,6 +1974,19 @@ mod tests {
         crate::db::set_admin_password(&pool, "TestPass123!")
             .await
             .unwrap();
+
+        // 6b. Login with wrong password -> should return code 400
+        let login_req = LoginReq {
+            username: "admin".to_string(),
+            password: "WrongPassword!".to_string(),
+            otp_code: None,
+        };
+        let resp = login_handler(State(state.clone()), Json(login_req)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 400);
 
         // 7. Login without OTP code -> should return code 402 (OTP required)
         let login_req = LoginReq {

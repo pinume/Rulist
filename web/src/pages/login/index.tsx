@@ -20,7 +20,6 @@ import {
   notify,
   handleRespWithoutAuthAndNotify,
   base_path,
-  hashPwd,
 } from "~/utils"
 import { Resp } from "~/types"
 import LoginBg from "./LoginBg"
@@ -45,9 +44,9 @@ const Login = () => {
   const [remember, setRemember] = createStorageSignal("remember-pwd", "false")
   const [loading, data] = useLoading(
     async (): Promise<Resp<{ token: string }>> => {
-      return r.post("/auth/login/hash", {
+      return r.post("/auth/login", {
         username: username(),
-        password: await hashPwd(password()),
+        password: password(),
         otp_code: opt(),
       })
     },
