@@ -40,9 +40,7 @@ const Login = () => {
   const [username, setUsername] = createSignal(
     localStorage.getItem("username") || "",
   )
-  const [password, setPassword] = createSignal(
-    localStorage.getItem("password") || "",
-  )
+  const [password, setPassword] = createSignal("")
   const [opt, setOpt] = createSignal("")
   const [remember, setRemember] = createStorageSignal("remember-pwd", "false")
   const [loading, data] = useLoading(
@@ -58,10 +56,8 @@ const Login = () => {
   const Login = async () => {
     if (remember() === "true") {
       localStorage.setItem("username", username())
-      localStorage.setItem("password", password())
     } else {
       localStorage.removeItem("username")
-      localStorage.removeItem("password")
     }
     const resp = await data()
     handleRespWithoutAuthAndNotify(
