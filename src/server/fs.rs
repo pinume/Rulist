@@ -282,25 +282,13 @@ pub async fn fs_move_handler(
     }
 
     for (src, dst) in moves {
-        if policy == ConflictPolicy::Overwrite && state.storage.get(&dst).await.is_ok() {
-            match state.storage.remove(&dst).await {
-                Ok(_) => {}
-                Err(err) => {
-                    tracing::error!(error = %err, path = %dst, "failed to remove destination");
-                    return api_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        500,
-                        "Failed to overwrite destination",
-                    );
-                }
-            }
-        }
-        if let Err(err) = state.storage.move_to(&src, &dst).await {
+        let overwrite = policy == ConflictPolicy::Overwrite;
+        if let Err(err) = state.storage.move_to_safe(&src, &dst, overwrite).await {
             tracing::error!(error = %err, src = %src, dst = %dst, "failed to move file");
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 500,
-                "Internal server error",
+                "Failed to move file",
             );
         }
     }
@@ -414,25 +402,18 @@ pub async fn fs_recursive_move_handler(
     }
 
     for (src, dst) in moves {
-        if policy == ConflictPolicy::Overwrite && state.storage.get(&dst).await.is_ok() {
-            match state.storage.remove(&dst).await {
-                Ok(_) => {}
-                Err(err) => {
-                    tracing::error!(error = %err, path = %dst, "failed to remove destination");
-                    return api_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        500,
-                        "Failed to overwrite destination",
-                    );
-                }
-            }
-        }
-        if let Err(err) = state.storage.move_to(&src, &dst).await {
-            tracing::error!(error = %err, src = %src, dst = %dst, "failed to move file in recursive move");
+        let overwrite = policy == ConflictPolicy::Overwrite;
+        if let Err(err) = state.storage.move_to_safe(&src, &dst, overwrite).await {
+            tracing::error!(
+                error = %err,
+                src = %src,
+                dst = %dst,
+                "failed to move file in recursive move"
+            );
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 500,
-                "Internal server error",
+                "Failed to move file in recursive move",
             );
         }
     }
@@ -483,25 +464,13 @@ pub async fn fs_copy_handler(
     }
 
     for (src, dst) in copies {
-        if policy == ConflictPolicy::Overwrite && state.storage.get(&dst).await.is_ok() {
-            match state.storage.remove(&dst).await {
-                Ok(_) => {}
-                Err(err) => {
-                    tracing::error!(error = %err, path = %dst, "failed to remove destination");
-                    return api_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        500,
-                        "Failed to overwrite destination",
-                    );
-                }
-            }
-        }
-        if let Err(err) = state.storage.copy_to(&src, &dst).await {
+        let overwrite = policy == ConflictPolicy::Overwrite;
+        if let Err(err) = state.storage.copy_to_safe(&src, &dst, overwrite).await {
             tracing::error!(error = %err, src = %src, dst = %dst, "failed to copy file");
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 500,
-                "Internal server error",
+                "Failed to copy file",
             );
         }
     }

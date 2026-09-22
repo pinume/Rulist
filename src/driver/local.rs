@@ -307,9 +307,13 @@ impl LocalDriver {
 
             match fs::rename(&src_path, &dst_path).await {
                 Ok(_) => {
-                    remove_path_recursive(&backup)
-                        .await
-                        .map_err(RenameError::Internal)?;
+                    if let Err(err) = remove_path_recursive(&backup).await {
+                        tracing::warn!(
+                            error = %err,
+                            path = ?backup,
+                            "failed to remove backup after successful rename"
+                        );
+                    }
                     Ok(())
                 }
                 Err(err) => {
@@ -462,42 +466,273 @@ impl LocalDriver {
 
     /// Move file or directory
     pub async fn move_to(&self, src_subpath: &str, dst_subpath: &str) -> Result<()> {
+        self.move_to_safe(src_subpath, dst_subpath, true).await
+    }
+
+    /// Safely move a file or directory with overwrite conflict handling and rollback
+    pub async fn move_to_safe(
+        &self,
+        src_subpath: &str,
+        dst_subpath: &str,
+        overwrite: bool,
+    ) -> Result<()> {
+        self.move_to_safe_internal(src_subpath, dst_subpath, overwrite, false)
+            .await
+    }
+
+    pub async fn move_to_safe_internal(
+        &self,
+        src_subpath: &str,
+        dst_subpath: &str,
+        overwrite: bool,
+        simulate_failure: bool,
+    ) -> Result<()> {
         if src_subpath.trim_matches('/').is_empty() || dst_subpath.trim_matches('/').is_empty() {
             return Err(anyhow!("cannot move storage root"));
         }
         let src_path = self.safe_resolve(src_subpath)?;
         let dst_path = self.safe_resolve(dst_subpath)?;
-
-        if src_path == dst_path {
-            return Ok(());
-        }
-
-        if let Some(parent) = dst_path.parent() {
-            fs::create_dir_all(parent).await?;
-        }
-
-        // Try direct rename first (fast atomic path)
-        if fs::rename(&src_path, &dst_path).await.is_ok() {
-            return Ok(());
-        }
-
-        // Cross-device fallback: copy then remove
-        copy_path_recursive(&src_path, &dst_path).await?;
-        remove_path_recursive(&src_path).await?;
-
-        Ok(())
+        move_path_safe(&src_path, &dst_path, overwrite, simulate_failure).await
     }
 
     /// Copy file or directory
     pub async fn copy_to(&self, src_subpath: &str, dst_subpath: &str) -> Result<()> {
+        self.copy_to_safe(src_subpath, dst_subpath, true).await
+    }
+
+    /// Safely copy a file or directory with staging, overwrite backup, and rollback
+    pub async fn copy_to_safe(
+        &self,
+        src_subpath: &str,
+        dst_subpath: &str,
+        overwrite: bool,
+    ) -> Result<()> {
+        self.copy_to_safe_internal(src_subpath, dst_subpath, overwrite, false)
+            .await
+    }
+
+    pub async fn copy_to_safe_internal(
+        &self,
+        src_subpath: &str,
+        dst_subpath: &str,
+        overwrite: bool,
+        simulate_failure: bool,
+    ) -> Result<()> {
         if src_subpath.trim_matches('/').is_empty() || dst_subpath.trim_matches('/').is_empty() {
             return Err(anyhow!("cannot copy storage root"));
         }
         let src_path = self.safe_resolve(src_subpath)?;
         let dst_path = self.safe_resolve(dst_subpath)?;
-
-        copy_path_recursive(&src_path, &dst_path).await
+        copy_path_safe(&src_path, &dst_path, overwrite, simulate_failure).await
     }
+}
+
+/// Safely copy a file or directory with staging, backup, and rollback.
+pub(crate) async fn copy_path_safe(
+    src: &Path,
+    dst: &Path,
+    overwrite: bool,
+    simulate_failure: bool,
+) -> Result<()> {
+    if src == dst {
+        return Err(anyhow!("source and destination are identical: {:?}", src));
+    }
+
+    let meta = fs::symlink_metadata(src)
+        .await
+        .with_context(|| format!("source path does not exist: {:?}", src))?;
+
+    if meta.file_type().is_symlink() {
+        return Err(anyhow!("symlinks are not supported: {:?}", src));
+    }
+
+    if meta.is_dir() && dst.starts_with(src) {
+        return Err(anyhow!(
+            "cannot copy directory into itself: {:?} -> {:?}",
+            src,
+            dst
+        ));
+    }
+
+    let dst_exists = fs::symlink_metadata(dst).await.is_ok();
+    if !dst_exists {
+        if let Some(parent) = dst.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+        return copy_path_recursive(src, dst).await;
+    }
+
+    if !overwrite {
+        return Err(anyhow!("destination path already exists: {:?}", dst));
+    }
+
+    let parent = dst.parent().ok_or_else(|| anyhow!("cannot copy to root"))?;
+    fs::create_dir_all(parent).await?;
+    let rand = crate::auth::rand_string(24);
+    let stage = parent.join(format!(".rulist-copy-stage-{}", rand));
+    let backup = parent.join(format!(".rulist-backup-{}", rand));
+
+    // Step A: copy src to staging path
+    if let Err(err) = copy_path_recursive(src, &stage).await {
+        let _ = remove_path_recursive(&stage).await;
+        return Err(err.context("failed to copy source to staging directory"));
+    }
+
+    if simulate_failure {
+        let _ = remove_path_recursive(&stage).await;
+        return Err(anyhow!("simulated copy failure before destination backup"));
+    }
+
+    // Step B: backup existing destination
+    if let Err(err) = fs::rename(dst, &backup).await {
+        let _ = remove_path_recursive(&stage).await;
+        return Err(anyhow!(
+            "failed to backup existing destination {:?}: {}",
+            dst,
+            err
+        ));
+    }
+
+    // Step C: promote stage to destination
+    if let Err(err) = fs::rename(&stage, dst).await {
+        // Rollback: restore backup to dst and clean stage
+        let restore_res = fs::rename(&backup, dst).await;
+        if let Err(re) = restore_res {
+            tracing::error!(
+                error = %re,
+                "CRITICAL: failed to restore backup after stage rename failure"
+            );
+        }
+        let _ = remove_path_recursive(&stage).await;
+        return Err(anyhow!("failed to replace destination with stage: {}", err));
+    }
+
+    // Step D: remove backup
+    if let Err(err) = remove_path_recursive(&backup).await {
+        tracing::warn!(
+            error = %err,
+            path = ?backup,
+            "failed to remove backup after successful copy overwrite"
+        );
+    }
+
+    Ok(())
+}
+
+/// Safely move a file or directory with backup and rollback on overwrite.
+pub(crate) async fn move_path_safe(
+    src: &Path,
+    dst: &Path,
+    overwrite: bool,
+    simulate_failure: bool,
+) -> Result<()> {
+    if src == dst {
+        return Err(anyhow!("source and destination are identical: {:?}", src));
+    }
+
+    let meta = fs::symlink_metadata(src)
+        .await
+        .with_context(|| format!("source path does not exist: {:?}", src))?;
+
+    if meta.file_type().is_symlink() {
+        return Err(anyhow!("symlinks are not supported: {:?}", src));
+    }
+
+    if meta.is_dir() && dst.starts_with(src) {
+        return Err(anyhow!(
+            "cannot move directory into itself: {:?} -> {:?}",
+            src,
+            dst
+        ));
+    }
+
+    let dst_exists = fs::symlink_metadata(dst).await.is_ok();
+    if !dst_exists {
+        if let Some(parent) = dst.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+        if fs::rename(src, dst).await.is_ok() {
+            return Ok(());
+        }
+        copy_path_recursive(src, dst).await?;
+        remove_path_recursive(src).await?;
+        return Ok(());
+    }
+
+    if !overwrite {
+        return Err(anyhow!("destination path already exists: {:?}", dst));
+    }
+
+    let parent = dst.parent().ok_or_else(|| anyhow!("cannot move to root"))?;
+    fs::create_dir_all(parent).await?;
+
+    // Check same physical file / case-only rename
+    let src_canon = fs::canonicalize(src).await.ok();
+    let dst_canon = fs::canonicalize(dst).await.ok();
+    if src_canon.is_some() && src_canon == dst_canon {
+        let temp = parent.join(format!(
+            ".rulist-move-case-{}",
+            crate::auth::rand_string(24)
+        ));
+        fs::rename(src, &temp).await?;
+        if let Err(err) = fs::rename(&temp, dst).await {
+            let _ = fs::rename(&temp, src).await;
+            return Err(err.into());
+        }
+        return Ok(());
+    }
+
+    let rand = crate::auth::rand_string(24);
+    let backup = parent.join(format!(".rulist-backup-{}", rand));
+
+    // Step A: move dst to backup
+    if let Err(err) = fs::rename(dst, &backup).await {
+        return Err(anyhow!(
+            "failed to backup existing destination {:?}: {}",
+            dst,
+            err
+        ));
+    }
+
+    if simulate_failure {
+        let _ = fs::rename(&backup, dst).await;
+        return Err(anyhow!("simulated move failure after destination backup"));
+    }
+
+    // Step B: move src to dst
+    let move_result: Result<()> = async {
+        if fs::rename(src, dst).await.is_ok() {
+            return Ok(());
+        }
+        copy_path_recursive(src, dst).await?;
+        remove_path_recursive(src).await?;
+        Ok(())
+    }
+    .await;
+
+    if let Err(err) = move_result {
+        // Rollback: remove partial dst if any, and restore backup
+        let _ = remove_path_recursive(dst).await;
+        let restore_res = fs::rename(&backup, dst).await;
+        if let Err(re) = restore_res {
+            tracing::error!(
+                error = %re,
+                "CRITICAL: failed to restore backup after move failure"
+            );
+        }
+        return Err(err.context("failed to move source to destination"));
+    }
+
+    // Step C: remove backup
+    if let Err(err) = remove_path_recursive(&backup).await {
+        tracing::warn!(
+            error = %err,
+            path = ?backup,
+            "failed to remove backup after successful move overwrite"
+        );
+    }
+
+    Ok(())
 }
 
 pub(crate) async fn copy_path_recursive(src: &Path, dst: &Path) -> Result<()> {
@@ -898,6 +1133,99 @@ mod tests {
         while let Some(entry) = entries.next_entry().await.unwrap() {
             let name = entry.file_name().to_string_lossy().to_string();
             assert!(!name.starts_with(".rulist-rename-backup-"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_copy_safe_rollback_on_simulated_failure() {
+        let tmp = tempdir().unwrap();
+        let addition = serde_json::json!({
+            "root_folder_path": tmp.path().to_str().unwrap()
+        })
+        .to_string();
+        let driver = LocalDriver::new(&addition).unwrap();
+
+        let src_file = tmp.path().join("src.txt");
+        let dst_file = tmp.path().join("dst.txt");
+        tokio::fs::write(&src_file, b"new source data")
+            .await
+            .unwrap();
+        tokio::fs::write(&dst_file, b"original destination data")
+            .await
+            .unwrap();
+
+        // Perform copy with simulate_failure = true
+        let result = driver
+            .copy_to_safe_internal("src.txt", "dst.txt", true, true)
+            .await;
+        assert!(result.is_err());
+
+        // Verify dst.txt is untouched with original content
+        assert!(dst_file.exists());
+        assert_eq!(
+            tokio::fs::read(&dst_file).await.unwrap(),
+            b"original destination data"
+        );
+
+        // Verify src.txt is untouched
+        assert!(src_file.exists());
+        assert_eq!(
+            tokio::fs::read(&src_file).await.unwrap(),
+            b"new source data"
+        );
+
+        // Verify no leftover stage or backup files remain
+        let mut entries = tokio::fs::read_dir(tmp.path()).await.unwrap();
+        while let Some(entry) = entries.next_entry().await.unwrap() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            assert!(!name.starts_with(".rulist-copy-stage-"));
+            assert!(!name.starts_with(".rulist-backup-"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_move_safe_rollback_on_simulated_failure() {
+        let tmp = tempdir().unwrap();
+        let addition = serde_json::json!({
+            "root_folder_path": tmp.path().to_str().unwrap()
+        })
+        .to_string();
+        let driver = LocalDriver::new(&addition).unwrap();
+
+        let src_file = tmp.path().join("src.txt");
+        let dst_file = tmp.path().join("dst.txt");
+        tokio::fs::write(&src_file, b"new source data")
+            .await
+            .unwrap();
+        tokio::fs::write(&dst_file, b"original destination data")
+            .await
+            .unwrap();
+
+        // Perform move with simulate_failure = true
+        let result = driver
+            .move_to_safe_internal("src.txt", "dst.txt", true, true)
+            .await;
+        assert!(result.is_err());
+
+        // Verify dst.txt was restored with original content
+        assert!(dst_file.exists());
+        assert_eq!(
+            tokio::fs::read(&dst_file).await.unwrap(),
+            b"original destination data"
+        );
+
+        // Verify src.txt is untouched
+        assert!(src_file.exists());
+        assert_eq!(
+            tokio::fs::read(&src_file).await.unwrap(),
+            b"new source data"
+        );
+
+        // Verify no leftover backup files remain
+        let mut entries = tokio::fs::read_dir(tmp.path()).await.unwrap();
+        while let Some(entry) = entries.next_entry().await.unwrap() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            assert!(!name.starts_with(".rulist-backup-"));
         }
     }
 }

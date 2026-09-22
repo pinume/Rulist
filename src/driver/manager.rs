@@ -222,6 +222,16 @@ impl StorageManager {
 
     /// Move file or directory
     pub async fn move_to(&self, src_path: &str, dst_path: &str) -> Result<()> {
+        self.move_to_safe(src_path, dst_path, true).await
+    }
+
+    /// Safely move a file or directory with overwrite conflict handling and rollback
+    pub async fn move_to_safe(
+        &self,
+        src_path: &str,
+        dst_path: &str,
+        overwrite: bool,
+    ) -> Result<()> {
         let src_match = self
             .find_storage(src_path)
             .ok_or_else(|| anyhow!("src storage not found"))?;
@@ -230,17 +240,30 @@ impl StorageManager {
             .ok_or_else(|| anyhow!("dst storage not found"))?;
 
         if src_match.0.storage.id == dst_match.0.storage.id {
-            src_match.0.driver.move_to(&src_match.1, &dst_match.1).await
+            src_match
+                .0
+                .driver
+                .move_to_safe(&src_match.1, &dst_match.1, overwrite)
+                .await
         } else {
-            // Cross-storage move: copy then remove
-            self.copy_to(src_path, dst_path).await?;
-            self.remove(src_path).await?;
-            Ok(())
+            let src_full = src_match.0.driver.safe_resolve(&src_match.1)?;
+            let dst_full = dst_match.0.driver.safe_resolve(&dst_match.1)?;
+            crate::driver::local::move_path_safe(&src_full, &dst_full, overwrite, false).await
         }
     }
 
     /// Copy file or directory
     pub async fn copy_to(&self, src_path: &str, dst_path: &str) -> Result<()> {
+        self.copy_to_safe(src_path, dst_path, true).await
+    }
+
+    /// Safely copy a file or directory with staging, overwrite backup, and rollback
+    pub async fn copy_to_safe(
+        &self,
+        src_path: &str,
+        dst_path: &str,
+        overwrite: bool,
+    ) -> Result<()> {
         let src_match = self
             .find_storage(src_path)
             .ok_or_else(|| anyhow!("src storage not found"))?;
@@ -249,11 +272,15 @@ impl StorageManager {
             .ok_or_else(|| anyhow!("dst storage not found"))?;
 
         if src_match.0.storage.id == dst_match.0.storage.id {
-            src_match.0.driver.copy_to(&src_match.1, &dst_match.1).await
+            src_match
+                .0
+                .driver
+                .copy_to_safe(&src_match.1, &dst_match.1, overwrite)
+                .await
         } else {
             let src_full = src_match.0.driver.safe_resolve(&src_match.1)?;
             let dst_full = dst_match.0.driver.safe_resolve(&dst_match.1)?;
-            crate::driver::local::copy_path_recursive(&src_full, &dst_full).await
+            crate::driver::local::copy_path_safe(&src_full, &dst_full, overwrite, false).await
         }
     }
 }
