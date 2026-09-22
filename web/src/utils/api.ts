@@ -91,12 +91,17 @@ export const fsMove = (
   })
 }
 
+export type ConflictPolicy = "cancel" | "overwrite" | "skip"
 export const fsRecursiveMove = (
   src_dir: string,
   dst_dir: string,
-  conflict_policy: boolean,
+  conflict_policy: ConflictPolicy,
 ): PEmptyResp => {
-  return r.post("/fs/recursive_move", { src_dir, dst_dir, conflict_policy })
+  return r.post("/fs/recursive_move", {
+    src_dir,
+    dst_dir,
+    conflict_policy,
+  })
 }
 
 export const fsCopy = (
