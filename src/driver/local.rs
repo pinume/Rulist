@@ -14,19 +14,12 @@ pub struct LocalAddition {
     pub root_folder_path: String,
     #[serde(default)]
     pub show_hidden: bool,
-    #[serde(default = "default_mkdir_perm")]
-    pub mkdir_perm: String,
-}
-
-fn default_mkdir_perm() -> String {
-    "0755".to_string()
 }
 
 #[derive(Debug, Clone)]
 pub struct LocalDriver {
     pub root_path: PathBuf,
     pub show_hidden: bool,
-    pub mkdir_perm: u32,
 }
 
 #[derive(Debug)]
@@ -76,13 +69,10 @@ impl LocalDriver {
         }
 
         let root_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        let mkdir_perm =
-            u32::from_str_radix(addition.mkdir_perm.trim_start_matches("0o"), 8).unwrap_or(0o755);
 
         Ok(Self {
             root_path,
             show_hidden: addition.show_hidden,
-            mkdir_perm,
         })
     }
 

@@ -1,7 +1,5 @@
 {
   "permissions": {
-    "see_hides": "隐藏可见",
-    "access_without_password": "无需密码访问",
     "write_content": "写入内容（创建/上传/修改）",
     "rename": "重命名",
     "move": "移动",
