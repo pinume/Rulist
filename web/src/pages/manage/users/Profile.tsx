@@ -47,12 +47,12 @@ const Profile = () => {
   )
 
   const saveMe = async (ssoID?: boolean) => {
-    if (!ssoID && password()) {
+    if (!ssoID && (password() || username() !== me().username)) {
       if (!currentPassword()) {
         notify.warning(t("users.current_password_empty"))
         return
       }
-      if (password() !== confirmPassword()) {
+      if (password() && password() !== confirmPassword()) {
         notify.warning(t("users.confirm_password_not_same"))
         return
       }

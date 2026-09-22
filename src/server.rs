@@ -484,11 +484,20 @@ async fn update_current_handler(
         }
     };
 
-    if let Some(new_pwd) = &req.password
-        && !new_pwd.is_empty()
-    {
-        let cur_pwd = req.current_password.as_deref().unwrap_or("");
-        if cur_pwd.is_empty() {
+    let username_changed = req
+        .username
+        .as_deref()
+        .map(|name| !name.trim().is_empty() && name.trim() != user.username)
+        .unwrap_or(false);
+    let password_changed = req
+        .password
+        .as_deref()
+        .map(|pwd| !pwd.is_empty())
+        .unwrap_or(false);
+
+    if username_changed || password_changed {
+        let current_password = req.current_password.as_deref().unwrap_or("");
+        if current_password.is_empty() {
             return (
                 StatusCode::OK,
                 Json(ApiResponse::<()>::error(
@@ -498,12 +507,27 @@ async fn update_current_handler(
             )
                 .into_response();
         }
-        if !verify_password(cur_pwd, &user.pwd_hash, &user.salt) {
+        if !verify_password(current_password, &user.pwd_hash, &user.salt) {
             return (
                 StatusCode::OK,
                 Json(ApiResponse::<()>::error(
                     403,
                     "Current password is incorrect",
+                )),
+            )
+                .into_response();
+        }
+    }
+
+    if let Some(new_pwd) = &req.password
+        && !new_pwd.is_empty()
+    {
+        if new_pwd.len() < 8 || new_pwd.len() > 128 {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(
+                    400,
+                    "Password length must be between 8 and 128 characters",
                 )),
             )
                 .into_response();
@@ -536,20 +560,33 @@ async fn update_current_handler(
         user.pwd_ts = now_ts;
     }
 
-    if let Some(new_name) = &req.username
-        && !new_name.is_empty()
-        && new_name != &user.username
-        && let Err(e) = sqlx::query("UPDATE `x_users` SET `username` = ? WHERE `id` = ?")
-            .bind(new_name)
-            .bind(user.id)
-            .execute(&state.pool)
-            .await
-    {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiResponse::<()>::error(500, e.to_string())),
-        )
-            .into_response();
+    if let Some(new_name) = &req.username {
+        let clean_name = new_name.trim();
+        if !clean_name.is_empty() && clean_name != user.username {
+            if clean_name.len() > 64 {
+                return (
+                    StatusCode::OK,
+                    Json(ApiResponse::<()>::error(
+                        400,
+                        "Username length cannot exceed 64 characters",
+                    )),
+                )
+                    .into_response();
+            }
+
+            if let Err(e) = sqlx::query("UPDATE `x_users` SET `username` = ? WHERE `id` = ?")
+                .bind(clean_name)
+                .bind(user.id)
+                .execute(&state.pool)
+                .await
+            {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ApiResponse::<()>::error(500, e.to_string())),
+                )
+                    .into_response();
+            }
+        }
     }
 
     Json(ApiResponse::success(())).into_response()
@@ -2279,5 +2316,135 @@ mod tests {
 
         let admin = crate::db::get_admin(&pool).await.unwrap().unwrap();
         assert_eq!(admin.otp_secret.as_deref(), Some(secret_b.as_str()));
+    }
+
+    #[tokio::test]
+    async fn test_sensitive_account_changes_require_current_password() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "OldPassword123!")
+            .await
+            .unwrap();
+        let config = Config::default();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: config.clone(),
+            storage: Arc::new(storage_mgr),
+        });
+
+        // Login to get valid JWT token
+        let login_req = LoginReq {
+            username: "admin".to_string(),
+            password: "OldPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = login_handler(State(state.clone()), Json(login_req)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 200);
+        let token = json["data"]["token"].as_str().unwrap().to_string();
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+        );
+
+        // 1. JWT + 无 current_password 修改用户名 → 失败 (400)
+        let req1 = UpdateCurrentReq {
+            username: Some("newadmin".to_string()),
+            password: None,
+            current_password: None,
+        };
+        let resp = update_current_handler(headers.clone(), State(state.clone()), Json(req1)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 400);
+
+        // 2. JWT + 错 current_password 修改用户名 → 失败 (403)
+        let req2 = UpdateCurrentReq {
+            username: Some("newadmin".to_string()),
+            password: None,
+            current_password: Some("WrongPass123!".to_string()),
+        };
+        let resp = update_current_handler(headers.clone(), State(state.clone()), Json(req2)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 403);
+
+        // 3. JWT + 正确 current_password 修改用户名 → 成功 (200)
+        let req3 = UpdateCurrentReq {
+            username: Some("newadmin".to_string()),
+            password: None,
+            current_password: Some("OldPassword123!".to_string()),
+        };
+        let resp = update_current_handler(headers.clone(), State(state.clone()), Json(req3)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 200);
+
+        // Verify username updated in DB
+        let admin = crate::db::get_admin(&pool).await.unwrap().unwrap();
+        assert_eq!(admin.username, "newadmin");
+
+        // Obtain new token for newadmin
+        let login_req = LoginReq {
+            username: "newadmin".to_string(),
+            password: "OldPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = login_handler(State(state.clone()), Json(login_req)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 200);
+        let new_token = json["data"]["token"].as_str().unwrap().to_string();
+        let mut new_headers = HeaderMap::new();
+        new_headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", new_token)).unwrap(),
+        );
+
+        // 4. JWT + 正确旧密码修改密码 → 成功 (200)
+        let req4 = UpdateCurrentReq {
+            username: None,
+            password: Some("NewPassword123!".to_string()),
+            current_password: Some("OldPassword123!".to_string()),
+        };
+        let resp =
+            update_current_handler(new_headers.clone(), State(state.clone()), Json(req4)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 200);
+
+        // 5. 修改密码后旧 JWT → 无效 (authenticate_user returns None)
+        assert!(authenticate_user(&new_headers, &state).await.is_none());
+
+        // Login with new password succeeds
+        let login_req = LoginReq {
+            username: "newadmin".to_string(),
+            password: "NewPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = login_handler(State(state.clone()), Json(login_req)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 200);
     }
 }
