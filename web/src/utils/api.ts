@@ -81,20 +81,13 @@ export const fsMove = (
   src_dir: string,
   dst_dir: string,
   names: string[],
-  overwrite?: boolean,
-  skip_existing?: boolean,
-  conflict_policy?: ConflictPolicy,
+  conflict_policy: ConflictPolicy = "cancel",
 ): PEmptyResp => {
-  const policy: ConflictPolicy =
-    conflict_policy ??
-    (overwrite ? "overwrite" : skip_existing ? "skip" : "cancel")
   return r.post("/fs/move", {
     src_dir,
     dst_dir,
     names,
-    overwrite: policy === "overwrite",
-    skip_existing: policy === "skip",
-    conflict_policy: policy,
+    conflict_policy,
   })
 }
 
@@ -114,22 +107,13 @@ export const fsCopy = (
   src_dir: string,
   dst_dir: string,
   names: string[],
-  overwrite?: boolean,
-  skip_existing?: boolean,
-  merge?: boolean,
-  conflict_policy?: ConflictPolicy,
+  conflict_policy: ConflictPolicy = "cancel",
 ): PEmptyResp => {
-  const policy: ConflictPolicy =
-    conflict_policy ??
-    (overwrite ? "overwrite" : skip_existing ? "skip" : "cancel")
   return r.post("/fs/copy", {
     src_dir,
     dst_dir,
     names,
-    overwrite: policy === "overwrite",
-    skip_existing: policy === "skip",
-    merge,
-    conflict_policy: policy,
+    conflict_policy,
   })
 }
 

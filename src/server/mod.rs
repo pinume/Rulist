@@ -1178,9 +1178,7 @@ mod tests {
             src_dir: "/local".to_string(),
             dst_dir: "/local".to_string(),
             names: vec!["a.txt".to_string()],
-            conflict_policy: Some(ConflictPolicy::Overwrite),
-            overwrite: None,
-            skip_existing: None,
+            conflict_policy: ConflictPolicy::Overwrite,
         };
         let resp =
             fs::fs_move_handler(State(state.clone()), headers.clone(), Json(move_self)).await;
@@ -1196,9 +1194,7 @@ mod tests {
             src_dir: "/local".to_string(),
             dst_dir: "/local".to_string(),
             names: vec!["a.txt".to_string()],
-            conflict_policy: Some(ConflictPolicy::Overwrite),
-            overwrite: None,
-            skip_existing: None,
+            conflict_policy: ConflictPolicy::Overwrite,
         };
         let resp =
             fs::fs_copy_handler(State(state.clone()), headers.clone(), Json(copy_self)).await;
@@ -1214,9 +1210,7 @@ mod tests {
             src_dir: "/local".to_string(),
             dst_dir: "/local/dir/sub".to_string(),
             names: vec!["dir".to_string()],
-            conflict_policy: Some(ConflictPolicy::Overwrite),
-            overwrite: None,
-            skip_existing: None,
+            conflict_policy: ConflictPolicy::Overwrite,
         };
         let resp =
             fs::fs_move_handler(State(state.clone()), headers.clone(), Json(move_into_sub)).await;
@@ -1228,9 +1222,7 @@ mod tests {
             src_dir: "/local".to_string(),
             dst_dir: "/local/dir/sub".to_string(),
             names: vec!["dir".to_string()],
-            conflict_policy: Some(ConflictPolicy::Overwrite),
-            overwrite: None,
-            skip_existing: None,
+            conflict_policy: ConflictPolicy::Overwrite,
         };
         let resp =
             fs::fs_copy_handler(State(state.clone()), headers.clone(), Json(copy_into_sub)).await;

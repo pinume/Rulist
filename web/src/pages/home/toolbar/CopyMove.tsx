@@ -3,7 +3,13 @@ import { createSignal, onCleanup } from "solid-js"
 import { ModalFolderChoose, FolderTreeHandler } from "~/components"
 import { useFetch, usePath, useRouter, useT } from "~/hooks"
 import { selectedObjs, userCan } from "~/store"
-import { bus, fsCopy, fsMove, handleRespWithNotifySuccess } from "~/utils"
+import {
+  bus,
+  ConflictPolicy,
+  fsCopy,
+  fsMove,
+  handleRespWithNotifySuccess,
+} from "~/utils"
 import { CgFolderAdd } from "solid-icons/cg"
 
 export const CreateFolderButton = (props: { handler?: FolderTreeHandler }) => {
@@ -30,7 +36,6 @@ export const Copy = () => {
   const { refresh } = usePath()
   const [overwrite, setOverwrite] = createSignal(false)
   const [skipExisting, setSkipExisting] = createSignal(false)
-  const [merge, setMerge] = createSignal(false)
   const handler = (name: string) => {
     if (name === "copy") {
       onOpen()
@@ -57,7 +62,6 @@ export const Copy = () => {
               const curOverwrite = !overwrite()
               if (curOverwrite) {
                 setSkipExisting(false)
-                setMerge(false)
               }
               setOverwrite(curOverwrite)
             }}
@@ -70,30 +74,23 @@ export const Copy = () => {
             onChange={() => {
               setSkipExisting(!skipExisting())
             }}
-            disabled={overwrite() || merge()}
+            disabled={overwrite()}
           >
             {t("home.conflict_policy.skip_existing")}
-          </Checkbox>
-          <Checkbox
-            mr="auto"
-            checked={merge()}
-            onChange={() => {
-              setMerge(!merge())
-            }}
-            disabled={overwrite() || skipExisting()}
-          >
-            {t("home.conflict_policy.merge")}
           </Checkbox>
         </VStack>
       }
       onSubmit={async (dst) => {
+        const policy: ConflictPolicy = overwrite()
+          ? "overwrite"
+          : skipExisting()
+            ? "skip"
+            : "cancel"
         const resp = await ok(
           pathname(),
           dst,
           selectedObjs().map((obj) => obj.name),
-          overwrite(),
-          skipExisting(),
-          merge(),
+          policy,
         )
         handleRespWithNotifySuccess(resp, () => {
           refresh()
@@ -157,12 +154,16 @@ export const Move = () => {
         </VStack>
       }
       onSubmit={async (dst) => {
+        const policy: ConflictPolicy = overwrite()
+          ? "overwrite"
+          : skipExisting()
+            ? "skip"
+            : "cancel"
         const resp = await ok(
           pathname(),
           dst,
           selectedObjs().map((obj) => obj.name),
-          overwrite(),
-          skipExisting(),
+          policy,
         )
         handleRespWithNotifySuccess(resp, () => {
           refresh()

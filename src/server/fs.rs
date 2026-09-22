@@ -214,7 +214,7 @@ pub async fn fs_move_handler(
         _ => return permission_denied(),
     };
 
-    let policy = req.policy();
+    let policy = req.conflict_policy;
     let mut moves = Vec::new();
     for name in &req.names {
         let src = format!("{}/{}", src_dir.trim_end_matches('/'), name);
@@ -386,7 +386,7 @@ pub async fn fs_copy_handler(
         _ => return permission_denied(),
     };
 
-    let policy = req.policy();
+    let policy = req.conflict_policy;
     let mut copies = Vec::new();
     for name in &req.names {
         let src = format!("{}/{}", src_dir.trim_end_matches('/'), name);
