@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::fs;
 
 use crate::db::DbPool;
-use crate::driver::local::LocalDriver;
+use crate::driver::local::{LocalDriver, RenameError};
 use crate::model::{FileObj, Storage};
 
 #[derive(Clone)]
@@ -183,13 +183,41 @@ impl StorageManager {
         }
     }
 
+    /// Rename file or directory safely with conflict/overwrite handling
+    pub async fn rename_safe(
+        &self,
+        req_path: &str,
+        new_name: &str,
+        overwrite: bool,
+    ) -> Result<(), RenameError> {
+        let (storage, subpath) = self.find_storage(req_path).ok_or_else(|| {
+            RenameError::NotFound(format!("target storage not found: {}", req_path))
+        })?;
+
+        storage
+            .driver
+            .rename_safe(&subpath, new_name, overwrite)
+            .await
+    }
+
     /// Rename file or directory
     pub async fn rename(&self, req_path: &str, new_name: &str) -> Result<()> {
-        if let Some((ms, sub)) = self.find_storage(req_path) {
-            ms.driver.rename(&sub, new_name).await
-        } else {
-            Err(anyhow!("target storage not found: {}", req_path))
-        }
+        self.rename_safe(req_path, new_name, false)
+            .await
+            .map_err(|e| anyhow!("{e}"))
+    }
+
+    /// Two-phase batch rename within a directory
+    pub async fn batch_rename(
+        &self,
+        src_dir: &str,
+        pairs: &[(String, String)],
+    ) -> Result<(), RenameError> {
+        let (storage, subpath) = self.find_storage(src_dir).ok_or_else(|| {
+            RenameError::NotFound(format!("target storage not found: {}", src_dir))
+        })?;
+
+        storage.driver.batch_rename(&subpath, pairs).await
     }
 
     /// Move file or directory

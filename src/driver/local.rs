@@ -29,6 +29,27 @@ pub struct LocalDriver {
     pub mkdir_perm: u32,
 }
 
+#[derive(Debug)]
+pub enum RenameError {
+    Conflict(String),
+    NotFound(String),
+    BadRequest(String),
+    Internal(anyhow::Error),
+}
+
+impl std::fmt::Display for RenameError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Conflict(msg) => write!(f, "conflict: {msg}"),
+            Self::NotFound(msg) => write!(f, "not found: {msg}"),
+            Self::BadRequest(msg) => write!(f, "bad request: {msg}"),
+            Self::Internal(err) => write!(f, "{err}"),
+        }
+    }
+}
+
+impl std::error::Error for RenameError {}
+
 impl LocalDriver {
     pub fn new(addition_json: &str) -> Result<Self> {
         let addition: LocalAddition = if addition_json.is_empty() {
@@ -201,27 +222,251 @@ impl LocalDriver {
 
     /// Rename an item within the same directory
     pub async fn rename(&self, subpath: &str, new_name: &str) -> Result<()> {
+        self.rename_safe(subpath, new_name, false)
+            .await
+            .map_err(|e| anyhow!("{e}"))
+    }
+
+    /// Safely rename an item with overwrite and backup restoration
+    pub async fn rename_safe(
+        &self,
+        subpath: &str,
+        new_name: &str,
+        overwrite: bool,
+    ) -> Result<(), RenameError> {
+        self.rename_safe_internal(subpath, new_name, overwrite, false)
+            .await
+    }
+
+    pub async fn rename_safe_internal(
+        &self,
+        subpath: &str,
+        new_name: &str,
+        overwrite: bool,
+        simulate_second_step_failure: bool,
+    ) -> Result<(), RenameError> {
         if subpath.trim_matches('/').is_empty() {
-            return Err(anyhow!("cannot rename storage root"));
+            return Err(RenameError::BadRequest("cannot rename storage root".into()));
         }
-        let src_path = self.safe_resolve(subpath)?;
-        if new_name.contains('/') || new_name.contains('\\') || new_name == ".." || new_name == "."
-        {
-            return Err(anyhow!("invalid new name: {}", new_name));
+        if !crate::server::valid_name(new_name) {
+            return Err(RenameError::BadRequest(format!(
+                "invalid new name: {}",
+                new_name
+            )));
         }
 
+        let src_path = self.safe_resolve(subpath).map_err(RenameError::Internal)?;
         let parent = src_path
             .parent()
-            .ok_or_else(|| anyhow!("cannot rename root"))?;
+            .ok_or_else(|| RenameError::BadRequest("cannot rename root".into()))?;
         let dst_path = parent.join(new_name);
 
         if src_path == dst_path {
             return Ok(());
         }
 
-        fs::rename(&src_path, &dst_path)
-            .await
-            .with_context(|| format!("failed to rename {:?} to {:?}", src_path, dst_path))?;
+        if fs::symlink_metadata(&src_path).await.is_err() {
+            return Err(RenameError::NotFound(format!(
+                "source file [{}] not found",
+                subpath
+            )));
+        }
+
+        let dst_exists = fs::symlink_metadata(&dst_path).await.is_ok();
+        if dst_exists {
+            let src_canon = fs::canonicalize(&src_path).await.ok();
+            let dst_canon = fs::canonicalize(&dst_path).await.ok();
+            if src_canon.is_some() && src_canon == dst_canon {
+                // Case-only / same physical file rename
+                let temp = parent.join(format!(
+                    ".rulist-rename-case-{}",
+                    crate::auth::rand_string(24)
+                ));
+                fs::rename(&src_path, &temp)
+                    .await
+                    .map_err(|e| RenameError::Internal(e.into()))?;
+                if let Err(err) = fs::rename(&temp, &dst_path).await {
+                    let _ = fs::rename(&temp, &src_path).await;
+                    return Err(RenameError::Internal(err.into()));
+                }
+                return Ok(());
+            }
+
+            if !overwrite {
+                return Err(RenameError::Conflict(format!("file [{}] exists", new_name)));
+            }
+
+            let backup = parent.join(format!(
+                ".rulist-rename-backup-{}",
+                crate::auth::rand_string(24)
+            ));
+            fs::rename(&dst_path, &backup)
+                .await
+                .map_err(|e| RenameError::Internal(e.into()))?;
+
+            if simulate_second_step_failure {
+                let restore = fs::rename(&backup, &dst_path).await;
+                if let Err(restore_err) = restore {
+                    tracing::error!(
+                        error = %restore_err,
+                        "CRITICAL: failed to restore rename backup"
+                    );
+                }
+                return Err(RenameError::Internal(anyhow!("simulated rename failure")));
+            }
+
+            match fs::rename(&src_path, &dst_path).await {
+                Ok(_) => {
+                    remove_path_recursive(&backup)
+                        .await
+                        .map_err(RenameError::Internal)?;
+                    Ok(())
+                }
+                Err(err) => {
+                    let restore = fs::rename(&backup, &dst_path).await;
+                    if let Err(restore_err) = restore {
+                        tracing::error!(
+                            error = %restore_err,
+                            "CRITICAL: failed to restore rename backup"
+                        );
+                    }
+                    Err(RenameError::Internal(err.into()))
+                }
+            }
+        } else {
+            fs::rename(&src_path, &dst_path)
+                .await
+                .map_err(|e| RenameError::Internal(e.into()))?;
+            Ok(())
+        }
+    }
+
+    /// Two-phase rollback-safe batch rename within the same directory
+    pub async fn batch_rename(
+        &self,
+        src_dir_subpath: &str,
+        pairs: &[(String, String)],
+    ) -> Result<(), RenameError> {
+        let dir_path = self
+            .safe_resolve(src_dir_subpath)
+            .map_err(RenameError::Internal)?;
+
+        if pairs.is_empty() {
+            return Ok(());
+        }
+
+        // Pre-check phase
+        for (src_name, new_name) in pairs {
+            if !crate::server::valid_name(src_name) || !crate::server::valid_name(new_name) {
+                return Err(RenameError::BadRequest("invalid filename".into()));
+            }
+        }
+
+        let mut src_set = std::collections::HashSet::new();
+        for (src, _) in pairs {
+            if !src_set.insert(src.as_str()) {
+                return Err(RenameError::Conflict(format!(
+                    "duplicate source name [{src}]"
+                )));
+            }
+        }
+
+        let mut dst_set = std::collections::HashSet::new();
+        for (_, dst) in pairs {
+            if !dst_set.insert(dst.as_str()) {
+                return Err(RenameError::Conflict(format!(
+                    "duplicate target name [{dst}]"
+                )));
+            }
+        }
+
+        for (src, _) in pairs {
+            let src_path = dir_path.join(src);
+            if fs::symlink_metadata(&src_path).await.is_err() {
+                return Err(RenameError::NotFound(format!("source [{src}] not found")));
+            }
+        }
+
+        for (_, dst) in pairs {
+            let dst_path = dir_path.join(dst);
+            if fs::symlink_metadata(&dst_path).await.is_ok() && !src_set.contains(dst.as_str()) {
+                return Err(RenameError::Conflict(format!(
+                    "target [{dst}] already exists"
+                )));
+            }
+        }
+
+        let active_pairs: Vec<(&String, &String)> = pairs
+            .iter()
+            .filter(|(s, d)| s != d)
+            .map(|(s, d)| (s, d))
+            .collect();
+
+        if active_pairs.is_empty() {
+            return Ok(());
+        }
+
+        // Phase 1: Staging
+        let mut staged: Vec<(PathBuf, PathBuf, PathBuf)> = Vec::new();
+
+        for (i, (src, dst)) in active_pairs.iter().enumerate() {
+            let src_path = dir_path.join(src);
+            let temp_name = format!(
+                ".rulist-rename-stage-{}-{}",
+                i,
+                crate::auth::rand_string(16)
+            );
+            let temp_path = dir_path.join(temp_name);
+            let final_path = dir_path.join(dst);
+
+            if let Err(err) = fs::rename(&src_path, &temp_path).await {
+                tracing::error!(error = %err, src = %src, "failed to stage file during batch rename");
+                for (orig, staged_temp, _) in staged.iter().rev() {
+                    if let Err(rb_err) = fs::rename(staged_temp, orig).await {
+                        tracing::error!(
+                            error = %rb_err,
+                            "CRITICAL: batch rename rollback failed during stage 1"
+                        );
+                    }
+                }
+                return Err(RenameError::Internal(err.into()));
+            }
+            staged.push((src_path, temp_path, final_path));
+        }
+
+        // Phase 2: Final
+        let mut finalized: Vec<(PathBuf, PathBuf)> = Vec::new();
+
+        for (_, temp_path, final_path) in &staged {
+            if let Err(err) = fs::rename(temp_path, final_path).await {
+                tracing::error!(error = %err, dst = ?final_path, "failed to finalize file during batch rename");
+                let mut rollback_failed = false;
+                for (temp_p, final_p) in finalized.iter().rev() {
+                    if let Err(rb_err) = fs::rename(final_p, temp_p).await {
+                        tracing::error!(
+                            error = %rb_err,
+                            "CRITICAL: batch rename rollback failed restoring finalized file"
+                        );
+                        rollback_failed = true;
+                    }
+                }
+                for (orig_p, temp_p, _) in staged.iter().rev() {
+                    if let Err(rb_err) = fs::rename(temp_p, orig_p).await {
+                        tracing::error!(
+                            error = %rb_err,
+                            "CRITICAL: batch rename rollback failed restoring original file"
+                        );
+                        rollback_failed = true;
+                    }
+                }
+                if rollback_failed {
+                    tracing::error!("CRITICAL: batch rename rollback failed");
+                }
+                return Err(RenameError::Internal(err.into()));
+            }
+            finalized.push((temp_path.clone(), final_path.clone()));
+        }
+
         Ok(())
     }
 
@@ -618,5 +863,51 @@ mod tests {
         );
         let driver = LocalDriver::new(&valid_json).unwrap();
         assert_eq!(driver.root_path, tmp.path().canonicalize().unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_rename_safe_rollback_on_simulated_second_step_failure() {
+        let tmp = tempdir().unwrap();
+        let addition = serde_json::json!({
+            "root_folder_path": tmp.path().to_str().unwrap()
+        })
+        .to_string();
+        let driver = LocalDriver::new(&addition).unwrap();
+
+        let src_file = tmp.path().join("src.txt");
+        let dst_file = tmp.path().join("dst.txt");
+        tokio::fs::write(&src_file, b"original source data")
+            .await
+            .unwrap();
+        tokio::fs::write(&dst_file, b"original destination data")
+            .await
+            .unwrap();
+
+        // Perform rename with simulate_second_step_failure = true
+        let result = driver
+            .rename_safe_internal("src.txt", "dst.txt", true, true)
+            .await;
+        assert!(result.is_err());
+
+        // Verify that dst.txt was restored with its original content
+        assert!(dst_file.exists());
+        assert_eq!(
+            tokio::fs::read(&dst_file).await.unwrap(),
+            b"original destination data"
+        );
+
+        // Verify that src.txt is untouched
+        assert!(src_file.exists());
+        assert_eq!(
+            tokio::fs::read(&src_file).await.unwrap(),
+            b"original source data"
+        );
+
+        // Verify no leftover backup files remain
+        let mut entries = tokio::fs::read_dir(tmp.path()).await.unwrap();
+        while let Some(entry) = entries.next_entry().await.unwrap() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            assert!(!name.starts_with(".rulist-rename-backup-"));
+        }
     }
 }

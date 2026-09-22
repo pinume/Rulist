@@ -293,8 +293,9 @@ async fn shutdown_signal() {
 mod tests {
     use super::*;
     use crate::model::{
-        AdminUserSaveReq, ConflictPolicy, FsMoveCopyReq, FsRecursiveMoveReq, FsRemoveEmptyDirsReq,
-        FsRenameReq, LoginReq, TwoFaGenerateReq, TwoFaVerifyReq, UpdateCurrentReq,
+        AdminUserSaveReq, BatchRenameItem, BatchRenameReq, ConflictPolicy, FsMoveCopyReq,
+        FsRecursiveMoveReq, FsRemoveEmptyDirsReq, FsRenameReq, LoginReq, TwoFaGenerateReq,
+        TwoFaVerifyReq, UpdateCurrentReq,
     };
     use axum::http::HeaderValue;
 
@@ -2079,5 +2080,191 @@ mod tests {
             .unwrap();
         assert_eq!(migrated_user.base_path, format!("/.users/{}", legacy_id));
         assert!(migrated_user.disabled);
+    }
+
+    #[tokio::test]
+    async fn test_batch_rename_rollback_safety_and_swaps() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "AdminPassword123!")
+            .await
+            .unwrap();
+
+        let storage_root = tmp.path().join("storage");
+        tokio::fs::create_dir_all(&storage_root).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO `x_storages` (`mount_path`, `driver`, `addition`) VALUES (?, ?, ?)",
+        )
+        .bind("/local")
+        .bind("Local")
+        .bind(
+            serde_json::json!({
+                "root_folder_path": storage_root.to_str().unwrap()
+            })
+            .to_string(),
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let config = Config::default();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: config.clone(),
+            storage: Arc::new(storage_mgr),
+        });
+
+        let admin_login = LoginReq {
+            username: "admin".to_string(),
+            password: "AdminPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(admin_login)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let admin_token = json["data"]["token"].as_str().unwrap().to_string();
+        let mut admin_headers = HeaderMap::new();
+        admin_headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", admin_token)).unwrap(),
+        );
+
+        let a_file = storage_root.join("a.txt");
+        let b_file = storage_root.join("b.txt");
+        let c_file = storage_root.join("c.txt");
+        let unpart_file = storage_root.join("unrelated.txt");
+
+        tokio::fs::write(&a_file, b"content AAA").await.unwrap();
+        tokio::fs::write(&b_file, b"content BBB").await.unwrap();
+        tokio::fs::write(&c_file, b"content CCC").await.unwrap();
+        tokio::fs::write(&unpart_file, b"content UNRELATED")
+            .await
+            .unwrap();
+
+        // 1. Target already exists and does not belong to source set -> 409, no files moved
+        let req_conflict = BatchRenameReq {
+            src_dir: "/local".to_string(),
+            rename_objects: vec![BatchRenameItem {
+                src_name: "a.txt".to_string(),
+                new_name: "unrelated.txt".to_string(),
+            }],
+        };
+        let resp = fs::fs_batch_rename_handler(
+            admin_headers.clone(),
+            State(state.clone()),
+            Json(req_conflict),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+        assert_eq!(tokio::fs::read(&a_file).await.unwrap(), b"content AAA");
+        assert_eq!(
+            tokio::fs::read(&unpart_file).await.unwrap(),
+            b"content UNRELATED"
+        );
+
+        // 2. Two sources to same target -> 409, no files moved
+        let req_two_sources = BatchRenameReq {
+            src_dir: "/local".to_string(),
+            rename_objects: vec![
+                BatchRenameItem {
+                    src_name: "a.txt".to_string(),
+                    new_name: "same_target.txt".to_string(),
+                },
+                BatchRenameItem {
+                    src_name: "b.txt".to_string(),
+                    new_name: "same_target.txt".to_string(),
+                },
+            ],
+        };
+        let resp = fs::fs_batch_rename_handler(
+            admin_headers.clone(),
+            State(state.clone()),
+            Json(req_two_sources),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+        assert_eq!(tokio::fs::read(&a_file).await.unwrap(), b"content AAA");
+        assert_eq!(tokio::fs::read(&b_file).await.unwrap(), b"content BBB");
+        assert!(!storage_root.join("same_target.txt").exists());
+
+        // 3. Swap: a <-> b
+        let req_swap = BatchRenameReq {
+            src_dir: "/local".to_string(),
+            rename_objects: vec![
+                BatchRenameItem {
+                    src_name: "a.txt".to_string(),
+                    new_name: "b.txt".to_string(),
+                },
+                BatchRenameItem {
+                    src_name: "b.txt".to_string(),
+                    new_name: "a.txt".to_string(),
+                },
+            ],
+        };
+        let resp = fs::fs_batch_rename_handler(
+            admin_headers.clone(),
+            State(state.clone()),
+            Json(req_swap),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(tokio::fs::read(&a_file).await.unwrap(), b"content BBB");
+        assert_eq!(tokio::fs::read(&b_file).await.unwrap(), b"content AAA");
+
+        // 4. Cycle rotation: a -> b, b -> c, c -> a
+        // (Currently: a=BBB, b=AAA, c=CCC)
+        let req_cycle = BatchRenameReq {
+            src_dir: "/local".to_string(),
+            rename_objects: vec![
+                BatchRenameItem {
+                    src_name: "a.txt".to_string(),
+                    new_name: "b.txt".to_string(),
+                },
+                BatchRenameItem {
+                    src_name: "b.txt".to_string(),
+                    new_name: "c.txt".to_string(),
+                },
+                BatchRenameItem {
+                    src_name: "c.txt".to_string(),
+                    new_name: "a.txt".to_string(),
+                },
+            ],
+        };
+        let resp = fs::fs_batch_rename_handler(
+            admin_headers.clone(),
+            State(state.clone()),
+            Json(req_cycle),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(tokio::fs::read(&b_file).await.unwrap(), b"content BBB");
+        assert_eq!(tokio::fs::read(&c_file).await.unwrap(), b"content AAA");
+        assert_eq!(tokio::fs::read(&a_file).await.unwrap(), b"content CCC");
+
+        // 5. Case-only rename: foo.txt -> FOO.txt does not lose file
+        let foo_file = storage_root.join("foo.txt");
+        tokio::fs::write(&foo_file, b"content FOO").await.unwrap();
+        let req_case = FsRenameReq {
+            path: "/local/foo.txt".to_string(),
+            name: "FOO.txt".to_string(),
+            overwrite: false,
+        };
+        let resp =
+            fs::fs_rename_handler(State(state.clone()), admin_headers.clone(), Json(req_case))
+                .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let foo_final = storage_root.join("FOO.txt");
+        assert!(foo_final.exists() || foo_file.exists());
+        let read_back = if foo_final.exists() {
+            tokio::fs::read(&foo_final).await.unwrap()
+        } else {
+            tokio::fs::read(&foo_file).await.unwrap()
+        };
+        assert_eq!(read_back, b"content FOO");
     }
 }

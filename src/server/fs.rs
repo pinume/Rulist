@@ -5,6 +5,7 @@ use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
 
 use crate::db::get_setting;
+use crate::driver::local::RenameError;
 use crate::model::{
     BatchRenameReq, ConflictPolicy, DirItem, FsDirNamesReq, FsDirsReq, FsGetReq, FsLinkReq,
     FsLinkResp, FsListReq, FsListResp, FsMoveCopyReq, FsRecursiveMoveReq, FsRemoveEmptyDirsReq,
@@ -203,38 +204,16 @@ pub async fn fs_rename_handler(
         Err(_) => return permission_denied(),
     };
 
-    let parent = match path.rfind('/') {
-        Some(idx) => &path[..idx],
-        None => "",
-    };
-    let target = format!("{}/{}", parent.trim_end_matches('/'), req.name);
-
-    if path.trim_end_matches('/') == target.trim_end_matches('/') {
-        return api_success(serde_json::Value::Null);
-    }
-
-    let target_exists = state.storage.get(&target).await.is_ok();
-    if target_exists {
-        if !req.overwrite {
-            return api_error(
-                StatusCode::CONFLICT,
-                409,
-                format!("file [{}] exists", req.name),
-            );
-        }
-        if let Err(err) = state.storage.remove(&target).await {
-            tracing::error!(error = %err, path = %target, "failed to remove rename destination");
-            return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Failed to overwrite destination",
-            );
-        }
-    }
-
-    match state.storage.rename(&path, &req.name).await {
+    match state
+        .storage
+        .rename_safe(&path, &req.name, req.overwrite)
+        .await
+    {
         Ok(_) => api_success(serde_json::Value::Null),
-        Err(err) => {
+        Err(RenameError::Conflict(msg)) => api_error(StatusCode::CONFLICT, 409, msg),
+        Err(RenameError::NotFound(msg)) => api_error(StatusCode::NOT_FOUND, 404, msg),
+        Err(RenameError::BadRequest(msg)) => api_error(StatusCode::BAD_REQUEST, 400, msg),
+        Err(RenameError::Internal(err)) => {
             tracing::error!(error = %err, path = %path, name = %req.name, "failed to rename");
             api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -771,12 +750,7 @@ pub async fn fs_batch_rename_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
     };
-    if !permitted(&user, 4)
-        || req
-            .rename_objects
-            .iter()
-            .any(|item| !valid_name(&item.src_name) || !valid_name(&item.new_name))
-    {
+    if !permitted(&user, 4) {
         return permission_denied();
     }
     let src_dir = match user_path(&user, &req.src_dir) {
@@ -784,18 +758,26 @@ pub async fn fs_batch_rename_handler(
         Err(_) => return permission_denied(),
     };
 
-    for item in req.rename_objects {
-        let src_path = format!("{}/{}", src_dir.trim_end_matches('/'), item.src_name);
-        if let Err(err) = state.storage.rename(&src_path, &item.new_name).await {
-            tracing::error!(error = %err, src = %src_path, new_name = %item.new_name, "failed to rename object");
-            return api_error(
+    let pairs: Vec<(String, String)> = req
+        .rename_objects
+        .into_iter()
+        .map(|o| (o.src_name, o.new_name))
+        .collect();
+
+    match state.storage.batch_rename(&src_dir, &pairs).await {
+        Ok(_) => api_success(()),
+        Err(RenameError::Conflict(msg)) => api_error(StatusCode::CONFLICT, 409, msg),
+        Err(RenameError::NotFound(msg)) => api_error(StatusCode::NOT_FOUND, 404, msg),
+        Err(RenameError::BadRequest(msg)) => api_error(StatusCode::BAD_REQUEST, 400, msg),
+        Err(RenameError::Internal(err)) => {
+            tracing::error!(error = %err, src_dir = %src_dir, "batch rename failed");
+            api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 500,
                 "Internal server error",
-            );
+            )
         }
     }
-    api_success(())
 }
 
 pub async fn fs_link_handler(
