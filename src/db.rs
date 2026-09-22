@@ -270,3 +270,65 @@ pub async fn get_meta_for_path(pool: &DbPool, path: &str) -> Result<Option<crate
     .await?;
     Ok(meta)
 }
+
+pub async fn get_all_users(pool: &DbPool) -> Result<Vec<User>> {
+    let users = sqlx::query_as::<_, User>("SELECT * FROM `x_users` ORDER BY `id` ASC")
+        .fetch_all(pool)
+        .await?;
+    Ok(users)
+}
+
+pub async fn get_user_by_id(pool: &DbPool, id: i64) -> Result<Option<User>> {
+    let user = sqlx::query_as::<_, User>("SELECT * FROM `x_users` WHERE `id` = ? LIMIT 1")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(user)
+}
+
+pub async fn delete_user_by_id(pool: &DbPool, id: i64) -> Result<()> {
+    sqlx::query("DELETE FROM `x_users` WHERE `id` = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn get_storages(pool: &DbPool) -> Result<Vec<crate::model::Storage>> {
+    let storages = sqlx::query_as::<_, crate::model::Storage>("SELECT * FROM `x_storages` WHERE `disabled` = 0")
+        .fetch_all(pool)
+        .await?;
+    Ok(storages)
+}
+
+pub fn compute_local_path(base_path: &str, storages: &[crate::model::Storage]) -> String {
+    let mut matched: Option<&crate::model::Storage> = None;
+    for s in storages {
+        if s.driver == "Local" && (base_path == s.mount_path || base_path.starts_with(&format!("{}/", s.mount_path.trim_end_matches('/')))) {
+            if matched.is_none() || s.mount_path.len() > matched.unwrap().mount_path.len() {
+                matched = Some(s);
+            }
+        }
+    }
+
+    if let Some(s) = matched {
+        if let Some(ref addition_str) = s.addition {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(addition_str) {
+                let root = val.get("root_folder_path")
+                    .or_else(|| val.get("root_folder"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if !root.is_empty() {
+                    let sub = base_path.trim_start_matches(&s.mount_path).trim_start_matches('/');
+                    if sub.is_empty() {
+                        return root.to_string();
+                    } else {
+                        return format!("{}/{}", root.trim_end_matches('/'), sub);
+                    }
+                }
+            }
+        }
+    }
+    String::new()
+}
+

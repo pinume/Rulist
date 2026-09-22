@@ -245,6 +245,58 @@ pub struct UpdateCurrentReq {
     pub current_password: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserWithMount {
+    pub id: i64,
+    pub username: String,
+    pub base_path: String,
+    pub role: i32,
+    pub disabled: bool,
+    pub permission: i32,
+    #[serde(default)]
+    pub sso_id: Option<String>,
+    #[serde(default)]
+    pub local_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AdminUserSaveReq {
+    pub id: Option<i64>,
+    pub username: String,
+    #[serde(default)]
+    pub password: Option<String>,
+    #[serde(default)]
+    pub local_path: Option<String>,
+    #[serde(default)]
+    pub role: Option<i32>,
+    #[serde(default)]
+    pub permission: Option<i32>,
+    #[serde(default)]
+    pub disabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BatchRenameItem {
+    pub src_name: String,
+    pub new_name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BatchRenameReq {
+    pub src_dir: String,
+    pub rename_objects: Vec<BatchRenameItem>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FsLinkReq {
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FsLinkResp {
+    pub url: String,
+}
+
 impl FileObj {
     pub fn new(name: impl Into<String>, size: i64, is_dir: bool, modified: impl Into<String>) -> Self {
         let name_str = name.into();

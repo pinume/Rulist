@@ -16,7 +16,7 @@ pub struct MountedStorage {
 
 #[derive(Clone, Default)]
 pub struct StorageManager {
-    storages: Vec<MountedStorage>,
+    storages: Arc<std::sync::RwLock<Vec<MountedStorage>>>,
 }
 
 impl StorageManager {
@@ -89,33 +89,44 @@ impl StorageManager {
             }
         }
 
-        Ok(Self { storages })
+        Ok(Self {
+            storages: Arc::new(std::sync::RwLock::new(storages)),
+        })
+    }
+
+    pub async fn reload_from_db(&self, pool: &DbPool) -> Result<()> {
+        let new_manager = Self::load_from_db(pool).await?;
+        let new_storages = new_manager.storages.read().unwrap().clone();
+        let mut w = self.storages.write().unwrap();
+        *w = new_storages;
+        Ok(())
     }
 
     /// Match the best storage for a given request path
-    pub fn find_storage<'a>(&'a self, req_path: &str) -> Option<(&'a MountedStorage, String)> {
+    pub fn find_storage(&self, req_path: &str) -> Option<(MountedStorage, String)> {
         let clean_path = if req_path.is_empty() || !req_path.starts_with('/') {
             format!("/{}", req_path)
         } else {
             req_path.to_string()
         };
 
-        let mut matched: Option<(&MountedStorage, String)> = None;
+        let storages = self.storages.read().unwrap();
+        let mut matched: Option<(MountedStorage, String)> = None;
         let mut max_prefix_len = 0;
 
-        for ms in &self.storages {
+        for ms in storages.iter() {
             let mount = &ms.storage.mount_path;
             if mount == "/" {
                 if max_prefix_len == 0 {
-                    matched = Some((ms, clean_path.trim_start_matches('/').to_string()));
+                    matched = Some((ms.clone(), clean_path.trim_start_matches('/').to_string()));
                 }
             } else if clean_path == *mount {
-                return Some((ms, String::new()));
+                return Some((ms.clone(), String::new()));
             } else if clean_path.starts_with(mount) && clean_path.as_bytes().get(mount.len()) == Some(&b'/') {
                 if mount.len() > max_prefix_len {
                     max_prefix_len = mount.len();
                     let sub = &clean_path[mount.len()..];
-                    matched = Some((ms, sub.trim_start_matches('/').to_string()));
+                    matched = Some((ms.clone(), sub.trim_start_matches('/').to_string()));
                 }
             }
         }
@@ -137,7 +148,8 @@ impl StorageManager {
 
             // Return virtual folders for all mount paths
             let mut list = Vec::new();
-            for ms in &self.storages {
+            let storages = self.storages.read().unwrap();
+            for ms in storages.iter() {
                 let name = ms.storage.mount_path.trim_matches('/').to_string();
                 if !name.is_empty() {
                     list.push(FileObj::new(name, 0, true, ""));
@@ -161,10 +173,12 @@ impl StorageManager {
         }
 
         // Check if path is exactly a virtual mount point
-        for ms in &self.storages {
-            if ms.storage.mount_path.trim_matches('/') == clean {
-                return Ok(FileObj::new(clean, 0, true, ""));
-            }
+        let is_mount = {
+            let storages = self.storages.read().unwrap();
+            storages.iter().any(|ms| ms.storage.mount_path.trim_matches('/') == clean)
+        };
+        if is_mount {
+            return Ok(FileObj::new(clean, 0, true, ""));
         }
 
         if let Some((ms, sub)) = self.find_storage(req_path) {

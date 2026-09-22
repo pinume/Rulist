@@ -23,8 +23,9 @@ use crate::config::Config;
 use crate::db::{get_admin, get_public_settings, get_setting, get_user_by_name, DbPool};
 use crate::driver::{SharedStorageManager, StorageManager};
 use crate::model::{
-    sort_files, ApiResponse, DirItem, FsDirNamesReq, FsDirsReq, FsGetReq, FsListReq,
-    FsListResp, FsMoveCopyReq, FsRenameReq, LoginReq, UpdateCurrentReq, User,
+    sort_files, AdminUserSaveReq, ApiResponse, BatchRenameReq, DirItem, FsDirNamesReq, FsDirsReq,
+    FsGetReq, FsLinkReq, FsLinkResp, FsListReq, FsListResp, FsMoveCopyReq, FsRenameReq, LoginReq,
+    UpdateCurrentReq, User, UserWithMount,
 };
 use crate::sign::{sign_path, verify_sign};
 
@@ -88,6 +89,16 @@ pub async fn run_server(
         .route("/api/fs/remove", post(fs_remove_handler))
         .route("/api/fs/remove_empty_directory", post(fs_remove_handler))
         .route("/api/fs/put", put(fs_put_handler))
+        // File system batch & link
+        .route("/api/fs/batch_rename", post(fs_batch_rename_handler))
+        .route("/api/fs/link", post(fs_link_handler))
+        // Admin User Management
+        .route("/api/admin/user/list", get(admin_user_list_handler))
+        .route("/api/admin/user/get", get(admin_user_get_handler))
+        .route("/api/admin/user/create", post(admin_user_create_handler))
+        .route("/api/admin/user/update", post(admin_user_update_handler))
+        .route("/api/admin/user/delete", post(admin_user_delete_handler).get(admin_user_delete_handler))
+        .route("/api/admin/user/cancel_2fa", post(admin_user_cancel_2fa_handler).get(admin_user_cancel_2fa_handler))
         // Direct download & streaming
         .route("/d/{*path}", get(raw_download_handler).head(raw_download_handler))
         .route("/p/{*path}", get(raw_preview_handler).head(raw_preview_handler))
@@ -808,6 +819,366 @@ fn parse_range(range: &str, total: u64) -> Option<(u64, u64)> {
             None
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Admin User Management Handlers
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct IdQuery {
+    id: Option<i64>,
+}
+
+async fn admin_user_list_handler(
+    headers: HeaderMap,
+    State(state): State<SharedState>,
+) -> Response {
+    let user = match authenticate_user(&headers, &state).await {
+        Some(u) => u,
+        None => return (StatusCode::OK, Json(ApiResponse::<()>::error(401, "Authentication required"))).into_response(),
+    };
+    if !user.is_admin() {
+        return (StatusCode::OK, Json(ApiResponse::<()>::error(403, "Permission denied"))).into_response();
+    }
+
+    let users = match crate::db::get_all_users(&state.pool).await {
+        Ok(u) => u,
+        Err(err) => return (StatusCode::OK, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response(),
+    };
+    let storages = crate::db::get_storages(&state.pool).await.unwrap_or_default();
+
+    let content: Vec<UserWithMount> = users
+        .into_iter()
+        .map(|u| {
+            let local_path = crate::db::compute_local_path(&u.base_path, &storages);
+            UserWithMount {
+                id: u.id,
+                username: u.username,
+                base_path: u.base_path,
+                role: u.role,
+                disabled: u.disabled,
+                permission: u.permission,
+                sso_id: u.sso_id,
+                local_path,
+            }
+        })
+        .collect();
+
+    let total = content.len() as i64;
+    Json(ApiResponse::success(serde_json::json!({
+        "content": content,
+        "total": total
+    }))).into_response()
+}
+
+async fn admin_user_get_handler(
+    headers: HeaderMap,
+    Query(query): Query<IdQuery>,
+    State(state): State<SharedState>,
+) -> Response {
+    let user = match authenticate_user(&headers, &state).await {
+        Some(u) => u,
+        None => return (StatusCode::OK, Json(ApiResponse::<()>::error(401, "Authentication required"))).into_response(),
+    };
+    if !user.is_admin() {
+        return (StatusCode::OK, Json(ApiResponse::<()>::error(403, "Permission denied"))).into_response();
+    }
+
+    let id = match query.id {
+        Some(id) => id,
+        None => return (StatusCode::OK, Json(ApiResponse::<()>::error(400, "missing id"))).into_response(),
+    };
+
+    let target_user = match crate::db::get_user_by_id(&state.pool, id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => return (StatusCode::OK, Json(ApiResponse::<()>::error(404, "user not found"))).into_response(),
+        Err(err) => return (StatusCode::OK, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response(),
+    };
+
+    let storages = crate::db::get_storages(&state.pool).await.unwrap_or_default();
+    let local_path = crate::db::compute_local_path(&target_user.base_path, &storages);
+
+    let res = UserWithMount {
+        id: target_user.id,
+        username: target_user.username,
+        base_path: target_user.base_path,
+        role: target_user.role,
+        disabled: target_user.disabled,
+        permission: target_user.permission,
+        sso_id: target_user.sso_id,
+        local_path,
+    };
+
+    Json(ApiResponse::success(res)).into_response()
+}
+
+async fn admin_user_create_handler(
+    headers: HeaderMap,
+    State(state): State<SharedState>,
+    Json(req): Json<AdminUserSaveReq>,
+) -> Response {
+    let user = match authenticate_user(&headers, &state).await {
+        Some(u) => u,
+        None => return (StatusCode::OK, Json(ApiResponse::<()>::error(401, "Authentication required"))).into_response(),
+    };
+    if !user.is_admin() {
+        return (StatusCode::OK, Json(ApiResponse::<()>::error(403, "Permission denied"))).into_response();
+    }
+
+    let raw_pwd = req.password.as_deref().unwrap_or("").trim();
+    if raw_pwd.is_empty() {
+        return (StatusCode::OK, Json(ApiResponse::<()>::error(400, "password is required"))).into_response();
+    }
+
+    let salt = crate::auth::rand_string(16);
+    let s_hash = crate::auth::static_hash(raw_pwd);
+    let encoded_pwd = crate::auth::encode_argon2_hash(&s_hash, &salt);
+    let now_ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+
+    let res = sqlx::query(
+        "INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `salt`, `base_path`, `role`, `disabled`, `permission`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    .bind(&req.username)
+    .bind(&encoded_pwd)
+    .bind(now_ts)
+    .bind(&salt)
+    .bind("/")
+    .bind(req.role.unwrap_or(0))
+    .bind(if req.disabled.unwrap_or(false) { 1 } else { 0 })
+    .bind(req.permission.unwrap_or(0))
+    .execute(&state.pool)
+    .await;
+
+    let new_id = match res {
+        Ok(r) => r.last_insert_rowid(),
+        Err(err) => return (StatusCode::OK, Json(ApiResponse::<()>::error(400, err.to_string()))).into_response(),
+    };
+
+    if let Some(local_path) = req.local_path {
+        if !local_path.trim().is_empty() {
+            let mount_path = format!("/.users/{}", new_id);
+            let addition = serde_json::json!({
+                "root_folder_path": local_path.trim()
+            }).to_string();
+
+            let _ = sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
+                .bind(&mount_path)
+                .bind(new_id)
+                .execute(&state.pool)
+                .await;
+
+            let _ = sqlx::query(
+                "INSERT INTO `x_storages` (`mount_path`, `order`, `driver`, `addition`, `status`, `disabled`) VALUES (?, 0, 'Local', ?, 'work', 0)"
+            )
+            .bind(&mount_path)
+            .bind(&addition)
+            .execute(&state.pool)
+            .await;
+
+            let _ = state.storage.reload_from_db(&state.pool).await;
+        }
+    }
+
+    Json(ApiResponse::success(())).into_response()
+}
+
+async fn admin_user_update_handler(
+    headers: HeaderMap,
+    State(state): State<SharedState>,
+    Json(req): Json<AdminUserSaveReq>,
+) -> Response {
+    let user = match authenticate_user(&headers, &state).await {
+        Some(u) => u,
+        None => return (StatusCode::OK, Json(ApiResponse::<()>::error(401, "Authentication required"))).into_response(),
+    };
+    if !user.is_admin() {
+        return (StatusCode::OK, Json(ApiResponse::<()>::error(403, "Permission denied"))).into_response();
+    }
+
+    let target_id = match req.id {
+        Some(id) => id,
+        None => return (StatusCode::OK, Json(ApiResponse::<()>::error(400, "missing id"))).into_response(),
+    };
+
+    let mut target_user = match crate::db::get_user_by_id(&state.pool, target_id).await {
+        Ok(Some(u)) => u,
+        _ => return (StatusCode::OK, Json(ApiResponse::<()>::error(404, "user not found"))).into_response(),
+    };
+
+    if target_user.is_admin() && req.disabled.unwrap_or(false) {
+        return (StatusCode::OK, Json(ApiResponse::<()>::error(400, "admin user can not be disabled"))).into_response();
+    }
+
+    if let Some(pwd) = req.password {
+        if !pwd.trim().is_empty() {
+            let salt = crate::auth::rand_string(16);
+            let s_hash = crate::auth::static_hash(&pwd);
+            let encoded_pwd = crate::auth::encode_argon2_hash(&s_hash, &salt);
+            let now_ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+            target_user.pwd_hash = encoded_pwd;
+            target_user.salt = salt;
+            target_user.pwd_ts = now_ts;
+        }
+    }
+
+    target_user.username = req.username;
+    if let Some(dis) = req.disabled {
+        target_user.disabled = dis;
+    }
+    if let Some(perm) = req.permission {
+        target_user.permission = perm;
+    }
+
+    let _ = sqlx::query(
+        "UPDATE `x_users` SET `username` = ?, `pwd_hash` = ?, `salt` = ?, `pwd_ts` = ?, `disabled` = ?, `permission` = ? WHERE `id` = ?"
+    )
+    .bind(&target_user.username)
+    .bind(&target_user.pwd_hash)
+    .bind(&target_user.salt)
+    .bind(target_user.pwd_ts)
+    .bind(if target_user.disabled { 1 } else { 0 })
+    .bind(target_user.permission)
+    .bind(target_id)
+    .execute(&state.pool)
+    .await;
+
+    if let Some(local_path) = req.local_path {
+        if !local_path.trim().is_empty() {
+            let user_mount = format!("/.users/{}", target_id);
+            let addition = serde_json::json!({
+                "root_folder_path": local_path.trim()
+            }).to_string();
+
+            // Check if storage exists
+            let exists: Option<i64> = sqlx::query_scalar("SELECT `id` FROM `x_storages` WHERE `mount_path` = ?")
+                .bind(&user_mount)
+                .fetch_optional(&state.pool)
+                .await
+                .unwrap_or(None);
+
+            if exists.is_some() {
+                let _ = sqlx::query("UPDATE `x_storages` SET `addition` = ? WHERE `mount_path` = ?")
+                    .bind(&addition)
+                    .bind(&user_mount)
+                    .execute(&state.pool)
+                    .await;
+            } else {
+                let _ = sqlx::query(
+                    "INSERT INTO `x_storages` (`mount_path`, `order`, `driver`, `addition`, `status`, `disabled`) VALUES (?, 0, 'Local', ?, 'work', 0)"
+                )
+                .bind(&user_mount)
+                .bind(&addition)
+                .execute(&state.pool)
+                .await;
+
+                let _ = sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
+                    .bind(&user_mount)
+                    .bind(target_id)
+                    .execute(&state.pool)
+                    .await;
+            }
+            let _ = state.storage.reload_from_db(&state.pool).await;
+        }
+    }
+
+    Json(ApiResponse::success(())).into_response()
+}
+
+async fn admin_user_delete_handler(
+    headers: HeaderMap,
+    Query(query): Query<IdQuery>,
+    State(state): State<SharedState>,
+) -> Response {
+    let user = match authenticate_user(&headers, &state).await {
+        Some(u) => u,
+        None => return (StatusCode::OK, Json(ApiResponse::<()>::error(401, "Authentication required"))).into_response(),
+    };
+    if !user.is_admin() {
+        return (StatusCode::OK, Json(ApiResponse::<()>::error(403, "Permission denied"))).into_response();
+    }
+
+    let id = match query.id {
+        Some(id) => id,
+        None => return (StatusCode::OK, Json(ApiResponse::<()>::error(400, "missing id"))).into_response(),
+    };
+
+    if id == 1 {
+        return (StatusCode::OK, Json(ApiResponse::<()>::error(400, "cannot delete initial admin"))).into_response();
+    }
+
+    let _ = crate::db::delete_user_by_id(&state.pool, id).await;
+    let user_mount = format!("/.users/{}", id);
+    let _ = sqlx::query("DELETE FROM `x_storages` WHERE `mount_path` = ?")
+        .bind(&user_mount)
+        .execute(&state.pool)
+        .await;
+    let _ = state.storage.reload_from_db(&state.pool).await;
+
+    Json(ApiResponse::success(())).into_response()
+}
+
+async fn admin_user_cancel_2fa_handler(
+    headers: HeaderMap,
+    Query(query): Query<IdQuery>,
+    State(state): State<SharedState>,
+) -> Response {
+    let user = match authenticate_user(&headers, &state).await {
+        Some(u) => u,
+        None => return (StatusCode::OK, Json(ApiResponse::<()>::error(401, "Authentication required"))).into_response(),
+    };
+    if !user.is_admin() {
+        return (StatusCode::OK, Json(ApiResponse::<()>::error(403, "Permission denied"))).into_response();
+    }
+
+    if let Some(id) = query.id {
+        let _ = sqlx::query("UPDATE `x_users` SET `otp_secret` = '' WHERE `id` = ?")
+            .bind(id)
+            .execute(&state.pool)
+            .await;
+    }
+    Json(ApiResponse::success(())).into_response()
+}
+
+// ---------------------------------------------------------------------------
+// File System Batch & Link Handlers
+// ---------------------------------------------------------------------------
+
+async fn fs_batch_rename_handler(
+    headers: HeaderMap,
+    State(state): State<SharedState>,
+    Json(req): Json<BatchRenameReq>,
+) -> Response {
+    if authenticate_user(&headers, &state).await.is_none() {
+        return (StatusCode::OK, Json(ApiResponse::<()>::error(401, "Authentication required"))).into_response();
+    }
+
+    for item in req.rename_objects {
+        let src_path = format!("{}/{}", req.src_dir.trim_end_matches('/'), item.src_name.trim_start_matches('/'));
+        let _ = state.storage.rename(&src_path, &item.new_name).await;
+    }
+    Json(ApiResponse::success(())).into_response()
+}
+
+async fn fs_link_handler(
+    headers: HeaderMap,
+    State(state): State<SharedState>,
+    Json(req): Json<FsLinkReq>,
+) -> Response {
+    if authenticate_user(&headers, &state).await.is_none() {
+        return (StatusCode::OK, Json(ApiResponse::<()>::error(401, "Authentication required"))).into_response();
+    }
+
+    let token = get_setting(&state.pool, "token")
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+    let clean_path = format!("/{}", req.path.trim_start_matches('/'));
+    let sign = sign_path(&token, &clean_path);
+    let url = format!("/d{}?sign={}", clean_path, sign);
+    Json(ApiResponse::success(FsLinkResp { url })).into_response()
 }
 
 async fn shutdown_signal() {
