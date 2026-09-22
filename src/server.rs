@@ -19,14 +19,17 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
-use crate::auth::{generate_jwt, parse_jwt, verify_password, verify_password_static_hash};
+use crate::auth::{
+    generate_jwt, generate_otp_secret, generate_totp_qr, parse_jwt, verify_password,
+    verify_password_static_hash, verify_totp,
+};
 use crate::config::Config;
 use crate::db::{DbPool, get_admin, get_public_settings, get_setting, get_user_by_name};
 use crate::driver::{SharedStorageManager, StorageManager};
 use crate::model::{
     AdminUserSaveReq, ApiResponse, BatchRenameReq, DirItem, FsDirNamesReq, FsDirsReq, FsGetReq,
     FsLinkReq, FsLinkResp, FsListReq, FsListResp, FsMoveCopyReq, FsRenameReq, LoginReq,
-    UpdateCurrentReq, User, UserWithMount, sort_files,
+    TwoFaVerifyReq, UpdateCurrentReq, User, UserWithMount, sort_files,
 };
 use crate::sign::{sign_path, verify_sign};
 
@@ -95,6 +98,8 @@ pub async fn run_server(
         .route("/api/me", get(current_user_handler))
         .route("/api/me/update", post(update_current_handler))
         .route("/api/auth/logout", get(logout_handler).post(logout_handler))
+        .route("/api/auth/2fa/generate", post(two_factor_generate_handler))
+        .route("/api/auth/2fa/verify", post(two_factor_verify_handler))
         // File system read
         .route("/api/fs/list", post(fs_list_handler).get(fs_list_handler))
         .route("/api/fs/get", post(fs_get_handler).get(fs_get_handler))
@@ -205,6 +210,27 @@ async fn login_handler(State(state): State<SharedState>, Json(req): Json<LoginRe
             .into_response();
     }
 
+    // Check 2FA if enabled
+    if let Some(ref secret) = user.otp_secret {
+        if !secret.trim().is_empty() {
+            let otp_code = req.otp_code.as_deref().unwrap_or("").trim();
+            if otp_code.is_empty() {
+                return (
+                    StatusCode::OK,
+                    Json(ApiResponse::<()>::error(402, "OTP code is required")),
+                )
+                    .into_response();
+            }
+            if !verify_totp(secret, otp_code) {
+                return (
+                    StatusCode::OK,
+                    Json(ApiResponse::<()>::error(400, "invalid otp code")),
+                )
+                    .into_response();
+            }
+        }
+    }
+
     match generate_jwt(
         &user.username,
         user.pwd_ts,
@@ -264,6 +290,27 @@ async fn login_hash_handler(
             .into_response();
     }
 
+    // Check 2FA if enabled
+    if let Some(ref secret) = user.otp_secret {
+        if !secret.trim().is_empty() {
+            let otp_code = req.otp_code.as_deref().unwrap_or("").trim();
+            if otp_code.is_empty() {
+                return (
+                    StatusCode::OK,
+                    Json(ApiResponse::<()>::error(402, "OTP code is required")),
+                )
+                    .into_response();
+            }
+            if !verify_totp(secret, otp_code) {
+                return (
+                    StatusCode::OK,
+                    Json(ApiResponse::<()>::error(400, "invalid otp code")),
+                )
+                    .into_response();
+            }
+        }
+    }
+
     match generate_jwt(
         &user.username,
         user.pwd_ts,
@@ -283,6 +330,108 @@ async fn login_hash_handler(
 }
 
 async fn logout_handler() -> Response {
+    Json(ApiResponse::success(())).into_response()
+}
+
+async fn two_factor_generate_handler(
+    headers: HeaderMap,
+    State(state): State<SharedState>,
+) -> Response {
+    let user = match authenticate_user(&headers, &state).await {
+        Some(u) => u,
+        None => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(401, "Authentication required")),
+            )
+                .into_response();
+        }
+    };
+
+    if user.otp {
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(400, "2FA is already enabled")),
+        )
+            .into_response();
+    }
+
+    let site_title = get_setting(&state.pool, "site_title")
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "Rulist".to_string());
+
+    let secret = generate_otp_secret();
+    let qr = match generate_totp_qr(&site_title, &user.username, &secret) {
+        Ok(data_uri) => data_uri,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::<()>::error(500, err.to_string())),
+            )
+                .into_response();
+        }
+    };
+
+    Json(ApiResponse::success(serde_json::json!({
+        "qr": qr,
+        "secret": secret,
+    })))
+    .into_response()
+}
+
+async fn two_factor_verify_handler(
+    headers: HeaderMap,
+    State(state): State<SharedState>,
+    Json(req): Json<TwoFaVerifyReq>,
+) -> Response {
+    let user = match authenticate_user(&headers, &state).await {
+        Some(u) => u,
+        None => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(401, "Authentication required")),
+            )
+                .into_response();
+        }
+    };
+
+    let clean_secret = req.secret.trim();
+    let clean_code = req.code.trim();
+
+    if clean_secret.is_empty() || clean_code.is_empty() {
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(
+                400,
+                "Secret and code are required",
+            )),
+        )
+            .into_response();
+    }
+
+    if !verify_totp(clean_secret, clean_code) {
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(400, "Invalid verification code")),
+        )
+            .into_response();
+    }
+
+    if let Err(err) = sqlx::query("UPDATE `x_users` SET `otp_secret` = ? WHERE `id` = ?")
+        .bind(clean_secret)
+        .bind(user.id)
+        .execute(&state.pool)
+        .await
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::<()>::error(500, err.to_string())),
+        )
+            .into_response();
+    }
+
     Json(ApiResponse::success(())).into_response()
 }
 
@@ -1080,7 +1229,7 @@ async fn stream_file(
             .unwrap_or_default();
 
         let s = sign.unwrap_or_default();
-        if let Err(_) = verify_sign(&token, &clean_path, &s) {
+        if verify_sign(&token, &clean_path, &s).is_err() {
             return (
                 StatusCode::FORBIDDEN,
                 "Invalid or expired download link signature",
@@ -1297,6 +1446,7 @@ async fn admin_user_list_handler(headers: HeaderMap, State(state): State<SharedS
                 permission: u.permission,
                 sso_id: u.sso_id,
                 local_path,
+                otp: u.otp,
             }
         })
         .collect();
@@ -1375,6 +1525,7 @@ async fn admin_user_get_handler(
         permission: target_user.permission,
         sso_id: target_user.sso_id,
         local_path,
+        otp: target_user.otp,
     };
 
     Json(ApiResponse::success(res)).into_response()
@@ -1806,6 +1957,7 @@ mod tests {
             permission: 0,
             otp_secret: None,
             sso_id: None,
+            otp: false,
         };
         assert_eq!(
             user_path(&user, "/secret.txt").unwrap(),
@@ -1818,5 +1970,170 @@ mod tests {
         assert!(!valid_name(""));
         assert!(!valid_name("../Local"));
         assert_eq!(encode_url_path("/a/hello #%.txt"), "/a/hello%20%23%25.txt");
+    }
+
+    #[tokio::test]
+    async fn test_2fa_lifecycle_and_login_enforcement() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        let config = Config::default();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: config.clone(),
+            storage: Arc::new(storage_mgr),
+        });
+
+        // 1. Get initial admin user and admin token
+        let admin = crate::db::get_admin(&pool).await.unwrap().unwrap();
+        assert!(!admin.otp);
+
+        let admin_token = crate::db::get_setting(&pool, "token")
+            .await
+            .unwrap()
+            .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", admin_token)).unwrap(),
+        );
+
+        // 2. Request 2FA generation
+        let resp = two_factor_generate_handler(headers.clone(), State(state.clone())).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 200);
+        let secret = json["data"]["secret"].as_str().unwrap().to_string();
+        let qr = json["data"]["qr"].as_str().unwrap().to_string();
+        assert!(qr.starts_with("data:image/svg+xml;base64,"));
+
+        // 3. Verify with invalid code -> should fail
+        let verify_req = TwoFaVerifyReq {
+            secret: secret.clone(),
+            code: "999999".to_string(),
+        };
+        let resp =
+            two_factor_verify_handler(headers.clone(), State(state.clone()), Json(verify_req))
+                .await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 400);
+
+        // 4. Verify with valid TOTP code -> should succeed
+        let now_step = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            / 30;
+        let valid_code = crate::auth::compute_totp(&secret, now_step).unwrap();
+        let verify_req = TwoFaVerifyReq {
+            secret: secret.clone(),
+            code: valid_code,
+        };
+        let resp =
+            two_factor_verify_handler(headers.clone(), State(state.clone()), Json(verify_req))
+                .await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 200);
+
+        // 5. Check user in DB now has otp = true
+        let admin = crate::db::get_admin(&pool).await.unwrap().unwrap();
+        assert!(admin.otp);
+
+        // 6. Generating again should fail as 2FA is already enabled
+        let resp = two_factor_generate_handler(headers.clone(), State(state.clone())).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 400);
+
+        // Set known password for admin
+        crate::db::set_admin_password(&pool, "TestPass123!")
+            .await
+            .unwrap();
+
+        // 7. Login without OTP code -> should return code 402 (OTP required)
+        let login_req = LoginReq {
+            username: "admin".to_string(),
+            password: "TestPass123!".to_string(),
+            otp_code: None,
+        };
+        let resp = login_handler(State(state.clone()), Json(login_req)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 402);
+
+        // 8. Login with invalid OTP code -> should return code 400
+        let login_req = LoginReq {
+            username: "admin".to_string(),
+            password: "TestPass123!".to_string(),
+            otp_code: Some("000000".to_string()),
+        };
+        let resp = login_handler(State(state.clone()), Json(login_req)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 400);
+
+        // 9. Login with valid OTP code -> should succeed (code 200)
+        let cur_step = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            / 30;
+        let valid_code = crate::auth::compute_totp(&secret, cur_step).unwrap();
+        let login_req = LoginReq {
+            username: "admin".to_string(),
+            password: "TestPass123!".to_string(),
+            otp_code: Some(valid_code),
+        };
+        let resp = login_handler(State(state.clone()), Json(login_req)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 200);
+        assert!(json["data"]["token"].is_string());
+
+        // 10. Admin cancel 2FA
+        let cancel_query = IdQuery { id: Some(admin.id) };
+        let resp = admin_user_cancel_2fa_handler(
+            headers.clone(),
+            Query(cancel_query),
+            State(state.clone()),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Verify 2FA is now cancelled
+        let admin = crate::db::get_admin(&pool).await.unwrap().unwrap();
+        assert!(!admin.otp);
+
+        // Login without OTP code succeeds again
+        let login_req = LoginReq {
+            username: "admin".to_string(),
+            password: "TestPass123!".to_string(),
+            otp_code: None,
+        };
+        let resp = login_handler(State(state.clone()), Json(login_req)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 200);
     }
 }

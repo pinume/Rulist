@@ -170,10 +170,13 @@ async fn seed_admin(pool: &DbPool) -> Result<()> {
 }
 
 pub async fn get_admin(pool: &DbPool) -> Result<Option<User>> {
-    let user = sqlx::query_as::<_, User>("SELECT * FROM `x_users` WHERE `role` = ? LIMIT 1")
+    let mut user = sqlx::query_as::<_, User>("SELECT * FROM `x_users` WHERE `role` = ? LIMIT 1")
         .bind(ROLE_ADMIN)
         .fetch_optional(pool)
         .await?;
+    if let Some(ref mut u) = user {
+        u.update_otp();
+    }
     Ok(user)
 }
 
@@ -223,25 +226,35 @@ pub async fn get_public_settings(pool: &DbPool) -> Result<HashMap<String, String
 }
 
 pub async fn get_user_by_name(pool: &DbPool, username: &str) -> Result<Option<User>> {
-    let user = sqlx::query_as::<_, User>("SELECT * FROM `x_users` WHERE `username` = ? LIMIT 1")
-        .bind(username)
-        .fetch_optional(pool)
-        .await?;
+    let mut user =
+        sqlx::query_as::<_, User>("SELECT * FROM `x_users` WHERE `username` = ? LIMIT 1")
+            .bind(username)
+            .fetch_optional(pool)
+            .await?;
+    if let Some(ref mut u) = user {
+        u.update_otp();
+    }
     Ok(user)
 }
 
 pub async fn get_all_users(pool: &DbPool) -> Result<Vec<User>> {
-    let users = sqlx::query_as::<_, User>("SELECT * FROM `x_users` ORDER BY `id` ASC")
+    let mut users = sqlx::query_as::<_, User>("SELECT * FROM `x_users` ORDER BY `id` ASC")
         .fetch_all(pool)
         .await?;
+    for u in &mut users {
+        u.update_otp();
+    }
     Ok(users)
 }
 
 pub async fn get_user_by_id(pool: &DbPool, id: i64) -> Result<Option<User>> {
-    let user = sqlx::query_as::<_, User>("SELECT * FROM `x_users` WHERE `id` = ? LIMIT 1")
+    let mut user = sqlx::query_as::<_, User>("SELECT * FROM `x_users` WHERE `id` = ? LIMIT 1")
         .bind(id)
         .fetch_optional(pool)
         .await?;
+    if let Some(ref mut u) = user {
+        u.update_otp();
+    }
     Ok(user)
 }
 

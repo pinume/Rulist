@@ -53,11 +53,22 @@ pub struct User {
     #[serde(skip_serializing)]
     pub otp_secret: Option<String>,
     pub sso_id: Option<String>,
+    #[sqlx(default)]
+    #[serde(default)]
+    pub otp: bool,
 }
 
 impl User {
     pub fn is_admin(&self) -> bool {
         self.role == ROLE_ADMIN
+    }
+
+    pub fn update_otp(&mut self) {
+        self.otp = self
+            .otp_secret
+            .as_deref()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
     }
 }
 
@@ -198,6 +209,14 @@ pub struct UserWithMount {
     pub sso_id: Option<String>,
     #[serde(default)]
     pub local_path: String,
+    #[serde(default)]
+    pub otp: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TwoFaVerifyReq {
+    pub code: String,
+    pub secret: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

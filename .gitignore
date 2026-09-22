@@ -3,3 +3,5 @@
 /web/dist
 .DS_Store
 *.db
+*.db-*
+/data
