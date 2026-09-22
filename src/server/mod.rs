@@ -1017,7 +1017,7 @@ mod tests {
             role: Some(0),
             permission: Some(10),
             disabled: Some(false),
-            local_path: None,
+            local_path: Some(user_home.to_str().unwrap().to_string()),
         };
         let resp =
             users::admin_user_create_handler(headers.clone(), State(state.clone()), Json(dup_req))
@@ -1384,6 +1384,11 @@ mod tests {
             HeaderValue::from_str(&format!("Bearer {}", admin_token)).unwrap(),
         );
 
+        let alice_dir = tmp.path().join("alice");
+        let bob_dir = tmp.path().join("bob");
+        std::fs::create_dir_all(&alice_dir).unwrap();
+        std::fs::create_dir_all(&bob_dir).unwrap();
+
         let alice_create = AdminUserSaveReq {
             id: None,
             username: "alice".to_string(),
@@ -1391,7 +1396,7 @@ mod tests {
             role: Some(0),
             permission: Some(15),
             disabled: Some(false),
-            local_path: None,
+            local_path: Some(alice_dir.to_str().unwrap().to_string()),
         };
         let _ = users::admin_user_create_handler(
             admin_headers.clone(),
@@ -1407,7 +1412,7 @@ mod tests {
             role: Some(0),
             permission: Some(15),
             disabled: Some(false),
-            local_path: None,
+            local_path: Some(bob_dir.to_str().unwrap().to_string()),
         };
         let _ = users::admin_user_create_handler(
             admin_headers.clone(),
@@ -1855,5 +1860,203 @@ mod tests {
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(json["code"], 401);
+    }
+
+    #[tokio::test]
+    async fn test_enforce_per_user_storage_isolation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "AdminPassword123!")
+            .await
+            .unwrap();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let config = Config::default();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: config.clone(),
+            storage: Arc::new(storage_mgr),
+        });
+
+        let admin_login = LoginReq {
+            username: "admin".to_string(),
+            password: "AdminPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(admin_login)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let admin_token = json["data"]["token"].as_str().unwrap().to_string();
+        let mut admin_headers = HeaderMap::new();
+        admin_headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", admin_token)).unwrap(),
+        );
+
+        // 1. Attempt to create non-admin user with empty local_path -> 400 Bad Request
+        let empty_path_req = AdminUserSaveReq {
+            id: None,
+            username: "user_no_dir".to_string(),
+            password: Some("UserPass123!".to_string()),
+            role: Some(0),
+            permission: Some(255),
+            disabled: Some(false),
+            local_path: Some("".to_string()),
+        };
+        let resp = users::admin_user_create_handler(
+            admin_headers.clone(),
+            State(state.clone()),
+            Json(empty_path_req),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["code"], 400);
+        assert_eq!(
+            json["message"],
+            "Local directory is required for non-admin users"
+        );
+        assert!(
+            crate::db::get_user_by_name(&pool, "user_no_dir")
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        // 2. Create user1 and user2 with distinct directories
+        let user1_dir = tmp.path().join("user1_dir");
+        let user2_dir = tmp.path().join("user2_dir");
+        std::fs::create_dir_all(&user1_dir).unwrap();
+        std::fs::create_dir_all(&user2_dir).unwrap();
+        std::fs::write(user1_dir.join("file1.txt"), "hello from user1").unwrap();
+        std::fs::write(user2_dir.join("file2.txt"), "hello from user2").unwrap();
+
+        let user1_req = AdminUserSaveReq {
+            id: None,
+            username: "user1".to_string(),
+            password: Some("UserPass123!".to_string()),
+            role: Some(0),
+            permission: Some(255),
+            disabled: Some(false),
+            local_path: Some(user1_dir.to_str().unwrap().to_string()),
+        };
+        let resp = users::admin_user_create_handler(
+            admin_headers.clone(),
+            State(state.clone()),
+            Json(user1_req),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let user2_req = AdminUserSaveReq {
+            id: None,
+            username: "user2".to_string(),
+            password: Some("UserPass123!".to_string()),
+            role: Some(0),
+            permission: Some(255),
+            disabled: Some(false),
+            local_path: Some(user2_dir.to_str().unwrap().to_string()),
+        };
+        let resp = users::admin_user_create_handler(
+            admin_headers.clone(),
+            State(state.clone()),
+            Json(user2_req),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let user1 = crate::db::get_user_by_name(&pool, "user1")
+            .await
+            .unwrap()
+            .unwrap();
+        let user2 = crate::db::get_user_by_name(&pool, "user2")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(user1.base_path, format!("/.users/{}", user1.id));
+        assert_eq!(user2.base_path, format!("/.users/{}", user2.id));
+
+        // 3. Login as user1
+        let user1_login = LoginReq {
+            username: "user1".to_string(),
+            password: "UserPass123!".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(user1_login)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let user1_token = json["data"]["token"].as_str().unwrap().to_string();
+        let mut user1_headers = HeaderMap::new();
+        user1_headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", user1_token)).unwrap(),
+        );
+
+        // user1 listing "/" only enters /.users/{user1.id}
+        let list_req = crate::model::FsListReq {
+            path: "/".to_string(),
+            ..Default::default()
+        };
+        let resp =
+            fs::fs_list_handler(user1_headers.clone(), State(state.clone()), Json(list_req)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["code"], 200);
+        let content = json["data"]["content"].as_array().unwrap();
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0]["name"], "file1.txt");
+
+        // user1 attempting to access user2's mount path directly "/.users/{user2.id}"
+        let list_user2_req = crate::model::FsListReq {
+            path: format!("/.users/{}", user2.id),
+            ..Default::default()
+        };
+        let resp = fs::fs_list_handler(
+            user1_headers.clone(),
+            State(state.clone()),
+            Json(list_user2_req),
+        )
+        .await;
+        // Should resolve under /.users/{user1.id}/.users/{user2.id} and fail rather than returning user2's files
+        assert_eq!(
+            user_path(&user1, &format!("/.users/{}", user2.id)).unwrap(),
+            format!("/.users/{}/.users/{}", user1.id, user2.id)
+        );
+        assert_ne!(resp.status(), StatusCode::OK);
+
+        // 4. Verify safety migration for legacy non-admin user with base_path = "/"
+        let salt = crate::auth::rand_string(16);
+        let s_hash = crate::auth::static_hash("LegacyPass123!");
+        let encoded_pwd = crate::auth::encode_argon2_hash(&s_hash, &salt);
+        let legacy_id = sqlx::query(
+            "INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `salt`, `base_path`, `role`, `disabled`, `permission`) VALUES (?, ?, 0, ?, '/', 0, 0, 0)",
+        )
+        .bind("legacy_unsafe_user")
+        .bind(&encoded_pwd)
+        .bind(&salt)
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_rowid();
+
+        // Run db init again on this db_path to simulate restart / migration
+        let re_pool = crate::db::init_db(&db_path).await.unwrap();
+        let migrated_user = crate::db::get_user_by_id(&re_pool, legacy_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(migrated_user.base_path, format!("/.users/{}", legacy_id));
+        assert!(migrated_user.disabled);
     }
 }

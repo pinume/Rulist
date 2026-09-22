@@ -89,6 +89,24 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
     seed_settings(&pool).await?;
     seed_admin(&pool).await?;
 
+    let result = sqlx::query(
+        "UPDATE `x_users`
+         SET `base_path` = '/.users/' || `id`,
+             `disabled` = 1
+         WHERE `role` != ?
+           AND `base_path` = '/'",
+    )
+    .bind(ROLE_ADMIN)
+    .execute(&pool)
+    .await?;
+
+    if result.rows_affected() > 0 {
+        tracing::warn!(
+            users = result.rows_affected(),
+            "disabled legacy non-admin users with unsafe root access"
+        );
+    }
+
     Ok(pool)
 }
 

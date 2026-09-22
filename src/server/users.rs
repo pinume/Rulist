@@ -140,8 +140,18 @@ pub async fn admin_user_create_handler(
         return api_error(StatusCode::BAD_REQUEST, 400, "password is required");
     }
 
-    if let Some(local_path) = req.local_path.as_deref()
-        && !local_path.trim().is_empty()
+    let role = req.role.unwrap_or(0);
+    let local_path = req.local_path.as_deref().map(str::trim).unwrap_or("");
+
+    if role != ROLE_ADMIN && local_path.is_empty() {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            400,
+            "Local directory is required for non-admin users",
+        );
+    }
+
+    if !local_path.is_empty()
         && let Err(err) = validate_local_path(local_path)
     {
         tracing::warn!(error = %err, "invalid user local path");
@@ -176,7 +186,7 @@ pub async fn admin_user_create_handler(
     .bind(now_ts)
     .bind(&salt)
     .bind("/")
-    .bind(req.role.unwrap_or(0))
+    .bind(role)
     .bind(if req.disabled.unwrap_or(false) { 1 } else { 0 })
     .bind(req.permission.unwrap_or(0))
     .execute(&mut *tx)
@@ -194,20 +204,18 @@ pub async fn admin_user_create_handler(
         }
     };
 
-    if let Some(local_path) = req.local_path
-        && !local_path.trim().is_empty()
-    {
-        let mount_path = format!("/.users/{}", new_id);
-        let addition = serde_json::json!({
-            "root_folder_path": local_path.trim()
-        })
-        .to_string();
-
-        if let Err(e) = sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
-            .bind(&mount_path)
-            .bind(new_id)
-            .execute(&mut *tx)
-            .await
+    let is_admin = role == ROLE_ADMIN;
+    if !is_admin {
+        let mount_path = format!("/.users/{new_id}");
+        if let Err(e) = sqlx::query(
+            "UPDATE `x_users`
+             SET `base_path` = ?
+             WHERE `id` = ?",
+        )
+        .bind(&mount_path)
+        .bind(new_id)
+        .execute(&mut *tx)
+        .await
         {
             tracing::error!(error = %e, "failed to update user base path");
             return api_error(
@@ -217,8 +225,13 @@ pub async fn admin_user_create_handler(
             );
         }
 
+        let addition = serde_json::json!({
+            "root_folder_path": local_path
+        })
+        .to_string();
+
         if let Err(e) = sqlx::query(
-            "INSERT INTO `x_storages` (`mount_path`, `order`, `driver`, `addition`, `status`, `disabled`) VALUES (?, 0, 'Local', ?, 'work', 0)"
+            "INSERT INTO `x_storages` (`mount_path`, `order`, `driver`, `addition`, `status`, `disabled`) VALUES (?, 0, 'Local', ?, 'work', 0)",
         )
         .bind(&mount_path)
         .bind(&addition)
@@ -226,6 +239,28 @@ pub async fn admin_user_create_handler(
         .await
         {
             tracing::error!(error = %e, "failed to create user storage");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
+    } else if !local_path.is_empty() {
+        let mount_path = format!("/.users/{new_id}");
+        let addition = serde_json::json!({
+            "root_folder_path": local_path
+        })
+        .to_string();
+
+        if let Err(e) = sqlx::query(
+            "INSERT INTO `x_storages` (`mount_path`, `order`, `driver`, `addition`, `status`, `disabled`) VALUES (?, 0, 'Local', ?, 'work', 0)",
+        )
+        .bind(&mount_path)
+        .bind(&addition)
+        .execute(&mut *tx)
+        .await
+        {
+            tracing::error!(error = %e, "failed to create admin user storage");
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 500,
@@ -310,6 +345,18 @@ pub async fn admin_user_update_handler(
     }
     if let Some(perm) = req.permission {
         target_user.permission = perm;
+    }
+
+    if !target_user.is_admin() {
+        let local_path = req.local_path.as_deref().map(str::trim).unwrap_or("");
+
+        if local_path.is_empty() {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                400,
+                "Local directory is required for non-admin users",
+            );
+        }
     }
 
     if let Some(local_path) = req.local_path.as_deref()
@@ -415,6 +462,22 @@ pub async fn admin_user_update_handler(
                     "Internal server error",
                 );
             }
+        }
+
+        if !target_user.is_admin()
+            && target_user.base_path != user_mount
+            && let Err(e) = sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
+                .bind(&user_mount)
+                .bind(target_id)
+                .execute(&mut *tx)
+                .await
+        {
+            tracing::error!(error = %e, "failed to update user mount path");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
         }
     }
 
