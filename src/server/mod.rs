@@ -834,6 +834,12 @@ mod tests {
         tokio::fs::write(storage_root.join("src/root.txt"), b"root v1")
             .await
             .unwrap();
+        tokio::fs::write(
+            storage_root.join("src/.hidden_root.txt"),
+            b"hidden root content",
+        )
+        .await
+        .unwrap();
 
         let dst_sub = storage_root.join("dst/sub");
         tokio::fs::create_dir_all(&dst_sub).await.unwrap();
@@ -903,6 +909,13 @@ mod tests {
                 .await
                 .unwrap(),
             b"root v1"
+        );
+        assert!(!storage_root.join("src/.hidden_root.txt").exists());
+        assert_eq!(
+            tokio::fs::read(storage_root.join("dst/.hidden_root.txt"))
+                .await
+                .unwrap(),
+            b"hidden root content"
         );
 
         // 3. Test recursive_move with ConflictPolicy::Overwrite

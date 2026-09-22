@@ -31,6 +31,9 @@ export const UserMethods = {
   is_admin: (user: User) => user.role === UserRole.ADMIN,
   is_general: (user: User) => user.role === UserRole.GENERAL,
   can: (user: User, permission: number) => {
-    return ((user.permission >> permission) & 1) == 1
+    return (
+      UserMethods.is_admin(user) ||
+      ((user.permission >> permission) & 1) === 1
+    )
   },
 }

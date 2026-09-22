@@ -122,13 +122,11 @@ export const fsRemoveEmptyDirectory = (src_dir: string): PEmptyResp => {
 
 export const fsNewFile = (
   path: string,
-  password: string,
   overwrite: boolean,
 ): PEmptyResp => {
   return r.put("/fs/put", undefined, {
     headers: {
       "File-Path": encodeURIComponent(path),
-      Password: password,
       Overwrite: overwrite.toString(),
     },
   })

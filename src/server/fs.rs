@@ -326,17 +326,17 @@ pub async fn fs_recursive_move_handler(
     let dst_prefix = dst_dir.trim_end_matches('/');
 
     while let Some(current_dir) = dirs_to_visit.pop() {
-        match state.storage.list(&current_dir).await {
+        match state.storage.read_dir_physical(&current_dir).await {
             Ok(entries) => {
-                for entry in entries {
-                    let full_path = format!("{}/{}", current_dir.trim_end_matches('/'), entry.name);
+                for (name, is_dir) in entries {
+                    let full_path = format!("{}/{}", current_dir.trim_end_matches('/'), name);
                     let rel_path = full_path
                         .strip_prefix(src_prefix)
                         .unwrap_or(&full_path)
                         .trim_start_matches('/')
                         .to_string();
 
-                    if entry.is_dir {
+                    if is_dir {
                         dirs_to_create.push(rel_path);
                         dirs_to_visit.push(full_path);
                     } else {

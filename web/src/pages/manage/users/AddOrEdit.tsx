@@ -178,7 +178,9 @@ const AddOrEdit = () => {
                 {(item) => (
                   <Permission
                     name={item}
-                    can={UserMethods.can(user, UserPermissionBits[item])}
+                    can={
+                      ((user.permission >> UserPermissionBits[item]) & 1) === 1
+                    }
                     onChange={(val) => {
                       const bit = UserPermissionBits[item]
                       if (val) {

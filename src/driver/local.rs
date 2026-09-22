@@ -124,6 +124,23 @@ impl LocalDriver {
         Ok(entries.next_entry().await?.is_none())
     }
 
+    /// Read physical directory entries without filtering hidden files
+    pub async fn read_dir_physical(&self, subpath: &str) -> Result<Vec<(String, bool)>> {
+        let full_path = self.safe_resolve(subpath)?;
+        let meta = fs::symlink_metadata(&full_path).await?;
+        if !meta.is_dir() {
+            return Err(anyhow!("path is not a directory"));
+        }
+        let mut read_dir = fs::read_dir(&full_path).await?;
+        let mut entries = Vec::new();
+        while let Some(entry) = read_dir.next_entry().await? {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let is_dir = entry.file_type().await?.is_dir();
+            entries.push((name, is_dir));
+        }
+        Ok(entries)
+    }
+
     /// List directory contents
     pub async fn list(&self, subpath: &str) -> Result<Vec<FileObj>> {
         let full_path = self.safe_resolve(subpath)?;
