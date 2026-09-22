@@ -122,6 +122,15 @@ impl StorageManager {
         }
     }
 
+    /// Check if a path is physically empty on disk
+    pub async fn is_physically_empty(&self, req_path: &str) -> Result<bool> {
+        let (storage, subpath) = self
+            .find_storage(req_path)
+            .ok_or_else(|| anyhow!("storage not found"))?;
+
+        storage.driver.is_physically_empty(&subpath).await
+    }
+
     /// Get object metadata
     pub async fn get(&self, req_path: &str) -> Result<FileObj> {
         let clean = req_path.trim_matches('/');

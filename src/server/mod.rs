@@ -1265,7 +1265,8 @@ mod tests {
         .bind("Local")
         .bind(
             serde_json::json!({
-                "root_folder_path": storage_root.to_str().unwrap()
+                "root_folder_path": storage_root.to_str().unwrap(),
+                "show_hidden": false
             })
             .to_string(),
         )
@@ -1299,30 +1300,44 @@ mod tests {
         );
 
         // root/
-        // ├── empty1/
+        // ├── empty/
         // ├── empty2/
         // │   └── empty3/
-        // ├── keep1/
-        // │   └── a.txt
-        // └── keep2/
-        //     └── child/
-        //         └── b.txt
+        // ├── hidden-file/
+        // │   └── .secret
+        // ├── git-project/
+        // │   └── .git/
+        // │       └── config
+        // ├── dsstore/
+        // │   └── .DS_Store
+        // └── normal/
+        //     └── file.txt
         let root = storage_root.join("root");
-        let empty1 = root.join("empty1");
+        let empty = root.join("empty");
         let empty2 = root.join("empty2");
         let empty3 = empty2.join("empty3");
-        let keep1 = root.join("keep1");
-        let keep2_child = root.join("keep2/child");
+        let hidden_file_dir = root.join("hidden-file");
+        let git_project_dir = root.join("git-project/.git");
+        let dsstore_dir = root.join("dsstore");
+        let normal_dir = root.join("normal");
 
-        tokio::fs::create_dir_all(&empty1).await.unwrap();
+        tokio::fs::create_dir_all(&empty).await.unwrap();
         tokio::fs::create_dir_all(&empty3).await.unwrap();
-        tokio::fs::create_dir_all(&keep1).await.unwrap();
-        tokio::fs::create_dir_all(&keep2_child).await.unwrap();
+        tokio::fs::create_dir_all(&hidden_file_dir).await.unwrap();
+        tokio::fs::create_dir_all(&git_project_dir).await.unwrap();
+        tokio::fs::create_dir_all(&dsstore_dir).await.unwrap();
+        tokio::fs::create_dir_all(&normal_dir).await.unwrap();
 
-        tokio::fs::write(keep1.join("a.txt"), b"file a")
+        tokio::fs::write(hidden_file_dir.join(".secret"), b"secret data")
             .await
             .unwrap();
-        tokio::fs::write(keep2_child.join("b.txt"), b"file b")
+        tokio::fs::write(git_project_dir.join("config"), b"git config")
+            .await
+            .unwrap();
+        tokio::fs::write(dsstore_dir.join(".DS_Store"), b"ds store")
+            .await
+            .unwrap();
+        tokio::fs::write(normal_dir.join("file.txt"), b"normal file")
             .await
             .unwrap();
 
@@ -1340,13 +1355,19 @@ mod tests {
 
         // root must still exist
         assert!(root.exists());
-        // empty1, empty2, empty3 must be removed
-        assert!(!empty1.exists());
+        // empty and empty2/empty3 must be removed
+        assert!(!empty.exists());
         assert!(!empty3.exists());
         assert!(!empty2.exists());
-        // keep1/a.txt and keep2/child/b.txt must be preserved
-        assert!(keep1.join("a.txt").exists());
-        assert!(keep2_child.join("b.txt").exists());
+        // hidden data and normal files must be preserved
+        assert!(hidden_file_dir.join(".secret").exists());
+        assert!(git_project_dir.join("config").exists());
+        assert!(dsstore_dir.join(".DS_Store").exists());
+        assert!(normal_dir.join("file.txt").exists());
+        assert!(hidden_file_dir.exists());
+        assert!(root.join("git-project").exists());
+        assert!(dsstore_dir.exists());
+        assert!(normal_dir.exists());
     }
 
     #[tokio::test]

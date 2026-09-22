@@ -98,6 +98,21 @@ impl LocalDriver {
         Ok(target)
     }
 
+    /// Check if a directory is physically empty on disk without ignoring hidden files
+    pub async fn is_physically_empty(&self, subpath: &str) -> Result<bool> {
+        let full_path = self.safe_resolve(subpath)?;
+
+        let meta = fs::symlink_metadata(&full_path).await?;
+
+        if !meta.is_dir() {
+            return Err(anyhow!("path is not a directory"));
+        }
+
+        let mut entries = fs::read_dir(&full_path).await?;
+
+        Ok(entries.next_entry().await?.is_none())
+    }
+
     /// List directory contents
     pub async fn list(&self, subpath: &str) -> Result<Vec<FileObj>> {
         let full_path = self.safe_resolve(subpath)?;

@@ -593,24 +593,32 @@ pub async fn fs_remove_empty_dirs_handler(
     dirs.sort_by_key(|p| std::cmp::Reverse(p.matches('/').count()));
 
     for dir in dirs {
-        match state.storage.list(&dir).await {
-            Ok(entries) => {
-                if entries.is_empty() {
-                    match state.storage.remove(&dir).await {
-                        Ok(_) => {}
-                        Err(err) => {
-                            tracing::error!(error = %err, path = %dir, "failed to remove empty directory");
-                            return api_error(
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                500,
-                                "Internal server error",
-                            );
-                        }
-                    }
+        match state.storage.is_physically_empty(&dir).await {
+            Ok(true) => {
+                if let Err(err) = state.storage.remove(&dir).await {
+                    tracing::error!(
+                        error = %err,
+                        path = %dir,
+                        "failed to remove empty directory"
+                    );
+
+                    return api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        500,
+                        "Internal server error",
+                    );
                 }
             }
+
+            Ok(false) => {}
+
             Err(err) => {
-                tracing::error!(error = %err, path = %dir, "failed to check directory contents");
+                tracing::error!(
+                    error = %err,
+                    path = %dir,
+                    "failed to verify directory emptiness"
+                );
+
                 return api_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     500,
