@@ -212,6 +212,11 @@ pub struct FsRecursiveMoveReq {
     pub conflict_policy: ConflictPolicy,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct FsRemoveEmptyDirsReq {
+    pub src_dir: String,
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct FsDirsReq {
     #[serde(default)]

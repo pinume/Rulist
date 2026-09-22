@@ -115,7 +115,7 @@ pub async fn run_server(
         .route("/api/fs/remove", post(fs::fs_remove_handler))
         .route(
             "/api/fs/remove_empty_directory",
-            post(fs::fs_remove_handler),
+            post(fs::fs_remove_empty_dirs_handler),
         )
         .route("/api/fs/put", put(fs::fs_put_handler))
         // File system batch & link
@@ -282,8 +282,8 @@ async fn shutdown_signal() {
 mod tests {
     use super::*;
     use crate::model::{
-        AdminUserSaveReq, ConflictPolicy, FsMoveCopyReq, FsRecursiveMoveReq, LoginReq,
-        TwoFaGenerateReq, TwoFaVerifyReq, UpdateCurrentReq,
+        AdminUserSaveReq, ConflictPolicy, FsMoveCopyReq, FsRecursiveMoveReq, FsRemoveEmptyDirsReq,
+        LoginReq, TwoFaGenerateReq, TwoFaVerifyReq, UpdateCurrentReq,
     };
     use axum::http::HeaderValue;
 
@@ -1236,5 +1236,108 @@ mod tests {
             fs::fs_copy_handler(State(state.clone()), headers.clone(), Json(copy_into_sub)).await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         assert!(dir_path.join("test.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn test_remove_empty_directory_deepest_first() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "AdminPassword123!")
+            .await
+            .unwrap();
+
+        let storage_root = tmp.path().join("storage");
+        tokio::fs::create_dir_all(&storage_root).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO `x_storages` (`mount_path`, `driver`, `addition`) VALUES (?, ?, ?)",
+        )
+        .bind("/local")
+        .bind("Local")
+        .bind(
+            serde_json::json!({
+                "root_folder_path": storage_root.to_str().unwrap()
+            })
+            .to_string(),
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let config = Config::default();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: config.clone(),
+            storage: Arc::new(storage_mgr),
+        });
+
+        let login_req = LoginReq {
+            username: "admin".to_string(),
+            password: "AdminPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(login_req)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let token = json["data"]["token"].as_str().unwrap().to_string();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+        );
+
+        // root/
+        // ├── empty1/
+        // ├── empty2/
+        // │   └── empty3/
+        // ├── keep1/
+        // │   └── a.txt
+        // └── keep2/
+        //     └── child/
+        //         └── b.txt
+        let root = storage_root.join("root");
+        let empty1 = root.join("empty1");
+        let empty2 = root.join("empty2");
+        let empty3 = empty2.join("empty3");
+        let keep1 = root.join("keep1");
+        let keep2_child = root.join("keep2/child");
+
+        tokio::fs::create_dir_all(&empty1).await.unwrap();
+        tokio::fs::create_dir_all(&empty3).await.unwrap();
+        tokio::fs::create_dir_all(&keep1).await.unwrap();
+        tokio::fs::create_dir_all(&keep2_child).await.unwrap();
+
+        tokio::fs::write(keep1.join("a.txt"), b"file a")
+            .await
+            .unwrap();
+        tokio::fs::write(keep2_child.join("b.txt"), b"file b")
+            .await
+            .unwrap();
+
+        let req = FsRemoveEmptyDirsReq {
+            src_dir: "/local/root".to_string(),
+        };
+        let resp =
+            fs::fs_remove_empty_dirs_handler(State(state.clone()), headers.clone(), Json(req))
+                .await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 200);
+
+        // root must still exist
+        assert!(root.exists());
+        // empty1, empty2, empty3 must be removed
+        assert!(!empty1.exists());
+        assert!(!empty3.exists());
+        assert!(!empty2.exists());
+        // keep1/a.txt and keep2/child/b.txt must be preserved
+        assert!(keep1.join("a.txt").exists());
+        assert!(keep2_child.join("b.txt").exists());
     }
 }

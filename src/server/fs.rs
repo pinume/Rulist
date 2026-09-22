@@ -7,7 +7,8 @@ use tokio::io::AsyncWriteExt;
 use crate::db::get_setting;
 use crate::model::{
     BatchRenameReq, ConflictPolicy, DirItem, FsDirNamesReq, FsDirsReq, FsGetReq, FsLinkReq,
-    FsLinkResp, FsListReq, FsListResp, FsMoveCopyReq, FsRecursiveMoveReq, FsRenameReq, sort_files,
+    FsLinkResp, FsListReq, FsListResp, FsMoveCopyReq, FsRecursiveMoveReq, FsRemoveEmptyDirsReq,
+    FsRenameReq, sort_files,
 };
 use crate::server::stream::percent_decode;
 use crate::server::{
@@ -449,6 +450,81 @@ pub async fn fs_remove_handler(
         let target = format!("{}/{}", dir.trim_end_matches('/'), name);
         if let Err(err) = state.storage.remove(&target).await {
             return api_error(StatusCode::OK, 500, err.to_string());
+        }
+    }
+
+    api_success(serde_json::Value::Null)
+}
+
+pub async fn fs_remove_empty_dirs_handler(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    Json(req): Json<FsRemoveEmptyDirsReq>,
+) -> Response {
+    let Some(user) = authenticate_user(&headers, &state).await else {
+        return api_error(StatusCode::UNAUTHORIZED, 401, "unauthorized");
+    };
+    if !permitted(&user, 7) {
+        return permission_denied();
+    }
+    let root = match user_path(&user, &req.src_dir) {
+        Ok(path) => path,
+        Err(_) => return permission_denied(),
+    };
+
+    let mut stack = vec![root.clone()];
+    let mut dirs = Vec::new();
+
+    while let Some(dir) = stack.pop() {
+        let entries = match state.storage.list(&dir).await {
+            Ok(entries) => entries,
+            Err(err) => {
+                tracing::error!(error = %err, path = %dir, "failed to list directory during empty dir removal");
+                return api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    500,
+                    "Internal server error",
+                );
+            }
+        };
+
+        for entry in entries {
+            if entry.is_dir {
+                let child = format!("{}/{}", dir.trim_end_matches('/'), entry.name);
+                dirs.push(child.clone());
+                stack.push(child);
+            }
+        }
+    }
+
+    // Sort deepest first
+    dirs.sort_by_key(|p| std::cmp::Reverse(p.matches('/').count()));
+
+    for dir in dirs {
+        match state.storage.list(&dir).await {
+            Ok(entries) => {
+                if entries.is_empty() {
+                    match state.storage.remove(&dir).await {
+                        Ok(_) => {}
+                        Err(err) => {
+                            tracing::error!(error = %err, path = %dir, "failed to remove empty directory");
+                            return api_error(
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                500,
+                                "Internal server error",
+                            );
+                        }
+                    }
+                }
+            }
+            Err(err) => {
+                tracing::error!(error = %err, path = %dir, "failed to check directory contents");
+                return api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    500,
+                    "Internal server error",
+                );
+            }
         }
     }
 
