@@ -151,9 +151,28 @@ impl Config {
     pub fn resolved_db_path(&self, data_dir: &Path) -> PathBuf {
         let p = Path::new(&self.database.db_file);
         if p.is_absolute() {
-            p.to_path_buf()
-        } else {
-            data_dir.join(p)
+            return p.to_path_buf();
         }
+
+        // 1. Check if direct join exists
+        let direct = data_dir.join(p);
+        if direct.exists() {
+            return direct;
+        }
+
+        // 2. Check if file exists directly under data_dir
+        if let Some(file_name) = p.file_name() {
+            let flat = data_dir.join(file_name);
+            if flat.exists() {
+                return flat;
+            }
+        }
+
+        // 3. Check if path exists relative to current working directory
+        if p.exists() {
+            return p.to_path_buf();
+        }
+
+        direct
     }
 }

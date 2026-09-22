@@ -659,6 +659,24 @@ async fn raw_preview_handler(
     stream_file(state, path, query.sign, headers, false).await
 }
 
+fn percent_decode(s: &str) -> String {
+    let mut bytes = Vec::with_capacity(s.len());
+    let mut chars = s.as_bytes().iter();
+    while let Some(&b) = chars.next() {
+        if b == b'%' {
+            if let (Some(&h1), Some(&h2)) = (chars.next(), chars.next()) {
+                let hex_str = [h1, h2];
+                if let Ok(byte) = u8::from_str_radix(std::str::from_utf8(&hex_str).unwrap_or(""), 16) {
+                    bytes.push(byte);
+                    continue;
+                }
+            }
+        }
+        bytes.push(b);
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
 async fn stream_file(
     state: SharedState,
     raw_path: String,
@@ -666,7 +684,8 @@ async fn stream_file(
     headers: HeaderMap,
     as_attachment: bool,
 ) -> Response {
-    let clean_path = format!("/{}", raw_path.trim_start_matches('/'));
+    let decoded = percent_decode(&raw_path);
+    let clean_path = format!("/{}", decoded.trim_start_matches('/'));
 
     // Check signature if sign_all is enabled or sign is provided
     let sign_all = get_setting(&state.pool, "sign_all")
