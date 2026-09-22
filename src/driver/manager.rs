@@ -257,7 +257,13 @@ impl StorageManager {
         } else {
             let src_full = src_match.0.driver.safe_resolve(&src_match.1)?;
             let dst_full = dst_match.0.driver.safe_resolve(&dst_match.1)?;
-            crate::driver::local::move_path_safe(&src_full, &dst_full, overwrite, false).await
+            crate::driver::local::move_path_safe(
+                &src_full,
+                &dst_full,
+                overwrite,
+                crate::driver::local::MoveFailurePoint::None,
+            )
+            .await
         }
     }
 

@@ -43,6 +43,16 @@ impl std::fmt::Display for RenameError {
 
 impl std::error::Error for RenameError {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum MoveFailurePoint {
+    #[default]
+    None,
+    AfterDestinationBackup,
+    CrossDeviceCopy,
+    StagingPromotion,
+    SourceCleanup,
+}
+
 impl LocalDriver {
     pub fn new(addition_json: &str) -> Result<Self> {
         let addition: LocalAddition = if addition_json.is_empty() {
@@ -493,7 +503,7 @@ impl LocalDriver {
         dst_subpath: &str,
         overwrite: bool,
     ) -> Result<()> {
-        self.move_to_safe_internal(src_subpath, dst_subpath, overwrite, false)
+        self.move_to_safe_internal(src_subpath, dst_subpath, overwrite, MoveFailurePoint::None)
             .await
     }
 
@@ -502,14 +512,14 @@ impl LocalDriver {
         src_subpath: &str,
         dst_subpath: &str,
         overwrite: bool,
-        simulate_failure: bool,
+        failure: MoveFailurePoint,
     ) -> Result<()> {
         if src_subpath.trim_matches('/').is_empty() || dst_subpath.trim_matches('/').is_empty() {
             return Err(anyhow!("cannot move storage root"));
         }
         let src_path = self.safe_resolve(src_subpath)?;
         let dst_path = self.safe_resolve(dst_subpath)?;
-        move_path_safe(&src_path, &dst_path, overwrite, simulate_failure).await
+        move_path_safe(&src_path, &dst_path, overwrite, failure).await
     }
 
     /// Copy file or directory
@@ -636,12 +646,127 @@ pub(crate) async fn copy_path_safe(
     Ok(())
 }
 
+/// Safely move a file or directory across devices by staging, promoting, and cleaning up source.
+pub(crate) async fn move_cross_device_safe(
+    src: &Path,
+    dst: &Path,
+    overwrite: bool,
+    failure: MoveFailurePoint,
+) -> Result<()> {
+    let parent = dst
+        .parent()
+        .ok_or_else(|| anyhow!("destination has no parent"))?;
+
+    fs::create_dir_all(parent).await?;
+
+    let had_destination = fs::symlink_metadata(dst).await.is_ok();
+    if had_destination && !overwrite {
+        return Err(anyhow!("destination path already exists: {:?}", dst));
+    }
+
+    let rand = crate::auth::rand_string(24);
+    let stage = parent.join(format!(".rulist-move-stage-{}", rand));
+    let backup = parent.join(format!(".rulist-move-backup-{}", rand));
+
+    // 1. Stage copy
+    let copy_res = if failure == MoveFailurePoint::CrossDeviceCopy {
+        Err(anyhow!("simulated cross-device copy failure"))
+    } else {
+        copy_path_recursive(src, &stage).await
+    };
+
+    if let Err(err) = copy_res {
+        if let Err(clean_err) = remove_path_recursive(&stage).await {
+            if !clean_err.to_string().contains("does not exist") {
+                tracing::warn!(
+                    error = %clean_err,
+                    path = ?stage,
+                    "failed to clean failed move staging path"
+                );
+            }
+        }
+        return Err(err.context("failed to stage cross-device move"));
+    }
+
+    // 2. Backup existing destination
+    if had_destination {
+        if let Err(err) = fs::rename(dst, &backup).await {
+            let _ = remove_path_recursive(&stage).await;
+            return Err(err).with_context(|| format!("failed to backup destination {:?}", dst));
+        }
+    }
+
+    if failure == MoveFailurePoint::AfterDestinationBackup {
+        if had_destination {
+            let _ = fs::rename(&backup, dst).await;
+        }
+        let _ = remove_path_recursive(&stage).await;
+        return Err(anyhow!("simulated move failure after destination backup"));
+    }
+
+    // 3. Promote stage to destination
+    let promote_res = if failure == MoveFailurePoint::StagingPromotion {
+        Err(anyhow!("simulated staging promotion failure"))
+    } else {
+        fs::rename(&stage, dst).await.map_err(anyhow::Error::from)
+    };
+
+    if let Err(err) = promote_res {
+        if had_destination {
+            if let Err(restore_err) = fs::rename(&backup, dst).await {
+                tracing::error!(
+                    error = %restore_err,
+                    backup = ?backup,
+                    dst = ?dst,
+                    "CRITICAL: failed to restore destination backup"
+                );
+            }
+        }
+        let _ = remove_path_recursive(&stage).await;
+        return Err(err.context("failed to promote staged move"));
+    }
+
+    // 4. Cleanup source
+    let source_cleanup = if failure == MoveFailurePoint::SourceCleanup {
+        Err(anyhow!("simulated source cleanup failure"))
+    } else {
+        remove_path_recursive(src).await
+    };
+
+    if let Err(err) = source_cleanup {
+        tracing::error!(
+            error = %err,
+            src = ?src,
+            dst = ?dst,
+            backup = ?backup,
+            "source cleanup failed after completed cross-device copy; preserving recovery data"
+        );
+        // CRITICAL:
+        // Do NOT remove dst!
+        // Do NOT restore backup!
+        return Err(err.context("destination was copied successfully but source cleanup failed"));
+    }
+
+    // 5. Remove backup after successful operation
+    if had_destination {
+        if let Err(err) = remove_path_recursive(&backup).await {
+            tracing::warn!(
+                error = %err,
+                backup = ?backup,
+                "failed to remove move backup after successful operation"
+            );
+        }
+    }
+
+    Ok(())
+}
+
 /// Safely move a file or directory with backup and rollback on overwrite.
 pub(crate) async fn move_path_safe(
     src: &Path,
     dst: &Path,
     overwrite: bool,
-    simulate_failure: bool,
+    failure: MoveFailurePoint,
 ) -> Result<()> {
     if src == dst {
         return Err(anyhow!("source and destination are identical: {:?}", src));
@@ -668,12 +793,15 @@ pub(crate) async fn move_path_safe(
         if let Some(parent) = dst.parent() {
             fs::create_dir_all(parent).await?;
         }
-        if fs::rename(src, dst).await.is_ok() {
-            return Ok(());
+        match fs::rename(src, dst).await {
+            Ok(()) => return Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::CrossesDevices => {
+                return move_cross_device_safe(src, dst, overwrite, failure).await;
+            }
+            Err(err) => {
+                return Err(err).with_context(|| format!("failed to move {:?} to {:?}", src, dst));
+            }
         }
-        copy_path_recursive(src, dst).await?;
-        remove_path_recursive(src).await?;
-        return Ok(());
     }
 
     if !overwrite {
@@ -711,45 +839,44 @@ pub(crate) async fn move_path_safe(
         ));
     }
 
-    if simulate_failure {
+    if failure == MoveFailurePoint::AfterDestinationBackup {
         let _ = fs::rename(&backup, dst).await;
         return Err(anyhow!("simulated move failure after destination backup"));
     }
 
     // Step B: move src to dst
-    let move_result: Result<()> = async {
-        if fs::rename(src, dst).await.is_ok() {
-            return Ok(());
+    match fs::rename(src, dst).await {
+        Ok(()) => {
+            // Step C: remove backup
+            if let Err(err) = remove_path_recursive(&backup).await {
+                tracing::warn!(
+                    error = %err,
+                    path = ?backup,
+                    "failed to remove backup after successful move overwrite"
+                );
+            }
+            Ok(())
         }
-        copy_path_recursive(src, dst).await?;
-        remove_path_recursive(src).await?;
-        Ok(())
-    }
-    .await;
-
-    if let Err(err) = move_result {
-        // Rollback: remove partial dst if any, and restore backup
-        let _ = remove_path_recursive(dst).await;
-        let restore_res = fs::rename(&backup, dst).await;
-        if let Err(re) = restore_res {
-            tracing::error!(
-                error = %re,
-                "CRITICAL: failed to restore backup after move failure"
-            );
+        Err(err) if err.kind() == std::io::ErrorKind::CrossesDevices => {
+            if let Err(re) = fs::rename(&backup, dst).await {
+                tracing::error!(
+                    error = %re,
+                    "CRITICAL: failed to restore backup before cross-device move fallback"
+                );
+            }
+            move_cross_device_safe(src, dst, overwrite, failure).await
         }
-        return Err(err.context("failed to move source to destination"));
+        Err(err) => {
+            let restore_res = fs::rename(&backup, dst).await;
+            if let Err(re) = restore_res {
+                tracing::error!(
+                    error = %re,
+                    "CRITICAL: failed to restore backup after move failure"
+                );
+            }
+            Err(err).with_context(|| format!("failed to move {:?} to {:?}", src, dst))
+        }
     }
-
-    // Step C: remove backup
-    if let Err(err) = remove_path_recursive(&backup).await {
-        tracing::warn!(
-            error = %err,
-            path = ?backup,
-            "failed to remove backup after successful move overwrite"
-        );
-    }
-
-    Ok(())
 }
 
 pub(crate) async fn copy_path_recursive(src: &Path, dst: &Path) -> Result<()> {
@@ -1220,7 +1347,12 @@ mod tests {
 
         // Perform move with simulate_failure = true
         let result = driver
-            .move_to_safe_internal("src.txt", "dst.txt", true, true)
+            .move_to_safe_internal(
+                "src.txt",
+                "dst.txt",
+                true,
+                MoveFailurePoint::AfterDestinationBackup,
+            )
             .await;
         assert!(result.is_err());
 
@@ -1244,5 +1376,163 @@ mod tests {
             let name = entry.file_name().to_string_lossy().to_string();
             assert!(!name.starts_with(".rulist-backup-"));
         }
+    }
+
+    #[tokio::test]
+    async fn test_cross_device_move_preserves_dst_on_source_cleanup_failure() {
+        let tmp = tempdir().unwrap();
+        let src_file = tmp.path().join("src.txt");
+        let dst_file = tmp.path().join("dst.txt");
+        tokio::fs::write(&src_file, b"new source data")
+            .await
+            .unwrap();
+        tokio::fs::write(&dst_file, b"original destination data")
+            .await
+            .unwrap();
+
+        let result =
+            move_cross_device_safe(&src_file, &dst_file, true, MoveFailurePoint::SourceCleanup)
+                .await;
+        assert!(result.is_err());
+
+        // CRITICAL: Completed dst is preserved!
+        assert!(dst_file.exists());
+        assert_eq!(
+            tokio::fs::read(&dst_file).await.unwrap(),
+            b"new source data"
+        );
+
+        // Source is preserved
+        assert!(src_file.exists());
+        assert_eq!(
+            tokio::fs::read(&src_file).await.unwrap(),
+            b"new source data"
+        );
+
+        // Backup file is preserved so recovery of old destination is possible
+        let mut backup_found = false;
+        let mut entries = tokio::fs::read_dir(tmp.path()).await.unwrap();
+        while let Some(entry) = entries.next_entry().await.unwrap() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with(".rulist-move-backup-") {
+                backup_found = true;
+                assert_eq!(
+                    tokio::fs::read(entry.path()).await.unwrap(),
+                    b"original destination data"
+                );
+            }
+        }
+        assert!(backup_found);
+    }
+
+    #[tokio::test]
+    async fn test_cross_device_move_staging_failure() {
+        let tmp = tempdir().unwrap();
+        let src_file = tmp.path().join("src.txt");
+        let dst_file = tmp.path().join("dst.txt");
+        tokio::fs::write(&src_file, b"new source data")
+            .await
+            .unwrap();
+        tokio::fs::write(&dst_file, b"original destination data")
+            .await
+            .unwrap();
+
+        let result = move_cross_device_safe(
+            &src_file,
+            &dst_file,
+            true,
+            MoveFailurePoint::CrossDeviceCopy,
+        )
+        .await;
+        assert!(result.is_err());
+
+        // Both src and dst are untouched
+        assert_eq!(
+            tokio::fs::read(&src_file).await.unwrap(),
+            b"new source data"
+        );
+        assert_eq!(
+            tokio::fs::read(&dst_file).await.unwrap(),
+            b"original destination data"
+        );
+
+        // No leftover staging or backup files
+        let mut entries = tokio::fs::read_dir(tmp.path()).await.unwrap();
+        while let Some(entry) = entries.next_entry().await.unwrap() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            assert!(!name.starts_with(".rulist-move-stage-"));
+            assert!(!name.starts_with(".rulist-move-backup-"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cross_device_move_promotion_failure() {
+        let tmp = tempdir().unwrap();
+        let src_file = tmp.path().join("src.txt");
+        let dst_file = tmp.path().join("dst.txt");
+        tokio::fs::write(&src_file, b"new source data")
+            .await
+            .unwrap();
+        tokio::fs::write(&dst_file, b"original destination data")
+            .await
+            .unwrap();
+
+        let result = move_cross_device_safe(
+            &src_file,
+            &dst_file,
+            true,
+            MoveFailurePoint::StagingPromotion,
+        )
+        .await;
+        assert!(result.is_err());
+
+        // Backup was restored to dst
+        assert_eq!(
+            tokio::fs::read(&dst_file).await.unwrap(),
+            b"original destination data"
+        );
+        assert_eq!(
+            tokio::fs::read(&src_file).await.unwrap(),
+            b"new source data"
+        );
+
+        // No leftover staging or backup files
+        let mut entries = tokio::fs::read_dir(tmp.path()).await.unwrap();
+        while let Some(entry) = entries.next_entry().await.unwrap() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            assert!(!name.starts_with(".rulist-move-stage-"));
+            assert!(!name.starts_with(".rulist-move-backup-"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_non_cross_device_error_does_not_fallback_to_copy() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempdir().unwrap();
+        let ro_dir = tmp.path().join("readonly");
+        tokio::fs::create_dir(&ro_dir).await.unwrap();
+
+        let src_file = tmp.path().join("src.txt");
+        tokio::fs::write(&src_file, b"source data").await.unwrap();
+
+        let dst_file = ro_dir.join("dst.txt");
+
+        // Make ro_dir read-only so rename fails with PermissionDenied
+        tokio::fs::set_permissions(&ro_dir, std::fs::Permissions::from_mode(0o555))
+            .await
+            .unwrap();
+
+        let result = move_path_safe(&src_file, &dst_file, false, MoveFailurePoint::None).await;
+        assert!(result.is_err());
+
+        // Restore permissions for cleanup
+        tokio::fs::set_permissions(&ro_dir, std::fs::Permissions::from_mode(0o755))
+            .await
+            .unwrap();
+
+        // Source file is intact and destination does not exist
+        assert!(src_file.exists());
+        assert!(!dst_file.exists());
     }
 }
