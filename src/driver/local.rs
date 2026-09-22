@@ -70,6 +70,14 @@ impl LocalDriver {
                     return Err(anyhow!("access denied: absolute path components are forbidden"));
                 }
             }
+            match std::fs::symlink_metadata(&target) {
+                Ok(meta) if meta.file_type().is_symlink() => {
+                    return Err(anyhow!("access denied: symbolic links are forbidden"));
+                }
+                Ok(_) => {}
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => return Err(err.into()),
+            }
         }
 
         Ok(target)
@@ -154,6 +162,9 @@ impl LocalDriver {
 
     /// Delete file or directory
     pub async fn remove(&self, subpath: &str) -> Result<()> {
+        if subpath.trim_matches('/').is_empty() {
+            return Err(anyhow!("cannot remove storage root"));
+        }
         let full_path = self.safe_resolve(subpath)?;
         let meta = fs::metadata(&full_path)
             .await
@@ -174,6 +185,9 @@ impl LocalDriver {
 
     /// Rename an item within the same directory
     pub async fn rename(&self, subpath: &str, new_name: &str) -> Result<()> {
+        if subpath.trim_matches('/').is_empty() {
+            return Err(anyhow!("cannot rename storage root"));
+        }
         let src_path = self.safe_resolve(subpath)?;
         if new_name.contains('/') || new_name.contains('\\') || new_name == ".." || new_name == "." {
             return Err(anyhow!("invalid new name: {}", new_name));
@@ -192,6 +206,9 @@ impl LocalDriver {
 
     /// Move file or directory
     pub async fn move_to(&self, src_subpath: &str, dst_subpath: &str) -> Result<()> {
+        if src_subpath.trim_matches('/').is_empty() || dst_subpath.trim_matches('/').is_empty() {
+            return Err(anyhow!("cannot move storage root"));
+        }
         let src_path = self.safe_resolve(src_subpath)?;
         let dst_path = self.safe_resolve(dst_subpath)?;
 
@@ -218,6 +235,9 @@ impl LocalDriver {
 
     /// Copy file
     pub async fn copy_to(&self, src_subpath: &str, dst_subpath: &str) -> Result<()> {
+        if src_subpath.trim_matches('/').is_empty() || dst_subpath.trim_matches('/').is_empty() {
+            return Err(anyhow!("cannot copy storage root"));
+        }
         let src_path = self.safe_resolve(src_subpath)?;
         let dst_path = self.safe_resolve(dst_subpath)?;
 
@@ -283,5 +303,25 @@ mod tests {
         // Test path traversal security
         assert!(driver.safe_resolve("../etc/passwd").is_err());
         assert!(driver.safe_resolve("folder1/../../etc").is_err());
+    }
+
+    #[tokio::test]
+    async fn rejects_storage_root_removal() {
+        let tmp = tempdir().unwrap();
+        let driver = LocalDriver::new(&serde_json::json!({"root_folder_path": tmp.path()}).to_string()).unwrap();
+        assert!(driver.remove("").await.is_err());
+        assert!(driver.remove("/").await.is_err());
+        assert!(tmp.path().exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn rejects_symlinks_outside_storage() {
+        let root = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join("escape")).unwrap();
+        let driver = LocalDriver::new(&serde_json::json!({"root_folder_path": root.path()}).to_string()).unwrap();
+        assert!(driver.safe_resolve("escape/secret.txt").is_err());
+        assert!(driver.open("escape/secret.txt").await.is_err());
     }
 }

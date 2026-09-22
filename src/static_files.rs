@@ -65,6 +65,7 @@ pub async fn render_html(pool: &crate::db::DbPool, is_manage: bool) -> String {
     let settings = crate::db::get_public_settings(pool).await.unwrap_or_default();
 
     let site_title = settings.get("site_title").map(|s| s.as_str()).unwrap_or("Rulist");
+    let safe_site_title = escape_html(site_title);
     let main_color = settings.get("main_color").map(|s| s.as_str()).unwrap_or("#1890ff");
     let logo = settings.get("logo").map(|s| s.as_str()).unwrap_or("favicon.ico");
     let favicon = settings.get("favicon").map(|s| s.as_str()).unwrap_or("");
@@ -74,12 +75,12 @@ pub async fn render_html(pool: &crate::db::DbPool, is_manage: bool) -> String {
     let mut html = raw_html
         .replace("cdn: undefined", "cdn: ''")
         .replace("base_path: undefined", "base_path: '/'")
-        .replace("main_color: undefined", &format!("main_color: '{}'", main_color))
-        .replace("https://res.oplist.org/logo/logo.svg", fav)
-        .replace("https://res.oplist.org/logo/logo.png", logo_first)
-        .replace("<title>TinyList</title>", &format!("<title>{}</title>", site_title))
-        .replace("<title>Rulist</title>", &format!("<title>{}</title>", site_title))
-        .replace("Loading...", site_title);
+        .replace("main_color: undefined", &format!("main_color: '{}'", escape_html(main_color)))
+        .replace("https://res.oplist.org/logo/logo.svg", &escape_html(fav))
+        .replace("https://res.oplist.org/logo/logo.png", &escape_html(logo_first))
+        .replace("<title>TinyList</title>", &format!("<title>{}</title>", safe_site_title))
+        .replace("<title>Rulist</title>", &format!("<title>{}</title>", safe_site_title))
+        .replace("Loading...", &safe_site_title);
 
     if !is_manage {
         let customize_head: Option<String> = sqlx::query_scalar(
@@ -215,4 +216,12 @@ pub async fn spa_fallback_handler(
         .header(header::CACHE_CONTROL, "no-cache, no-store, must-revalidate")
         .body(Body::from(html))
         .unwrap()
+}
+
+fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
 }

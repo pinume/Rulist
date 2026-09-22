@@ -16,6 +16,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
 use tokio_util::io::ReaderStream;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
+use subtle::ConstantTimeEq;
 use tracing::info;
 
 use crate::auth::{generate_jwt, parse_jwt, verify_password, verify_password_static_hash};
@@ -84,7 +85,7 @@ pub async fn run_server(
         .route("/api/fs/mkdir", post(fs_mkdir_handler))
         .route("/api/fs/rename", post(fs_rename_handler))
         .route("/api/fs/move", post(fs_move_handler))
-        .route("/api/fs/recursive_move", post(fs_move_handler))
+        .route("/api/fs/recursive_move", post(fs_recursive_move_handler))
         .route("/api/fs/copy", post(fs_copy_handler))
         .route("/api/fs/remove", post(fs_remove_handler))
         .route("/api/fs/remove_empty_directory", post(fs_remove_handler))
@@ -338,7 +339,7 @@ async fn authenticate_user(headers: &HeaderMap, state: &AppState) -> Option<User
 
     // Check if token matches admin token
     if let Ok(Some(admin_token)) = get_setting(&state.pool, "token").await {
-        if !admin_token.is_empty() && admin_token == token {
+        if !admin_token.is_empty() && admin_token.as_bytes().ct_eq(token.as_bytes()).into() {
             return get_admin(&state.pool).await.ok().flatten();
         }
     }
@@ -352,6 +353,43 @@ async fn authenticate_user(headers: &HeaderMap, state: &AppState) -> Option<User
     }
 
     Some(user)
+}
+
+fn user_path(user: &User, requested: &str) -> Result<String, &'static str> {
+    if requested.split(['/', '\\']).any(|part| part == "." || part == "..") {
+        return Err("invalid path");
+    }
+    let relative = requested.trim_start_matches('/');
+    let base = user.base_path.trim_end_matches('/');
+    Ok(if relative.is_empty() {
+        if base.is_empty() { "/".to_string() } else { base.to_string() }
+    } else {
+        format!("{base}/{relative}")
+    })
+}
+
+fn permitted(user: &User, bit: i32) -> bool {
+    user.is_admin() || user.permission & (1 << bit) != 0
+}
+
+fn valid_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\'])
+}
+
+fn encode_url_path(path: &str) -> String {
+    let mut encoded = String::with_capacity(path.len());
+    for byte in path.bytes() {
+        if byte.is_ascii_alphanumeric() || b"/-._~".contains(&byte) {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
+}
+
+fn permission_denied() -> Response {
+    Json(ApiResponse::<()>::error(403, "Permission denied")).into_response()
 }
 
 async fn current_user_handler(
@@ -378,15 +416,15 @@ async fn fs_list_handler(
     State(state): State<SharedState>,
     Json(req): Json<FsListReq>,
 ) -> Response {
-    if authenticate_user(&headers, &state).await.is_none() {
-        return (
-            StatusCode::OK,
-            Json(ApiResponse::<()>::error(401, "Authentication required")),
-        )
-            .into_response();
-    }
+    let Some(user) = authenticate_user(&headers, &state).await else {
+        return Json(ApiResponse::<()>::error(401, "Authentication required")).into_response();
+    };
+    let path = match user_path(&user, &req.path) {
+        Ok(path) => path,
+        Err(_) => return permission_denied(),
+    };
 
-    match state.storage.list(&req.path).await {
+    match state.storage.list(&path).await {
         Ok(mut content) => {
             sort_files(&mut content, "name", "asc");
 
@@ -399,10 +437,10 @@ async fn fs_list_handler(
 
             for item in &mut content {
                 if !item.is_dir {
-                    let item_path = format!("{}/{}", req.path.trim_end_matches('/'), item.name);
+                    let item_path = format!("{}/{}", path.trim_end_matches('/'), item.name);
                     let sign = sign_path(&token, &item_path);
                     item.sign = sign.clone();
-                    item.raw_url = format!("/p{}?sign={}", item_path, sign);
+                    item.raw_url = format!("/p{}?sign={}", encode_url_path(&item_path), sign);
                 }
             }
 
@@ -412,7 +450,7 @@ async fn fs_list_handler(
                 total,
                 readme: String::new(),
                 header: String::new(),
-                write: true,
+                write: permitted(&user, 3),
                 provider: "Local".to_string(),
             };
             Json(ApiResponse::success(resp)).into_response()
@@ -430,15 +468,15 @@ async fn fs_get_handler(
     State(state): State<SharedState>,
     Json(req): Json<FsGetReq>,
 ) -> Response {
-    if authenticate_user(&headers, &state).await.is_none() {
-        return (
-            StatusCode::OK,
-            Json(ApiResponse::<()>::error(401, "Authentication required")),
-        )
-            .into_response();
-    }
+    let Some(user) = authenticate_user(&headers, &state).await else {
+        return Json(ApiResponse::<()>::error(401, "Authentication required")).into_response();
+    };
+    let path = match user_path(&user, &req.path) {
+        Ok(path) => path,
+        Err(_) => return permission_denied(),
+    };
 
-    match state.storage.get(&req.path).await {
+    match state.storage.get(&path).await {
         Ok(mut file) => {
             let token = get_setting(&state.pool, "token")
                 .await
@@ -447,9 +485,9 @@ async fn fs_get_handler(
                 .unwrap_or_default();
 
             if !file.is_dir {
-                let s = sign_path(&token, &req.path);
+                let s = sign_path(&token, &path);
                 file.sign = s.clone();
-                file.raw_url = format!("/p{}?sign={}", req.path, s);
+                file.raw_url = format!("/p{}?sign={}", encode_url_path(&path), s);
             }
 
             Json(ApiResponse::success(file)).into_response()
@@ -467,16 +505,18 @@ async fn fs_dirs_handler(
     State(state): State<SharedState>,
     Json(req): Json<FsDirsReq>,
 ) -> Response {
-    if authenticate_user(&headers, &state).await.is_none() {
-        return (
-            StatusCode::OK,
-            Json(ApiResponse::<()>::error(401, "Authentication required")),
-        )
-            .into_response();
+    let Some(user) = authenticate_user(&headers, &state).await else {
+        return Json(ApiResponse::<()>::error(401, "Authentication required")).into_response();
+    };
+    if req.force_root && !user.is_admin() {
+        return permission_denied();
     }
-
-    let path = if req.path.is_empty() { "/" } else { &req.path };
-    let files = match state.storage.list(path).await {
+    let path = if req.force_root { Ok("/".to_string()) } else { user_path(&user, &req.path) };
+    let path = match path {
+        Ok(path) => path,
+        Err(_) => return permission_denied(),
+    };
+    let files = match state.storage.list(&path).await {
         Ok(f) => f,
         Err(err) => {
             return (
@@ -508,12 +548,15 @@ async fn fs_mkdir_handler(
     headers: HeaderMap,
     Json(req): Json<serde_json::Value>,
 ) -> Response {
-    if authenticate_user(&headers, &state).await.is_none() {
+    let Some(user) = authenticate_user(&headers, &state).await else {
         return (StatusCode::UNAUTHORIZED, Json(ApiResponse::<()>::error(401, "unauthorized"))).into_response();
-    }
-
-    let path = req.get("path").and_then(|v| v.as_str()).unwrap_or("");
-    match state.storage.mkdir(path).await {
+    };
+    if !permitted(&user, 3) { return permission_denied(); }
+    let path = match user_path(&user, req.get("path").and_then(|v| v.as_str()).unwrap_or("")) {
+        Ok(path) => path,
+        Err(_) => return permission_denied(),
+    };
+    match state.storage.mkdir(&path).await {
         Ok(_) => Json(ApiResponse::success(serde_json::Value::Null)).into_response(),
         Err(err) => (StatusCode::OK, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response(),
     }
@@ -524,11 +567,15 @@ async fn fs_rename_handler(
     headers: HeaderMap,
     Json(req): Json<FsRenameReq>,
 ) -> Response {
-    if authenticate_user(&headers, &state).await.is_none() {
+    let Some(user) = authenticate_user(&headers, &state).await else {
         return (StatusCode::UNAUTHORIZED, Json(ApiResponse::<()>::error(401, "unauthorized"))).into_response();
-    }
-
-    match state.storage.rename(&req.path, &req.name).await {
+    };
+    if !permitted(&user, 4) || !valid_name(&req.name) { return permission_denied(); }
+    let path = match user_path(&user, &req.path) {
+        Ok(path) => path,
+        Err(_) => return permission_denied(),
+    };
+    match state.storage.rename(&path, &req.name).await {
         Ok(_) => Json(ApiResponse::success(serde_json::Value::Null)).into_response(),
         Err(err) => (StatusCode::OK, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response(),
     }
@@ -539,13 +586,17 @@ async fn fs_move_handler(
     headers: HeaderMap,
     Json(req): Json<FsMoveCopyReq>,
 ) -> Response {
-    if authenticate_user(&headers, &state).await.is_none() {
+    let Some(user) = authenticate_user(&headers, &state).await else {
         return (StatusCode::UNAUTHORIZED, Json(ApiResponse::<()>::error(401, "unauthorized"))).into_response();
-    }
-
+    };
+    if !permitted(&user, 5) || req.names.iter().any(|name| !valid_name(name)) { return permission_denied(); }
+    let (src_dir, dst_dir) = match (user_path(&user, &req.src_dir), user_path(&user, &req.dst_dir)) {
+        (Ok(src), Ok(dst)) => (src, dst),
+        _ => return permission_denied(),
+    };
     for name in req.names {
-        let src = format!("{}/{}", req.src_dir.trim_end_matches('/'), name);
-        let dst = format!("{}/{}", req.dst_dir.trim_end_matches('/'), name);
+        let src = format!("{}/{}", src_dir.trim_end_matches('/'), name);
+        let dst = format!("{}/{}", dst_dir.trim_end_matches('/'), name);
         if let Err(err) = state.storage.move_to(&src, &dst).await {
             return (StatusCode::OK, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response();
         }
@@ -554,18 +605,82 @@ async fn fs_move_handler(
     Json(ApiResponse::success(serde_json::Value::Null)).into_response()
 }
 
+#[derive(Deserialize)]
+struct RecursiveMoveReq {
+    src_dir: String,
+    dst_dir: String,
+    conflict_policy: String,
+}
+
+async fn fs_recursive_move_handler(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    Json(req): Json<RecursiveMoveReq>,
+) -> Response {
+    let Some(user) = authenticate_user(&headers, &state).await else {
+        return Json(ApiResponse::<()>::error(401, "Authentication required")).into_response();
+    };
+    if !permitted(&user, 5) { return permission_denied(); }
+    let (src_dir, dst_dir) = match (user_path(&user, &req.src_dir), user_path(&user, &req.dst_dir)) {
+        (Ok(src), Ok(dst)) => (src, dst),
+        _ => return permission_denied(),
+    };
+    if src_dir == dst_dir || dst_dir.starts_with(&format!("{}/", src_dir.trim_end_matches('/'))) {
+        return Json(ApiResponse::<()>::error(400, "invalid destination" )).into_response();
+    }
+    if !matches!(req.conflict_policy.as_str(), "cancel" | "overwrite" | "skip") {
+        return Json(ApiResponse::<()>::error(400, "invalid conflict policy")).into_response();
+    }
+
+    let mut dirs = vec![src_dir];
+    let mut files = Vec::new();
+    while let Some(dir) = dirs.pop() {
+        let entries = match state.storage.list(&dir).await {
+            Ok(entries) => entries,
+            Err(err) => return Json(ApiResponse::<()>::error(500, err.to_string())).into_response(),
+        };
+        for entry in entries {
+            let path = format!("{}/{}", dir.trim_end_matches('/'), entry.name);
+            if entry.is_dir { dirs.push(path); } else { files.push((path, entry.name)); }
+        }
+    }
+    let mut existing = match state.storage.list(&dst_dir).await {
+        Ok(entries) => entries.into_iter().map(|entry| entry.name).collect::<std::collections::HashSet<_>>(),
+        Err(err) => return Json(ApiResponse::<()>::error(500, err.to_string())).into_response(),
+    };
+    let mut moves = Vec::new();
+    for (src, name) in files {
+        let conflict = !existing.insert(name.clone());
+        if conflict && req.conflict_policy == "cancel" {
+            return Json(ApiResponse::<()>::error(403, format!("file [{name}] exists"))).into_response();
+        }
+        if conflict && req.conflict_policy == "skip" { continue; }
+        moves.push((src, format!("{}/{}", dst_dir.trim_end_matches('/'), name)));
+    }
+    for (src, dst) in moves {
+        if let Err(err) = state.storage.move_to(&src, &dst).await {
+            return Json(ApiResponse::<()>::error(500, err.to_string())).into_response();
+        }
+    }
+    Json(ApiResponse::success(())).into_response()
+}
+
 async fn fs_copy_handler(
     State(state): State<SharedState>,
     headers: HeaderMap,
     Json(req): Json<FsMoveCopyReq>,
 ) -> Response {
-    if authenticate_user(&headers, &state).await.is_none() {
+    let Some(user) = authenticate_user(&headers, &state).await else {
         return (StatusCode::UNAUTHORIZED, Json(ApiResponse::<()>::error(401, "unauthorized"))).into_response();
-    }
-
+    };
+    if !permitted(&user, 6) || req.names.iter().any(|name| !valid_name(name)) { return permission_denied(); }
+    let (src_dir, dst_dir) = match (user_path(&user, &req.src_dir), user_path(&user, &req.dst_dir)) {
+        (Ok(src), Ok(dst)) => (src, dst),
+        _ => return permission_denied(),
+    };
     for name in req.names {
-        let src = format!("{}/{}", req.src_dir.trim_end_matches('/'), name);
-        let dst = format!("{}/{}", req.dst_dir.trim_end_matches('/'), name);
+        let src = format!("{}/{}", src_dir.trim_end_matches('/'), name);
+        let dst = format!("{}/{}", dst_dir.trim_end_matches('/'), name);
         if let Err(err) = state.storage.copy_to(&src, &dst).await {
             return (StatusCode::OK, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response();
         }
@@ -579,12 +694,16 @@ async fn fs_remove_handler(
     headers: HeaderMap,
     Json(req): Json<FsDirNamesReq>,
 ) -> Response {
-    if authenticate_user(&headers, &state).await.is_none() {
+    let Some(user) = authenticate_user(&headers, &state).await else {
         return (StatusCode::UNAUTHORIZED, Json(ApiResponse::<()>::error(401, "unauthorized"))).into_response();
-    }
-
+    };
+    if !permitted(&user, 7) || req.names.iter().any(|name| !valid_name(name)) { return permission_denied(); }
+    let dir = match user_path(&user, &req.dir) {
+        Ok(path) => path,
+        Err(_) => return permission_denied(),
+    };
     for name in req.names {
-        let target = format!("{}/{}", req.dir.trim_end_matches('/'), name);
+        let target = format!("{}/{}", dir.trim_end_matches('/'), name);
         if let Err(err) = state.storage.remove(&target).await {
             return (StatusCode::OK, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response();
         }
@@ -598,14 +717,20 @@ async fn fs_put_handler(
     headers: HeaderMap,
     request: Request,
 ) -> Response {
-    if authenticate_user(&headers, &state).await.is_none() {
+    let Some(user) = authenticate_user(&headers, &state).await else {
         return (StatusCode::UNAUTHORIZED, Json(ApiResponse::<()>::error(401, "unauthorized"))).into_response();
-    }
+    };
+    if !permitted(&user, 3) { return permission_denied(); }
 
     let file_path = match headers.get("File-Path").and_then(|h| h.to_str().ok()) {
-        Some(p) => p.to_string(),
+        Some(p) => percent_decode(p),
         None => return (StatusCode::BAD_REQUEST, Json(ApiResponse::<()>::error(400, "missing File-Path header"))).into_response(),
     };
+    let file_path = match user_path(&user, &file_path) {
+        Ok(path) => path,
+        Err(_) => return permission_denied(),
+    };
+    let overwrite = headers.get("Overwrite").and_then(|h| h.to_str().ok()) == Some("true");
 
     let body = request.into_body();
     // Stream body to file
@@ -619,27 +744,59 @@ async fn fs_put_handler(
         Err(err) => return (StatusCode::BAD_REQUEST, Json(ApiResponse::<()>::error(400, err.to_string()))).into_response(),
     };
 
+    if sub.is_empty() { return permission_denied(); }
+    if !overwrite && target.exists() {
+        return (StatusCode::CONFLICT, Json(ApiResponse::<()>::error(409, "file already exists"))).into_response();
+    }
     if let Some(parent) = target.parent() {
-        let _ = tokio::fs::create_dir_all(parent).await;
+        if let Err(err) = tokio::fs::create_dir_all(parent).await {
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response();
+        }
     }
 
     use futures_util::StreamExt;
     use tokio::io::AsyncWriteExt;
-    let mut file = match tokio::fs::File::create(&target).await {
+    let temp = target.with_file_name(format!(".rulist-upload-{}", crate::auth::rand_string(24)));
+    let mut file = match tokio::fs::OpenOptions::new().write(true).create_new(true).open(&temp).await {
         Ok(f) => f,
         Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response(),
     };
 
+    let max_upload_bytes: u64 = 100 * 1024 * 1024 * 1024; // 100 GB default safety limit
+    let mut uploaded_bytes: u64 = 0;
     let mut stream = body.into_data_stream();
     while let Some(chunk) = stream.next().await {
         match chunk {
             Ok(bytes) => {
+                uploaded_bytes += bytes.len() as u64;
+                if uploaded_bytes > max_upload_bytes {
+                    let _ = tokio::fs::remove_file(&temp).await;
+                    return (StatusCode::PAYLOAD_TOO_LARGE, Json(ApiResponse::<()>::error(413, "payload too large: maximum upload size exceeded"))).into_response();
+                }
                 if let Err(err) = file.write_all(&bytes).await {
+                    let _ = tokio::fs::remove_file(&temp).await;
                     return (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response();
                 }
             }
-            Err(err) => return (StatusCode::BAD_REQUEST, Json(ApiResponse::<()>::error(400, err.to_string()))).into_response(),
+            Err(err) => {
+                let _ = tokio::fs::remove_file(&temp).await;
+                return (StatusCode::BAD_REQUEST, Json(ApiResponse::<()>::error(400, err.to_string()))).into_response();
+            },
         }
+    }
+
+    if let Err(err) = file.flush().await {
+        let _ = tokio::fs::remove_file(&temp).await;
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response();
+    }
+    drop(file);
+    if !overwrite && target.exists() {
+        let _ = tokio::fs::remove_file(&temp).await;
+        return (StatusCode::CONFLICT, Json(ApiResponse::<()>::error(409, "file already exists"))).into_response();
+    }
+    if let Err(err) = tokio::fs::rename(&temp, &target).await {
+        let _ = tokio::fs::remove_file(&temp).await;
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response();
     }
 
     Json(ApiResponse::success(serde_json::Value::Null)).into_response()
@@ -674,18 +831,20 @@ async fn raw_preview_handler(
 
 fn percent_decode(s: &str) -> String {
     let mut bytes = Vec::with_capacity(s.len());
-    let mut chars = s.as_bytes().iter();
-    while let Some(&b) = chars.next() {
-        if b == b'%' {
-            if let (Some(&h1), Some(&h2)) = (chars.next(), chars.next()) {
-                let hex_str = [h1, h2];
-                if let Ok(byte) = u8::from_str_radix(std::str::from_utf8(&hex_str).unwrap_or(""), 16) {
+    let input = s.as_bytes();
+    let mut i = 0;
+    while i < input.len() {
+        if input[i] == b'%' && i + 2 < input.len() {
+            if let Ok(hex) = std::str::from_utf8(&input[i + 1..i + 3]) {
+                if let Ok(byte) = u8::from_str_radix(hex, 16) {
                     bytes.push(byte);
+                    i += 3;
                     continue;
                 }
             }
         }
-        bytes.push(b);
+        bytes.push(input[i]);
+        i += 1;
     }
     String::from_utf8_lossy(&bytes).into_owned()
 }
@@ -697,8 +856,7 @@ async fn stream_file(
     headers: HeaderMap,
     as_attachment: bool,
 ) -> Response {
-    let decoded = percent_decode(&raw_path);
-    let clean_path = format!("/{}", decoded.trim_start_matches('/'));
+    let clean_path = format!("/{}", raw_path.trim_start_matches('/'));
 
     // Check signature if sign_all is enabled or sign is provided
     let sign_all = get_setting(&state.pool, "sign_all")
@@ -718,6 +876,14 @@ async fn stream_file(
         let s = sign.unwrap_or_default();
         if let Err(_) = verify_sign(&token, &clean_path, &s) {
             return (StatusCode::FORBIDDEN, "Invalid or expired download link signature").into_response();
+        }
+    } else {
+        let Some(user) = authenticate_user(&headers, &state).await else {
+            return StatusCode::UNAUTHORIZED.into_response();
+        };
+        let base = user.base_path.trim_end_matches('/');
+        if !user.is_admin() && clean_path != base && !clean_path.starts_with(&format!("{base}/")) {
+            return StatusCode::FORBIDDEN.into_response();
         }
     }
 
@@ -745,11 +911,7 @@ async fn stream_file(
         .and_then(|s| s.to_str())
         .unwrap_or("file");
 
-    let disposition = if as_attachment {
-        format!("attachment; filename=\"{}\"", filename)
-    } else {
-        format!("inline; filename=\"{}\"", filename)
-    };
+    let disposition = safe_content_disposition(filename, as_attachment);
 
     // Range header handling
     let range_header = headers.get("range").and_then(|r| r.to_str().ok());
@@ -768,12 +930,12 @@ async fn stream_file(
             let h = resp.headers_mut();
             h.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
             h.insert(CONTENT_TYPE, HeaderValue::from_str(&content_type).unwrap_or(HeaderValue::from_static("application/octet-stream")));
-            h.insert(CONTENT_LENGTH, HeaderValue::from_str(&part_len.to_string()).unwrap());
+            h.insert(CONTENT_LENGTH, HeaderValue::from_str(&part_len.to_string()).unwrap_or(HeaderValue::from_static("0")));
             h.insert(
                 CONTENT_RANGE,
                 HeaderValue::from_str(&format!("bytes {}-{}/{}", start, end, file_size)).unwrap(),
             );
-            h.insert(CONTENT_DISPOSITION, HeaderValue::from_str(&disposition).unwrap());
+            h.insert(CONTENT_DISPOSITION, disposition.clone());
             return resp;
         }
     }
@@ -786,9 +948,21 @@ async fn stream_file(
     let h = resp.headers_mut();
     h.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
     h.insert(CONTENT_TYPE, HeaderValue::from_str(&content_type).unwrap_or(HeaderValue::from_static("application/octet-stream")));
-    h.insert(CONTENT_LENGTH, HeaderValue::from_str(&file_size.to_string()).unwrap());
-    h.insert(CONTENT_DISPOSITION, HeaderValue::from_str(&disposition).unwrap());
+    h.insert(CONTENT_LENGTH, HeaderValue::from_str(&file_size.to_string()).unwrap_or(HeaderValue::from_static("0")));
+    h.insert(CONTENT_DISPOSITION, disposition);
     resp
+}
+
+fn safe_content_disposition(filename: &str, as_attachment: bool) -> HeaderValue {
+    let disp_type = if as_attachment { "attachment" } else { "inline" };
+    let encoded = encode_url_path(filename);
+    let ascii_fallback: String = filename
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    let header_str = format!("{disp_type}; filename=\"{ascii_fallback}\"; filename*=UTF-8''{encoded}");
+    HeaderValue::from_str(&header_str)
+        .unwrap_or_else(|_| HeaderValue::from_static("attachment; filename=\"file\""))
 }
 
 fn parse_range(range: &str, total: u64) -> Option<(u64, u64)> {
@@ -1149,13 +1323,22 @@ async fn fs_batch_rename_handler(
     State(state): State<SharedState>,
     Json(req): Json<BatchRenameReq>,
 ) -> Response {
-    if authenticate_user(&headers, &state).await.is_none() {
+    let Some(user) = authenticate_user(&headers, &state).await else {
         return (StatusCode::OK, Json(ApiResponse::<()>::error(401, "Authentication required"))).into_response();
+    };
+    if !permitted(&user, 4) || req.rename_objects.iter().any(|item| !valid_name(&item.src_name) || !valid_name(&item.new_name)) {
+        return permission_denied();
     }
+    let src_dir = match user_path(&user, &req.src_dir) {
+        Ok(path) => path,
+        Err(_) => return permission_denied(),
+    };
 
     for item in req.rename_objects {
-        let src_path = format!("{}/{}", req.src_dir.trim_end_matches('/'), item.src_name.trim_start_matches('/'));
-        let _ = state.storage.rename(&src_path, &item.new_name).await;
+        let src_path = format!("{}/{}", src_dir.trim_end_matches('/'), item.src_name);
+        if let Err(err) = state.storage.rename(&src_path, &item.new_name).await {
+            return Json(ApiResponse::<()>::error(500, err.to_string())).into_response();
+        }
     }
     Json(ApiResponse::success(())).into_response()
 }
@@ -1165,9 +1348,9 @@ async fn fs_link_handler(
     State(state): State<SharedState>,
     Json(req): Json<FsLinkReq>,
 ) -> Response {
-    if authenticate_user(&headers, &state).await.is_none() {
+    let Some(user) = authenticate_user(&headers, &state).await else {
         return (StatusCode::OK, Json(ApiResponse::<()>::error(401, "Authentication required"))).into_response();
-    }
+    };
 
     let token = get_setting(&state.pool, "token")
         .await
@@ -1175,9 +1358,12 @@ async fn fs_link_handler(
         .flatten()
         .unwrap_or_default();
 
-    let clean_path = format!("/{}", req.path.trim_start_matches('/'));
+    let clean_path = match user_path(&user, &req.path) {
+        Ok(path) => path,
+        Err(_) => return permission_denied(),
+    };
     let sign = sign_path(&token, &clean_path);
-    let url = format!("/d{}?sign={}", clean_path, sign);
+    let url = format!("/d{}?sign={}", encode_url_path(&clean_path), sign);
     Json(ApiResponse::success(FsLinkResp { url })).into_response()
 }
 
@@ -1204,4 +1390,26 @@ async fn shutdown_signal() {
         _ = terminate => {},
     }
     info!("shutting down gracefully...");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_paths_stay_under_base_and_permissions_are_enforced() {
+        let user = User {
+            id: 2, username: "alice".into(), pwd_hash: String::new(), pwd_ts: 0,
+            salt: String::new(), password: None, base_path: "/.users/2".into(),
+            role: 0, disabled: false, permission: 0, otp_secret: None, sso_id: None,
+        };
+        assert_eq!(user_path(&user, "/secret.txt").unwrap(), "/.users/2/secret.txt");
+        assert_eq!(user_path(&user, "/").unwrap(), "/.users/2");
+        assert!(user_path(&user, "../Local/secret.txt").is_err());
+        assert!(!permitted(&user, 3));
+        assert!(!permitted(&user, 7));
+        assert!(!valid_name(""));
+        assert!(!valid_name("../Local"));
+        assert_eq!(encode_url_path("/a/hello #%.txt"), "/a/hello%20%23%25.txt");
+    }
 }
