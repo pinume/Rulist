@@ -1,6 +1,6 @@
-use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
+use std::path::PathBuf;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -14,10 +14,21 @@ mod sign;
 mod static_files;
 
 #[derive(Parser, Debug)]
-#[command(name = "rulist", author, version = "0.1.0", about = "A lightweight, high-performance file listing tool written in Rust (Rulist)")]
+#[command(
+    name = "rulist",
+    author,
+    version = "0.1.0",
+    about = "A lightweight, high-performance file listing tool written in Rust (Rulist)"
+)]
 struct Cli {
     /// Data directory path
-    #[arg(short, long, global = true, env = "RULIST_DATA_DIR", default_value = "data")]
+    #[arg(
+        short,
+        long,
+        global = true,
+        env = "RULIST_DATA_DIR",
+        default_value = "data"
+    )]
     data_dir: PathBuf,
 
     /// Enable debug log level
@@ -63,9 +74,7 @@ enum AdminSubcommand {
     /// Reset admin password to a random string
     Random,
     /// Set admin password
-    Set {
-        password: String,
-    },
+    Set { password: String },
     /// Show admin token
     Token,
 }
@@ -82,7 +91,9 @@ async fn main() -> Result<()> {
     };
 
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| filter.into()))
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| filter.into()),
+        )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
@@ -95,7 +106,11 @@ async fn main() -> Result<()> {
     match command {
         Commands::Version => {
             println!("Version: v{}", env!("CARGO_PKG_VERSION"));
-            println!("OS/Arch: {}/{}", std::env::consts::OS, std::env::consts::ARCH);
+            println!(
+                "OS/Arch: {}/{}",
+                std::env::consts::OS,
+                std::env::consts::ARCH
+            );
         }
         Commands::Admin(admin_args) => {
             let (config, _) = config::Config::load_or_create(&cli.data_dir)?;
@@ -106,9 +121,15 @@ async fn main() -> Result<()> {
                 None => {
                     if let Some(admin) = db::get_admin(&pool).await? {
                         println!("Admin user's username: {}", admin.username);
-                        println!("The password can only be output at the first startup, and then stored as a hash value, which cannot be reversed");
-                        println!("You can reset the password with a random string by running [rulist admin random]");
-                        println!("You can also set a new password by running [rulist admin set NEW_PASSWORD]");
+                        println!(
+                            "The password can only be output at the first startup, and then stored as a hash value, which cannot be reversed"
+                        );
+                        println!(
+                            "You can reset the password with a random string by running [rulist admin random]"
+                        );
+                        println!(
+                            "You can also set a new password by running [rulist admin set NEW_PASSWORD]"
+                        );
                     } else {
                         eprintln!("Admin user not found in database");
                     }

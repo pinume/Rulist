@@ -1,29 +1,22 @@
+use crate::auth::rand_string;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
-use crate::auth::rand_string;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
     #[serde(default = "default_db_file")]
     pub db_file: String,
-    #[serde(default = "default_table_prefix")]
-    pub table_prefix: String,
 }
 
 fn default_db_file() -> String {
     "data.db".to_string()
 }
 
-fn default_table_prefix() -> String {
-    "x_".to_string()
-}
-
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
             db_file: default_db_file(),
-            table_prefix: default_table_prefix(),
         }
     }
 }
@@ -34,8 +27,6 @@ pub struct SchemeConfig {
     pub address: String,
     #[serde(default = "default_http_port")]
     pub http_port: u16,
-    #[serde(default)]
-    pub unix_file: String,
 }
 
 fn default_address() -> String {
@@ -51,39 +42,6 @@ impl Default for SchemeConfig {
         Self {
             address: default_address(),
             http_port: default_http_port(),
-            unix_file: String::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LogConfig {
-    #[serde(default = "default_true")]
-    pub enable: bool,
-    #[serde(default = "default_log_name")]
-    pub name: String,
-    #[serde(default = "default_max_size")]
-    pub max_size: usize,
-}
-
-fn default_true() -> bool {
-    true
-}
-
-fn default_log_name() -> String {
-    "log/log.log".to_string()
-}
-
-fn default_max_size() -> usize {
-    50
-}
-
-impl Default for LogConfig {
-    fn default() -> Self {
-        Self {
-            enable: default_true(),
-            name: default_log_name(),
-            max_size: default_max_size(),
         }
     }
 }
@@ -98,10 +56,6 @@ pub struct Config {
     pub database: DatabaseConfig,
     #[serde(default)]
     pub scheme: SchemeConfig,
-    #[serde(default = "default_temp_dir")]
-    pub temp_dir: String,
-    #[serde(default)]
-    pub log: LogConfig,
 }
 
 fn default_jwt_secret() -> String {
@@ -112,10 +66,6 @@ fn default_token_expires_in() -> u32 {
     48
 }
 
-fn default_temp_dir() -> String {
-    "temp".to_string()
-}
-
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -123,8 +73,6 @@ impl Default for Config {
             token_expires_in: default_token_expires_in(),
             database: DatabaseConfig::default(),
             scheme: SchemeConfig::default(),
-            temp_dir: default_temp_dir(),
-            log: LogConfig::default(),
         }
     }
 }

@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 
+use axum::Router;
 use axum::body::Body;
 use axum::extract::{Path as AxumPath, Query, Request, State};
 use axum::http::header::{
@@ -10,23 +11,22 @@ use axum::http::header::{
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post, put};
-use axum::Router;
 use serde::Deserialize;
+use subtle::ConstantTimeEq;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
 use tokio_util::io::ReaderStream;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
-use subtle::ConstantTimeEq;
 use tracing::info;
 
 use crate::auth::{generate_jwt, parse_jwt, verify_password, verify_password_static_hash};
 use crate::config::Config;
-use crate::db::{get_admin, get_public_settings, get_setting, get_user_by_name, DbPool};
+use crate::db::{DbPool, get_admin, get_public_settings, get_setting, get_user_by_name};
 use crate::driver::{SharedStorageManager, StorageManager};
 use crate::model::{
-    sort_files, AdminUserSaveReq, ApiResponse, BatchRenameReq, DirItem, FsDirNamesReq, FsDirsReq,
-    FsGetReq, FsLinkReq, FsLinkResp, FsListReq, FsListResp, FsMoveCopyReq, FsRenameReq, LoginReq,
-    UpdateCurrentReq, User, UserWithMount,
+    AdminUserSaveReq, ApiResponse, BatchRenameReq, DirItem, FsDirNamesReq, FsDirsReq, FsGetReq,
+    FsLinkReq, FsLinkResp, FsListReq, FsListResp, FsMoveCopyReq, FsRenameReq, LoginReq,
+    UpdateCurrentReq, User, UserWithMount, sort_files,
 };
 use crate::sign::{sign_path, verify_sign};
 
@@ -60,16 +60,34 @@ pub async fn run_server(
         .route("/favicon.ico", get(crate::static_files::favicon_handler))
         .route("/robots.txt", get(crate::static_files::robots_handler))
         .route("/manifest.json", get(crate::static_files::manifest_handler))
-        .route("/tinylist.svg", get(crate::static_files::dist_assets_handler))
-        .route("/tinylist.png", get(crate::static_files::dist_assets_handler))
+        .route(
+            "/tinylist.svg",
+            get(crate::static_files::dist_assets_handler),
+        )
+        .route(
+            "/tinylist.png",
+            get(crate::static_files::dist_assets_handler),
+        )
         .route("/rulist.svg", get(crate::static_files::dist_assets_handler))
         .route("/rulist.png", get(crate::static_files::dist_assets_handler))
         // Static assets from frontend dist
-        .route("/assets/{*path}", get(crate::static_files::dist_assets_handler))
-        .route("/static/{*path}", get(crate::static_files::dist_assets_handler))
-        .route("/streamer/{*path}", get(crate::static_files::dist_assets_handler))
+        .route(
+            "/assets/{*path}",
+            get(crate::static_files::dist_assets_handler),
+        )
+        .route(
+            "/static/{*path}",
+            get(crate::static_files::dist_assets_handler),
+        )
+        .route(
+            "/streamer/{*path}",
+            get(crate::static_files::dist_assets_handler),
+        )
         // Settings
-        .route("/api/public/settings", get(public_settings_handler).post(public_settings_handler))
+        .route(
+            "/api/public/settings",
+            get(public_settings_handler).post(public_settings_handler),
+        )
         // Authentication
         .route("/api/auth/login", post(login_handler))
         .route("/api/auth/login/hash", post(login_hash_handler))
@@ -98,11 +116,23 @@ pub async fn run_server(
         .route("/api/admin/user/get", get(admin_user_get_handler))
         .route("/api/admin/user/create", post(admin_user_create_handler))
         .route("/api/admin/user/update", post(admin_user_update_handler))
-        .route("/api/admin/user/delete", post(admin_user_delete_handler).get(admin_user_delete_handler))
-        .route("/api/admin/user/cancel_2fa", post(admin_user_cancel_2fa_handler).get(admin_user_cancel_2fa_handler))
+        .route(
+            "/api/admin/user/delete",
+            post(admin_user_delete_handler).get(admin_user_delete_handler),
+        )
+        .route(
+            "/api/admin/user/cancel_2fa",
+            post(admin_user_cancel_2fa_handler).get(admin_user_cancel_2fa_handler),
+        )
         // Direct download & streaming
-        .route("/d/{*path}", get(raw_download_handler).head(raw_download_handler))
-        .route("/p/{*path}", get(raw_preview_handler).head(raw_preview_handler))
+        .route(
+            "/d/{*path}",
+            get(raw_download_handler).head(raw_download_handler),
+        )
+        .route(
+            "/p/{*path}",
+            get(raw_preview_handler).head(raw_preview_handler),
+        )
         // SPA Fallback for all other routes
         .fallback(crate::static_files::spa_fallback_handler)
         .layer(tower_http::compression::CompressionLayer::new())
@@ -110,7 +140,8 @@ pub async fn run_server(
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    let addr: SocketAddr = format!("{}:{}", config.scheme.address, config.scheme.http_port).parse()?;
+    let addr: SocketAddr =
+        format!("{}:{}", config.scheme.address, config.scheme.http_port).parse()?;
     info!("start HTTP server @ {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -120,7 +151,6 @@ pub async fn run_server(
 
     Ok(())
 }
-
 
 async fn public_settings_handler(State(state): State<SharedState>) -> Response {
     match get_public_settings(&state.pool).await {
@@ -137,10 +167,7 @@ async fn public_settings_handler(State(state): State<SharedState>) -> Response {
 // Authentication Handlers
 // ---------------------------------------------------------------------------
 
-async fn login_handler(
-    State(state): State<SharedState>,
-    Json(req): Json<LoginReq>,
-) -> Response {
+async fn login_handler(State(state): State<SharedState>, Json(req): Json<LoginReq>) -> Response {
     let user = match get_user_by_name(&state.pool, &req.username).await {
         Ok(Some(u)) => u,
         Ok(None) => {
@@ -148,14 +175,14 @@ async fn login_handler(
                 StatusCode::OK,
                 Json(ApiResponse::<()>::error(400, "user not found")),
             )
-                .into_response()
+                .into_response();
         }
         Err(err) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ApiResponse::<()>::error(500, err.to_string())),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -170,7 +197,10 @@ async fn login_handler(
     if !verify_password(&req.password, &user.pwd_hash, &user.salt) {
         return (
             StatusCode::OK,
-            Json(ApiResponse::<()>::error(400, "invalid username or password")),
+            Json(ApiResponse::<()>::error(
+                400,
+                "invalid username or password",
+            )),
         )
             .into_response();
     }
@@ -204,14 +234,14 @@ async fn login_hash_handler(
                 StatusCode::OK,
                 Json(ApiResponse::<()>::error(400, "user not found")),
             )
-                .into_response()
+                .into_response();
         }
         Err(err) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ApiResponse::<()>::error(500, err.to_string())),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -226,7 +256,10 @@ async fn login_hash_handler(
     if !verify_password_static_hash(&req.password, &user.pwd_hash, &user.salt) {
         return (
             StatusCode::OK,
-            Json(ApiResponse::<()>::error(400, "invalid username or password")),
+            Json(ApiResponse::<()>::error(
+                400,
+                "invalid username or password",
+            )),
         )
             .into_response();
     }
@@ -275,14 +308,20 @@ async fn update_current_handler(
             if cur_pwd.is_empty() {
                 return (
                     StatusCode::OK,
-                    Json(ApiResponse::<()>::error(400, "Current password is required")),
+                    Json(ApiResponse::<()>::error(
+                        400,
+                        "Current password is required",
+                    )),
                 )
                     .into_response();
             }
             if !verify_password(cur_pwd, &user.pwd_hash, &user.salt) {
                 return (
                     StatusCode::OK,
-                    Json(ApiResponse::<()>::error(403, "Current password is incorrect")),
+                    Json(ApiResponse::<()>::error(
+                        403,
+                        "Current password is incorrect",
+                    )),
                 )
                     .into_response();
             }
@@ -296,14 +335,15 @@ async fn update_current_handler(
                 .as_secs() as i64;
 
             if let Err(e) = sqlx::query(
-                "UPDATE `x_users` SET `pwd_hash` = ?, `salt` = ?, `pwd_ts` = ? WHERE `id` = ?"
+                "UPDATE `x_users` SET `pwd_hash` = ?, `salt` = ?, `pwd_ts` = ? WHERE `id` = ?",
             )
             .bind(&encoded_pwd)
             .bind(&salt)
             .bind(now_ts)
             .bind(user.id)
             .execute(&state.pool)
-            .await {
+            .await
+            {
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ApiResponse::<()>::error(500, e.to_string())),
@@ -320,13 +360,14 @@ async fn update_current_handler(
                 .bind(new_name)
                 .bind(user.id)
                 .execute(&state.pool)
-                .await {
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ApiResponse::<()>::error(500, e.to_string())),
-                    )
-                        .into_response();
-                }
+                .await
+            {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ApiResponse::<()>::error(500, e.to_string())),
+                )
+                    .into_response();
+            }
         }
     }
 
@@ -346,7 +387,10 @@ async fn authenticate_user(headers: &HeaderMap, state: &AppState) -> Option<User
 
     // Parse JWT
     let claims = parse_jwt(token, &state.config.jwt_secret).ok()?;
-    let user = get_user_by_name(&state.pool, &claims.username).await.ok().flatten()?;
+    let user = get_user_by_name(&state.pool, &claims.username)
+        .await
+        .ok()
+        .flatten()?;
 
     if user.disabled || user.pwd_ts != claims.pwd_ts {
         return None;
@@ -356,13 +400,20 @@ async fn authenticate_user(headers: &HeaderMap, state: &AppState) -> Option<User
 }
 
 fn user_path(user: &User, requested: &str) -> Result<String, &'static str> {
-    if requested.split(['/', '\\']).any(|part| part == "." || part == "..") {
+    if requested
+        .split(['/', '\\'])
+        .any(|part| part == "." || part == "..")
+    {
         return Err("invalid path");
     }
     let relative = requested.trim_start_matches('/');
     let base = user.base_path.trim_end_matches('/');
     Ok(if relative.is_empty() {
-        if base.is_empty() { "/".to_string() } else { base.to_string() }
+        if base.is_empty() {
+            "/".to_string()
+        } else {
+            base.to_string()
+        }
     } else {
         format!("{base}/{relative}")
     })
@@ -392,10 +443,7 @@ fn permission_denied() -> Response {
     Json(ApiResponse::<()>::error(403, "Permission denied")).into_response()
 }
 
-async fn current_user_handler(
-    State(state): State<SharedState>,
-    headers: HeaderMap,
-) -> Response {
+async fn current_user_handler(State(state): State<SharedState>, headers: HeaderMap) -> Response {
     if let Some(user) = authenticate_user(&headers, &state).await {
         Json(ApiResponse::success(user)).into_response()
     } else {
@@ -511,7 +559,11 @@ async fn fs_dirs_handler(
     if req.force_root && !user.is_admin() {
         return permission_denied();
     }
-    let path = if req.force_root { Ok("/".to_string()) } else { user_path(&user, &req.path) };
+    let path = if req.force_root {
+        Ok("/".to_string())
+    } else {
+        user_path(&user, &req.path)
+    };
     let path = match path {
         Ok(path) => path,
         Err(_) => return permission_denied(),
@@ -549,16 +601,29 @@ async fn fs_mkdir_handler(
     Json(req): Json<serde_json::Value>,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
-        return (StatusCode::UNAUTHORIZED, Json(ApiResponse::<()>::error(401, "unauthorized"))).into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(ApiResponse::<()>::error(401, "unauthorized")),
+        )
+            .into_response();
     };
-    if !permitted(&user, 3) { return permission_denied(); }
-    let path = match user_path(&user, req.get("path").and_then(|v| v.as_str()).unwrap_or("")) {
+    if !permitted(&user, 3) {
+        return permission_denied();
+    }
+    let path = match user_path(
+        &user,
+        req.get("path").and_then(|v| v.as_str()).unwrap_or(""),
+    ) {
         Ok(path) => path,
         Err(_) => return permission_denied(),
     };
     match state.storage.mkdir(&path).await {
         Ok(_) => Json(ApiResponse::success(serde_json::Value::Null)).into_response(),
-        Err(err) => (StatusCode::OK, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response(),
+        Err(err) => (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(500, err.to_string())),
+        )
+            .into_response(),
     }
 }
 
@@ -568,16 +633,26 @@ async fn fs_rename_handler(
     Json(req): Json<FsRenameReq>,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
-        return (StatusCode::UNAUTHORIZED, Json(ApiResponse::<()>::error(401, "unauthorized"))).into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(ApiResponse::<()>::error(401, "unauthorized")),
+        )
+            .into_response();
     };
-    if !permitted(&user, 4) || !valid_name(&req.name) { return permission_denied(); }
+    if !permitted(&user, 4) || !valid_name(&req.name) {
+        return permission_denied();
+    }
     let path = match user_path(&user, &req.path) {
         Ok(path) => path,
         Err(_) => return permission_denied(),
     };
     match state.storage.rename(&path, &req.name).await {
         Ok(_) => Json(ApiResponse::success(serde_json::Value::Null)).into_response(),
-        Err(err) => (StatusCode::OK, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response(),
+        Err(err) => (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(500, err.to_string())),
+        )
+            .into_response(),
     }
 }
 
@@ -587,10 +662,19 @@ async fn fs_move_handler(
     Json(req): Json<FsMoveCopyReq>,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
-        return (StatusCode::UNAUTHORIZED, Json(ApiResponse::<()>::error(401, "unauthorized"))).into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(ApiResponse::<()>::error(401, "unauthorized")),
+        )
+            .into_response();
     };
-    if !permitted(&user, 5) || req.names.iter().any(|name| !valid_name(name)) { return permission_denied(); }
-    let (src_dir, dst_dir) = match (user_path(&user, &req.src_dir), user_path(&user, &req.dst_dir)) {
+    if !permitted(&user, 5) || req.names.iter().any(|name| !valid_name(name)) {
+        return permission_denied();
+    }
+    let (src_dir, dst_dir) = match (
+        user_path(&user, &req.src_dir),
+        user_path(&user, &req.dst_dir),
+    ) {
         (Ok(src), Ok(dst)) => (src, dst),
         _ => return permission_denied(),
     };
@@ -598,7 +682,11 @@ async fn fs_move_handler(
         let src = format!("{}/{}", src_dir.trim_end_matches('/'), name);
         let dst = format!("{}/{}", dst_dir.trim_end_matches('/'), name);
         if let Err(err) = state.storage.move_to(&src, &dst).await {
-            return (StatusCode::OK, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response();
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(500, err.to_string())),
+            )
+                .into_response();
         }
     }
 
@@ -620,15 +708,23 @@ async fn fs_recursive_move_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return Json(ApiResponse::<()>::error(401, "Authentication required")).into_response();
     };
-    if !permitted(&user, 5) { return permission_denied(); }
-    let (src_dir, dst_dir) = match (user_path(&user, &req.src_dir), user_path(&user, &req.dst_dir)) {
+    if !permitted(&user, 5) {
+        return permission_denied();
+    }
+    let (src_dir, dst_dir) = match (
+        user_path(&user, &req.src_dir),
+        user_path(&user, &req.dst_dir),
+    ) {
         (Ok(src), Ok(dst)) => (src, dst),
         _ => return permission_denied(),
     };
     if src_dir == dst_dir || dst_dir.starts_with(&format!("{}/", src_dir.trim_end_matches('/'))) {
-        return Json(ApiResponse::<()>::error(400, "invalid destination" )).into_response();
+        return Json(ApiResponse::<()>::error(400, "invalid destination")).into_response();
     }
-    if !matches!(req.conflict_policy.as_str(), "cancel" | "overwrite" | "skip") {
+    if !matches!(
+        req.conflict_policy.as_str(),
+        "cancel" | "overwrite" | "skip"
+    ) {
         return Json(ApiResponse::<()>::error(400, "invalid conflict policy")).into_response();
     }
 
@@ -637,24 +733,39 @@ async fn fs_recursive_move_handler(
     while let Some(dir) = dirs.pop() {
         let entries = match state.storage.list(&dir).await {
             Ok(entries) => entries,
-            Err(err) => return Json(ApiResponse::<()>::error(500, err.to_string())).into_response(),
+            Err(err) => {
+                return Json(ApiResponse::<()>::error(500, err.to_string())).into_response();
+            }
         };
         for entry in entries {
             let path = format!("{}/{}", dir.trim_end_matches('/'), entry.name);
-            if entry.is_dir { dirs.push(path); } else { files.push((path, entry.name)); }
+            if entry.is_dir {
+                dirs.push(path);
+            } else {
+                files.push((path, entry.name));
+            }
         }
     }
     let mut existing = match state.storage.list(&dst_dir).await {
-        Ok(entries) => entries.into_iter().map(|entry| entry.name).collect::<std::collections::HashSet<_>>(),
+        Ok(entries) => entries
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect::<std::collections::HashSet<_>>(),
         Err(err) => return Json(ApiResponse::<()>::error(500, err.to_string())).into_response(),
     };
     let mut moves = Vec::new();
     for (src, name) in files {
         let conflict = !existing.insert(name.clone());
         if conflict && req.conflict_policy == "cancel" {
-            return Json(ApiResponse::<()>::error(403, format!("file [{name}] exists"))).into_response();
+            return Json(ApiResponse::<()>::error(
+                403,
+                format!("file [{name}] exists"),
+            ))
+            .into_response();
         }
-        if conflict && req.conflict_policy == "skip" { continue; }
+        if conflict && req.conflict_policy == "skip" {
+            continue;
+        }
         moves.push((src, format!("{}/{}", dst_dir.trim_end_matches('/'), name)));
     }
     for (src, dst) in moves {
@@ -671,10 +782,19 @@ async fn fs_copy_handler(
     Json(req): Json<FsMoveCopyReq>,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
-        return (StatusCode::UNAUTHORIZED, Json(ApiResponse::<()>::error(401, "unauthorized"))).into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(ApiResponse::<()>::error(401, "unauthorized")),
+        )
+            .into_response();
     };
-    if !permitted(&user, 6) || req.names.iter().any(|name| !valid_name(name)) { return permission_denied(); }
-    let (src_dir, dst_dir) = match (user_path(&user, &req.src_dir), user_path(&user, &req.dst_dir)) {
+    if !permitted(&user, 6) || req.names.iter().any(|name| !valid_name(name)) {
+        return permission_denied();
+    }
+    let (src_dir, dst_dir) = match (
+        user_path(&user, &req.src_dir),
+        user_path(&user, &req.dst_dir),
+    ) {
         (Ok(src), Ok(dst)) => (src, dst),
         _ => return permission_denied(),
     };
@@ -682,7 +802,11 @@ async fn fs_copy_handler(
         let src = format!("{}/{}", src_dir.trim_end_matches('/'), name);
         let dst = format!("{}/{}", dst_dir.trim_end_matches('/'), name);
         if let Err(err) = state.storage.copy_to(&src, &dst).await {
-            return (StatusCode::OK, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response();
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(500, err.to_string())),
+            )
+                .into_response();
         }
     }
 
@@ -695,9 +819,15 @@ async fn fs_remove_handler(
     Json(req): Json<FsDirNamesReq>,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
-        return (StatusCode::UNAUTHORIZED, Json(ApiResponse::<()>::error(401, "unauthorized"))).into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(ApiResponse::<()>::error(401, "unauthorized")),
+        )
+            .into_response();
     };
-    if !permitted(&user, 7) || req.names.iter().any(|name| !valid_name(name)) { return permission_denied(); }
+    if !permitted(&user, 7) || req.names.iter().any(|name| !valid_name(name)) {
+        return permission_denied();
+    }
     let dir = match user_path(&user, &req.dir) {
         Ok(path) => path,
         Err(_) => return permission_denied(),
@@ -705,7 +835,11 @@ async fn fs_remove_handler(
     for name in req.names {
         let target = format!("{}/{}", dir.trim_end_matches('/'), name);
         if let Err(err) = state.storage.remove(&target).await {
-            return (StatusCode::OK, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response();
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(500, err.to_string())),
+            )
+                .into_response();
         }
     }
 
@@ -718,13 +852,25 @@ async fn fs_put_handler(
     request: Request,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
-        return (StatusCode::UNAUTHORIZED, Json(ApiResponse::<()>::error(401, "unauthorized"))).into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(ApiResponse::<()>::error(401, "unauthorized")),
+        )
+            .into_response();
     };
-    if !permitted(&user, 3) { return permission_denied(); }
+    if !permitted(&user, 3) {
+        return permission_denied();
+    }
 
     let file_path = match headers.get("File-Path").and_then(|h| h.to_str().ok()) {
         Some(p) => percent_decode(p),
-        None => return (StatusCode::BAD_REQUEST, Json(ApiResponse::<()>::error(400, "missing File-Path header"))).into_response(),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ApiResponse::<()>::error(400, "missing File-Path header")),
+            )
+                .into_response();
+        }
     };
     let file_path = match user_path(&user, &file_path) {
         Ok(path) => path,
@@ -736,30 +882,63 @@ async fn fs_put_handler(
     // Stream body to file
     let (ms, sub) = match state.storage.find_storage(&file_path) {
         Some(m) => m,
-        None => return (StatusCode::NOT_FOUND, Json(ApiResponse::<()>::error(404, "storage not found"))).into_response(),
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ApiResponse::<()>::error(404, "storage not found")),
+            )
+                .into_response();
+        }
     };
 
     let target = match ms.driver.safe_resolve(&sub) {
         Ok(t) => t,
-        Err(err) => return (StatusCode::BAD_REQUEST, Json(ApiResponse::<()>::error(400, err.to_string()))).into_response(),
+        Err(err) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ApiResponse::<()>::error(400, err.to_string())),
+            )
+                .into_response();
+        }
     };
 
-    if sub.is_empty() { return permission_denied(); }
+    if sub.is_empty() {
+        return permission_denied();
+    }
     if !overwrite && target.exists() {
-        return (StatusCode::CONFLICT, Json(ApiResponse::<()>::error(409, "file already exists"))).into_response();
+        return (
+            StatusCode::CONFLICT,
+            Json(ApiResponse::<()>::error(409, "file already exists")),
+        )
+            .into_response();
     }
     if let Some(parent) = target.parent() {
         if let Err(err) = tokio::fs::create_dir_all(parent).await {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::<()>::error(500, err.to_string())),
+            )
+                .into_response();
         }
     }
 
     use futures_util::StreamExt;
     use tokio::io::AsyncWriteExt;
     let temp = target.with_file_name(format!(".rulist-upload-{}", crate::auth::rand_string(24)));
-    let mut file = match tokio::fs::OpenOptions::new().write(true).create_new(true).open(&temp).await {
+    let mut file = match tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)
+        .await
+    {
         Ok(f) => f,
-        Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response(),
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::<()>::error(500, err.to_string())),
+            )
+                .into_response();
+        }
     };
 
     let max_upload_bytes: u64 = 100 * 1024 * 1024 * 1024; // 100 GB default safety limit
@@ -771,32 +950,59 @@ async fn fs_put_handler(
                 uploaded_bytes += bytes.len() as u64;
                 if uploaded_bytes > max_upload_bytes {
                     let _ = tokio::fs::remove_file(&temp).await;
-                    return (StatusCode::PAYLOAD_TOO_LARGE, Json(ApiResponse::<()>::error(413, "payload too large: maximum upload size exceeded"))).into_response();
+                    return (
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        Json(ApiResponse::<()>::error(
+                            413,
+                            "payload too large: maximum upload size exceeded",
+                        )),
+                    )
+                        .into_response();
                 }
                 if let Err(err) = file.write_all(&bytes).await {
                     let _ = tokio::fs::remove_file(&temp).await;
-                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response();
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ApiResponse::<()>::error(500, err.to_string())),
+                    )
+                        .into_response();
                 }
             }
             Err(err) => {
                 let _ = tokio::fs::remove_file(&temp).await;
-                return (StatusCode::BAD_REQUEST, Json(ApiResponse::<()>::error(400, err.to_string()))).into_response();
-            },
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiResponse::<()>::error(400, err.to_string())),
+                )
+                    .into_response();
+            }
         }
     }
 
     if let Err(err) = file.flush().await {
         let _ = tokio::fs::remove_file(&temp).await;
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::<()>::error(500, err.to_string())),
+        )
+            .into_response();
     }
     drop(file);
     if !overwrite && target.exists() {
         let _ = tokio::fs::remove_file(&temp).await;
-        return (StatusCode::CONFLICT, Json(ApiResponse::<()>::error(409, "file already exists"))).into_response();
+        return (
+            StatusCode::CONFLICT,
+            Json(ApiResponse::<()>::error(409, "file already exists")),
+        )
+            .into_response();
     }
     if let Err(err) = tokio::fs::rename(&temp, &target).await {
         let _ = tokio::fs::remove_file(&temp).await;
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::<()>::error(500, err.to_string())),
+        )
+            .into_response();
     }
 
     Json(ApiResponse::success(serde_json::Value::Null)).into_response()
@@ -875,7 +1081,11 @@ async fn stream_file(
 
         let s = sign.unwrap_or_default();
         if let Err(_) = verify_sign(&token, &clean_path, &s) {
-            return (StatusCode::FORBIDDEN, "Invalid or expired download link signature").into_response();
+            return (
+                StatusCode::FORBIDDEN,
+                "Invalid or expired download link signature",
+            )
+                .into_response();
         }
     } else {
         let Some(user) = authenticate_user(&headers, &state).await else {
@@ -894,11 +1104,21 @@ async fn stream_file(
 
     let meta = match file.metadata().await {
         Ok(m) => m,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to read file metadata").into_response(),
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to read file metadata",
+            )
+                .into_response();
+        }
     };
 
     if meta.is_dir() {
-        return (StatusCode::BAD_REQUEST, "Cannot download directory directly").into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            "Cannot download directory directly",
+        )
+            .into_response();
     }
 
     let file_size = meta.len();
@@ -920,7 +1140,8 @@ async fn stream_file(
         if let Some((start, end)) = parse_range(range_val, file_size) {
             let part_len = end - start + 1;
             if file.seek(SeekFrom::Start(start)).await.is_err() {
-                return (StatusCode::RANGE_NOT_SATISFIABLE, "Range Not Satisfiable").into_response();
+                return (StatusCode::RANGE_NOT_SATISFIABLE, "Range Not Satisfiable")
+                    .into_response();
             }
 
             let stream = ReaderStream::new(file.take(part_len));
@@ -929,8 +1150,16 @@ async fn stream_file(
             let mut resp = (StatusCode::PARTIAL_CONTENT, body).into_response();
             let h = resp.headers_mut();
             h.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-            h.insert(CONTENT_TYPE, HeaderValue::from_str(&content_type).unwrap_or(HeaderValue::from_static("application/octet-stream")));
-            h.insert(CONTENT_LENGTH, HeaderValue::from_str(&part_len.to_string()).unwrap_or(HeaderValue::from_static("0")));
+            h.insert(
+                CONTENT_TYPE,
+                HeaderValue::from_str(&content_type)
+                    .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+            );
+            h.insert(
+                CONTENT_LENGTH,
+                HeaderValue::from_str(&part_len.to_string())
+                    .unwrap_or(HeaderValue::from_static("0")),
+            );
             h.insert(
                 CONTENT_RANGE,
                 HeaderValue::from_str(&format!("bytes {}-{}/{}", start, end, file_size)).unwrap(),
@@ -947,20 +1176,38 @@ async fn stream_file(
     let mut resp = (StatusCode::OK, body).into_response();
     let h = resp.headers_mut();
     h.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-    h.insert(CONTENT_TYPE, HeaderValue::from_str(&content_type).unwrap_or(HeaderValue::from_static("application/octet-stream")));
-    h.insert(CONTENT_LENGTH, HeaderValue::from_str(&file_size.to_string()).unwrap_or(HeaderValue::from_static("0")));
+    h.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_str(&content_type)
+            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+    );
+    h.insert(
+        CONTENT_LENGTH,
+        HeaderValue::from_str(&file_size.to_string()).unwrap_or(HeaderValue::from_static("0")),
+    );
     h.insert(CONTENT_DISPOSITION, disposition);
     resp
 }
 
 fn safe_content_disposition(filename: &str, as_attachment: bool) -> HeaderValue {
-    let disp_type = if as_attachment { "attachment" } else { "inline" };
+    let disp_type = if as_attachment {
+        "attachment"
+    } else {
+        "inline"
+    };
     let encoded = encode_url_path(filename);
     let ascii_fallback: String = filename
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
-    let header_str = format!("{disp_type}; filename=\"{ascii_fallback}\"; filename*=UTF-8''{encoded}");
+    let header_str =
+        format!("{disp_type}; filename=\"{ascii_fallback}\"; filename*=UTF-8''{encoded}");
     HeaderValue::from_str(&header_str)
         .unwrap_or_else(|_| HeaderValue::from_static("attachment; filename=\"file\""))
 }
@@ -1004,23 +1251,38 @@ struct IdQuery {
     id: Option<i64>,
 }
 
-async fn admin_user_list_handler(
-    headers: HeaderMap,
-    State(state): State<SharedState>,
-) -> Response {
+async fn admin_user_list_handler(headers: HeaderMap, State(state): State<SharedState>) -> Response {
     let user = match authenticate_user(&headers, &state).await {
         Some(u) => u,
-        None => return (StatusCode::OK, Json(ApiResponse::<()>::error(401, "Authentication required"))).into_response(),
+        None => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(401, "Authentication required")),
+            )
+                .into_response();
+        }
     };
     if !user.is_admin() {
-        return (StatusCode::OK, Json(ApiResponse::<()>::error(403, "Permission denied"))).into_response();
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(403, "Permission denied")),
+        )
+            .into_response();
     }
 
     let users = match crate::db::get_all_users(&state.pool).await {
         Ok(u) => u,
-        Err(err) => return (StatusCode::OK, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response(),
+        Err(err) => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(500, err.to_string())),
+            )
+                .into_response();
+        }
     };
-    let storages = crate::db::get_storages(&state.pool).await.unwrap_or_default();
+    let storages = crate::db::get_storages(&state.pool)
+        .await
+        .unwrap_or_default();
 
     let content: Vec<UserWithMount> = users
         .into_iter()
@@ -1043,7 +1305,8 @@ async fn admin_user_list_handler(
     Json(ApiResponse::success(serde_json::json!({
         "content": content,
         "total": total
-    }))).into_response()
+    })))
+    .into_response()
 }
 
 async fn admin_user_get_handler(
@@ -1053,24 +1316,54 @@ async fn admin_user_get_handler(
 ) -> Response {
     let user = match authenticate_user(&headers, &state).await {
         Some(u) => u,
-        None => return (StatusCode::OK, Json(ApiResponse::<()>::error(401, "Authentication required"))).into_response(),
+        None => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(401, "Authentication required")),
+            )
+                .into_response();
+        }
     };
     if !user.is_admin() {
-        return (StatusCode::OK, Json(ApiResponse::<()>::error(403, "Permission denied"))).into_response();
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(403, "Permission denied")),
+        )
+            .into_response();
     }
 
     let id = match query.id {
         Some(id) => id,
-        None => return (StatusCode::OK, Json(ApiResponse::<()>::error(400, "missing id"))).into_response(),
+        None => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(400, "missing id")),
+            )
+                .into_response();
+        }
     };
 
     let target_user = match crate::db::get_user_by_id(&state.pool, id).await {
         Ok(Some(u)) => u,
-        Ok(None) => return (StatusCode::OK, Json(ApiResponse::<()>::error(404, "user not found"))).into_response(),
-        Err(err) => return (StatusCode::OK, Json(ApiResponse::<()>::error(500, err.to_string()))).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(404, "user not found")),
+            )
+                .into_response();
+        }
+        Err(err) => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(500, err.to_string())),
+            )
+                .into_response();
+        }
     };
 
-    let storages = crate::db::get_storages(&state.pool).await.unwrap_or_default();
+    let storages = crate::db::get_storages(&state.pool)
+        .await
+        .unwrap_or_default();
     let local_path = crate::db::compute_local_path(&target_user.base_path, &storages);
 
     let res = UserWithMount {
@@ -1094,21 +1387,38 @@ async fn admin_user_create_handler(
 ) -> Response {
     let user = match authenticate_user(&headers, &state).await {
         Some(u) => u,
-        None => return (StatusCode::OK, Json(ApiResponse::<()>::error(401, "Authentication required"))).into_response(),
+        None => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(401, "Authentication required")),
+            )
+                .into_response();
+        }
     };
     if !user.is_admin() {
-        return (StatusCode::OK, Json(ApiResponse::<()>::error(403, "Permission denied"))).into_response();
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(403, "Permission denied")),
+        )
+            .into_response();
     }
 
     let raw_pwd = req.password.as_deref().unwrap_or("").trim();
     if raw_pwd.is_empty() {
-        return (StatusCode::OK, Json(ApiResponse::<()>::error(400, "password is required"))).into_response();
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(400, "password is required")),
+        )
+            .into_response();
     }
 
     let salt = crate::auth::rand_string(16);
     let s_hash = crate::auth::static_hash(raw_pwd);
     let encoded_pwd = crate::auth::encode_argon2_hash(&s_hash, &salt);
-    let now_ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+    let now_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
 
     let res = sqlx::query(
         "INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `salt`, `base_path`, `role`, `disabled`, `permission`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
@@ -1126,7 +1436,13 @@ async fn admin_user_create_handler(
 
     let new_id = match res {
         Ok(r) => r.last_insert_rowid(),
-        Err(err) => return (StatusCode::OK, Json(ApiResponse::<()>::error(400, err.to_string()))).into_response(),
+        Err(err) => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(400, err.to_string())),
+            )
+                .into_response();
+        }
     };
 
     if let Some(local_path) = req.local_path {
@@ -1134,7 +1450,8 @@ async fn admin_user_create_handler(
             let mount_path = format!("/.users/{}", new_id);
             let addition = serde_json::json!({
                 "root_folder_path": local_path.trim()
-            }).to_string();
+            })
+            .to_string();
 
             let _ = sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
                 .bind(&mount_path)
@@ -1164,24 +1481,53 @@ async fn admin_user_update_handler(
 ) -> Response {
     let user = match authenticate_user(&headers, &state).await {
         Some(u) => u,
-        None => return (StatusCode::OK, Json(ApiResponse::<()>::error(401, "Authentication required"))).into_response(),
+        None => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(401, "Authentication required")),
+            )
+                .into_response();
+        }
     };
     if !user.is_admin() {
-        return (StatusCode::OK, Json(ApiResponse::<()>::error(403, "Permission denied"))).into_response();
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(403, "Permission denied")),
+        )
+            .into_response();
     }
 
     let target_id = match req.id {
         Some(id) => id,
-        None => return (StatusCode::OK, Json(ApiResponse::<()>::error(400, "missing id"))).into_response(),
+        None => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(400, "missing id")),
+            )
+                .into_response();
+        }
     };
 
     let mut target_user = match crate::db::get_user_by_id(&state.pool, target_id).await {
         Ok(Some(u)) => u,
-        _ => return (StatusCode::OK, Json(ApiResponse::<()>::error(404, "user not found"))).into_response(),
+        _ => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(404, "user not found")),
+            )
+                .into_response();
+        }
     };
 
     if target_user.is_admin() && req.disabled.unwrap_or(false) {
-        return (StatusCode::OK, Json(ApiResponse::<()>::error(400, "admin user can not be disabled"))).into_response();
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(
+                400,
+                "admin user can not be disabled",
+            )),
+        )
+            .into_response();
     }
 
     if let Some(pwd) = req.password {
@@ -1189,7 +1535,10 @@ async fn admin_user_update_handler(
             let salt = crate::auth::rand_string(16);
             let s_hash = crate::auth::static_hash(&pwd);
             let encoded_pwd = crate::auth::encode_argon2_hash(&s_hash, &salt);
-            let now_ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+            let now_ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
             target_user.pwd_hash = encoded_pwd;
             target_user.salt = salt;
             target_user.pwd_ts = now_ts;
@@ -1222,21 +1571,24 @@ async fn admin_user_update_handler(
             let user_mount = format!("/.users/{}", target_id);
             let addition = serde_json::json!({
                 "root_folder_path": local_path.trim()
-            }).to_string();
+            })
+            .to_string();
 
             // Check if storage exists
-            let exists: Option<i64> = sqlx::query_scalar("SELECT `id` FROM `x_storages` WHERE `mount_path` = ?")
-                .bind(&user_mount)
-                .fetch_optional(&state.pool)
-                .await
-                .unwrap_or(None);
+            let exists: Option<i64> =
+                sqlx::query_scalar("SELECT `id` FROM `x_storages` WHERE `mount_path` = ?")
+                    .bind(&user_mount)
+                    .fetch_optional(&state.pool)
+                    .await
+                    .unwrap_or(None);
 
             if exists.is_some() {
-                let _ = sqlx::query("UPDATE `x_storages` SET `addition` = ? WHERE `mount_path` = ?")
-                    .bind(&addition)
-                    .bind(&user_mount)
-                    .execute(&state.pool)
-                    .await;
+                let _ =
+                    sqlx::query("UPDATE `x_storages` SET `addition` = ? WHERE `mount_path` = ?")
+                        .bind(&addition)
+                        .bind(&user_mount)
+                        .execute(&state.pool)
+                        .await;
             } else {
                 let _ = sqlx::query(
                     "INSERT INTO `x_storages` (`mount_path`, `order`, `driver`, `addition`, `status`, `disabled`) VALUES (?, 0, 'Local', ?, 'work', 0)"
@@ -1266,19 +1618,39 @@ async fn admin_user_delete_handler(
 ) -> Response {
     let user = match authenticate_user(&headers, &state).await {
         Some(u) => u,
-        None => return (StatusCode::OK, Json(ApiResponse::<()>::error(401, "Authentication required"))).into_response(),
+        None => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(401, "Authentication required")),
+            )
+                .into_response();
+        }
     };
     if !user.is_admin() {
-        return (StatusCode::OK, Json(ApiResponse::<()>::error(403, "Permission denied"))).into_response();
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(403, "Permission denied")),
+        )
+            .into_response();
     }
 
     let id = match query.id {
         Some(id) => id,
-        None => return (StatusCode::OK, Json(ApiResponse::<()>::error(400, "missing id"))).into_response(),
+        None => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(400, "missing id")),
+            )
+                .into_response();
+        }
     };
 
     if id == 1 {
-        return (StatusCode::OK, Json(ApiResponse::<()>::error(400, "cannot delete initial admin"))).into_response();
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(400, "cannot delete initial admin")),
+        )
+            .into_response();
     }
 
     let _ = crate::db::delete_user_by_id(&state.pool, id).await;
@@ -1299,10 +1671,20 @@ async fn admin_user_cancel_2fa_handler(
 ) -> Response {
     let user = match authenticate_user(&headers, &state).await {
         Some(u) => u,
-        None => return (StatusCode::OK, Json(ApiResponse::<()>::error(401, "Authentication required"))).into_response(),
+        None => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(401, "Authentication required")),
+            )
+                .into_response();
+        }
     };
     if !user.is_admin() {
-        return (StatusCode::OK, Json(ApiResponse::<()>::error(403, "Permission denied"))).into_response();
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(403, "Permission denied")),
+        )
+            .into_response();
     }
 
     if let Some(id) = query.id {
@@ -1324,9 +1706,18 @@ async fn fs_batch_rename_handler(
     Json(req): Json<BatchRenameReq>,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
-        return (StatusCode::OK, Json(ApiResponse::<()>::error(401, "Authentication required"))).into_response();
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(401, "Authentication required")),
+        )
+            .into_response();
     };
-    if !permitted(&user, 4) || req.rename_objects.iter().any(|item| !valid_name(&item.src_name) || !valid_name(&item.new_name)) {
+    if !permitted(&user, 4)
+        || req
+            .rename_objects
+            .iter()
+            .any(|item| !valid_name(&item.src_name) || !valid_name(&item.new_name))
+    {
         return permission_denied();
     }
     let src_dir = match user_path(&user, &req.src_dir) {
@@ -1349,7 +1740,11 @@ async fn fs_link_handler(
     Json(req): Json<FsLinkReq>,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
-        return (StatusCode::OK, Json(ApiResponse::<()>::error(401, "Authentication required"))).into_response();
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(401, "Authentication required")),
+        )
+            .into_response();
     };
 
     let token = get_setting(&state.pool, "token")
@@ -1399,11 +1794,23 @@ mod tests {
     #[test]
     fn user_paths_stay_under_base_and_permissions_are_enforced() {
         let user = User {
-            id: 2, username: "alice".into(), pwd_hash: String::new(), pwd_ts: 0,
-            salt: String::new(), password: None, base_path: "/.users/2".into(),
-            role: 0, disabled: false, permission: 0, otp_secret: None, sso_id: None,
+            id: 2,
+            username: "alice".into(),
+            pwd_hash: String::new(),
+            pwd_ts: 0,
+            salt: String::new(),
+            password: None,
+            base_path: "/.users/2".into(),
+            role: 0,
+            disabled: false,
+            permission: 0,
+            otp_secret: None,
+            sso_id: None,
         };
-        assert_eq!(user_path(&user, "/secret.txt").unwrap(), "/.users/2/secret.txt");
+        assert_eq!(
+            user_path(&user, "/secret.txt").unwrap(),
+            "/.users/2/secret.txt"
+        );
         assert_eq!(user_path(&user, "/").unwrap(), "/.users/2");
         assert!(user_path(&user, "../Local/secret.txt").is_err());
         assert!(!permitted(&user, 3));

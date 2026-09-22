@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
 use argon2::{Algorithm, Argon2, Params, Version};
-use base64::engine::general_purpose::STANDARD_NO_PAD as BASE64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD_NO_PAD as BASE64;
 use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
@@ -66,11 +66,7 @@ pub fn encode_argon2_hash(pwd_static_hash: &str, salt: &str) -> String {
     let argon2 = get_argon2_instance();
     let mut output_key = [0u8; ARGON2_KEY_LEN];
     argon2
-        .hash_password_into(
-            pwd_static_hash.as_bytes(),
-            salt.as_bytes(),
-            &mut output_key,
-        )
+        .hash_password_into(pwd_static_hash.as_bytes(), salt.as_bytes(), &mut output_key)
         .expect("argon2 hash computation");
 
     let salt_b64 = BASE64.encode(salt.as_bytes());
@@ -82,22 +78,20 @@ pub fn encode_argon2_hash(pwd_static_hash: &str, salt: &str) -> String {
 pub fn verify_password_static_hash(static_h: &str, pwd_hash: &str, salt: &str) -> bool {
     if let Some(payload) = pwd_hash.strip_prefix(ARGON2_PREFIX) {
         if let Some((salt_b64, expected_hash_b64)) = payload.split_once('$') {
-            if let (Ok(decoded_salt), Ok(expected_hash)) = (
-                BASE64.decode(salt_b64),
-                BASE64.decode(expected_hash_b64),
-            ) {
+            if let (Ok(decoded_salt), Ok(expected_hash)) =
+                (BASE64.decode(salt_b64), BASE64.decode(expected_hash_b64))
+            {
                 if expected_hash.len() == ARGON2_KEY_LEN {
                     let argon2 = get_argon2_instance();
                     let mut actual_hash = [0u8; ARGON2_KEY_LEN];
                     if argon2
-                        .hash_password_into(
-                            static_h.as_bytes(),
-                            &decoded_salt,
-                            &mut actual_hash,
-                        )
+                        .hash_password_into(static_h.as_bytes(), &decoded_salt, &mut actual_hash)
                         .is_ok()
                     {
-                        return actual_hash.as_slice().ct_eq(expected_hash.as_slice()).into();
+                        return actual_hash
+                            .as_slice()
+                            .ct_eq(expected_hash.as_slice())
+                            .into();
                     }
                 }
             }
@@ -126,7 +120,12 @@ pub struct UserClaims {
     pub nbf: usize,
 }
 
-pub fn generate_jwt(username: &str, pwd_ts: i64, secret: &str, expires_in_hours: u32) -> anyhow::Result<String> {
+pub fn generate_jwt(
+    username: &str,
+    pwd_ts: i64,
+    secret: &str,
+    expires_in_hours: u32,
+) -> anyhow::Result<String> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

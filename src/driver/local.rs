@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
-use std::path::{Component, Path, PathBuf};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::path::{Component, Path, PathBuf};
 use tokio::fs;
 
 use crate::model::FileObj;
@@ -44,8 +44,8 @@ impl LocalDriver {
         };
 
         let root_path = fs_canonical_or_abs(root_str)?;
-        let mkdir_perm = u32::from_str_radix(&addition.mkdir_perm.trim_start_matches("0o"), 8)
-            .unwrap_or(0o755);
+        let mkdir_perm =
+            u32::from_str_radix(&addition.mkdir_perm.trim_start_matches("0o"), 8).unwrap_or(0o755);
 
         Ok(Self {
             root_path,
@@ -64,10 +64,14 @@ impl LocalDriver {
                 Component::Normal(c) => target.push(c),
                 Component::CurDir => {}
                 Component::ParentDir => {
-                    return Err(anyhow!("access denied: parent directory traversal is forbidden"));
+                    return Err(anyhow!(
+                        "access denied: parent directory traversal is forbidden"
+                    ));
                 }
                 Component::RootDir | Component::Prefix(_) => {
-                    return Err(anyhow!("access denied: absolute path components are forbidden"));
+                    return Err(anyhow!(
+                        "access denied: absolute path components are forbidden"
+                    ));
                 }
             }
             match std::fs::symlink_metadata(&target) {
@@ -189,7 +193,8 @@ impl LocalDriver {
             return Err(anyhow!("cannot rename storage root"));
         }
         let src_path = self.safe_resolve(subpath)?;
-        if new_name.contains('/') || new_name.contains('\\') || new_name == ".." || new_name == "." {
+        if new_name.contains('/') || new_name.contains('\\') || new_name == ".." || new_name == "."
+        {
             return Err(anyhow!("invalid new name: {}", new_name));
         }
 
@@ -293,7 +298,10 @@ mod tests {
         assert!(!file_obj.is_dir);
 
         // Test rename
-        driver.rename("folder1/test.txt", "renamed.txt").await.unwrap();
+        driver
+            .rename("folder1/test.txt", "renamed.txt")
+            .await
+            .unwrap();
         assert!(driver.get("folder1/renamed.txt").await.is_ok());
 
         // Test remove
@@ -308,7 +316,9 @@ mod tests {
     #[tokio::test]
     async fn rejects_storage_root_removal() {
         let tmp = tempdir().unwrap();
-        let driver = LocalDriver::new(&serde_json::json!({"root_folder_path": tmp.path()}).to_string()).unwrap();
+        let driver =
+            LocalDriver::new(&serde_json::json!({"root_folder_path": tmp.path()}).to_string())
+                .unwrap();
         assert!(driver.remove("").await.is_err());
         assert!(driver.remove("/").await.is_err());
         assert!(tmp.path().exists());
@@ -320,7 +330,9 @@ mod tests {
         let root = tempdir().unwrap();
         let outside = tempdir().unwrap();
         std::os::unix::fs::symlink(outside.path(), root.path().join("escape")).unwrap();
-        let driver = LocalDriver::new(&serde_json::json!({"root_folder_path": root.path()}).to_string()).unwrap();
+        let driver =
+            LocalDriver::new(&serde_json::json!({"root_folder_path": root.path()}).to_string())
+                .unwrap();
         assert!(driver.safe_resolve("escape/secret.txt").is_err());
         assert!(driver.open("escape/secret.txt").await.is_err());
     }

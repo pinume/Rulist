@@ -1,12 +1,12 @@
-use std::sync::Arc;
 use axum::{
     body::Body,
     extract::State,
-    http::{header, HeaderValue, StatusCode, Uri},
+    http::{HeaderValue, StatusCode, Uri, header},
     response::{IntoResponse, Redirect, Response},
 };
 use rust_embed::RustEmbed;
 use serde::Serialize;
+use std::sync::Arc;
 
 use crate::server::AppState;
 
@@ -62,53 +62,94 @@ pub async fn render_html(pool: &crate::db::DbPool, is_manage: bool) -> String {
         None => return "Rulist frontend not found".to_string(),
     };
 
-    let settings = crate::db::get_public_settings(pool).await.unwrap_or_default();
+    let settings = crate::db::get_public_settings(pool)
+        .await
+        .unwrap_or_default();
 
-    let site_title = settings.get("site_title").map(|s| s.as_str()).unwrap_or("Rulist");
+    let site_title = settings
+        .get("site_title")
+        .map(|s| s.as_str())
+        .unwrap_or("Rulist");
     let safe_site_title = escape_html(site_title);
-    let main_color = settings.get("main_color").map(|s| s.as_str()).unwrap_or("#1890ff");
-    let logo = settings.get("logo").map(|s| s.as_str()).unwrap_or("favicon.ico");
+    let main_color = settings
+        .get("main_color")
+        .map(|s| s.as_str())
+        .unwrap_or("#1890ff");
+    let logo = settings
+        .get("logo")
+        .map(|s| s.as_str())
+        .unwrap_or("favicon.ico");
     let favicon = settings.get("favicon").map(|s| s.as_str()).unwrap_or("");
     let logo_first = logo.lines().next().unwrap_or(logo);
-    let fav = if favicon.is_empty() { "favicon.ico" } else { favicon };
+    let fav = if favicon.is_empty() {
+        "favicon.ico"
+    } else {
+        favicon
+    };
 
     let mut html = raw_html
         .replace("cdn: undefined", "cdn: ''")
         .replace("base_path: undefined", "base_path: '/'")
-        .replace("main_color: undefined", &format!("main_color: '{}'", escape_html(main_color)))
+        .replace(
+            "main_color: undefined",
+            &format!("main_color: '{}'", escape_html(main_color)),
+        )
         .replace("https://res.oplist.org/logo/logo.svg", &escape_html(fav))
-        .replace("https://res.oplist.org/logo/logo.png", &escape_html(logo_first))
-        .replace("<title>TinyList</title>", &format!("<title>{}</title>", safe_site_title))
-        .replace("<title>Rulist</title>", &format!("<title>{}</title>", safe_site_title))
+        .replace(
+            "https://res.oplist.org/logo/logo.png",
+            &escape_html(logo_first),
+        )
+        .replace(
+            "<title>TinyList</title>",
+            &format!("<title>{}</title>", safe_site_title),
+        )
+        .replace(
+            "<title>Rulist</title>",
+            &format!("<title>{}</title>", safe_site_title),
+        )
         .replace("Loading...", &safe_site_title);
 
     if !is_manage {
         let customize_head: Option<String> = sqlx::query_scalar(
-            "SELECT `value` FROM `x_setting_items` WHERE `key` = 'customize_head'"
+            "SELECT `value` FROM `x_setting_items` WHERE `key` = 'customize_head'",
         )
         .fetch_optional(pool)
         .await
         .unwrap_or_default();
 
         let customize_body: Option<String> = sqlx::query_scalar(
-            "SELECT `value` FROM `x_setting_items` WHERE `key` = 'customize_body'"
+            "SELECT `value` FROM `x_setting_items` WHERE `key` = 'customize_body'",
         )
         .fetch_optional(pool)
         .await
         .unwrap_or_default();
 
         html = html
-            .replace("<!-- customize head -->", &customize_head.unwrap_or_default())
-            .replace("<!-- customize body -->", &customize_body.unwrap_or_default());
+            .replace(
+                "<!-- customize head -->",
+                &customize_head.unwrap_or_default(),
+            )
+            .replace(
+                "<!-- customize body -->",
+                &customize_body.unwrap_or_default(),
+            );
     }
 
     html
 }
 
 pub async fn manifest_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let settings = crate::db::get_public_settings(&state.pool).await.unwrap_or_default();
-    let site_title = settings.get("site_title").cloned().unwrap_or_else(|| "Rulist".to_string());
-    let logo = settings.get("logo").cloned().unwrap_or_else(|| "favicon.ico".to_string());
+    let settings = crate::db::get_public_settings(&state.pool)
+        .await
+        .unwrap_or_default();
+    let site_title = settings
+        .get("site_title")
+        .cloned()
+        .unwrap_or_else(|| "Rulist".to_string());
+    let logo = settings
+        .get("logo")
+        .cloned()
+        .unwrap_or_else(|| "favicon.ico".to_string());
     let logo_first = logo.lines().next().unwrap_or(&logo).to_string();
 
     let manifest = Manifest {
@@ -132,7 +173,9 @@ pub async fn manifest_handler(State(state): State<Arc<AppState>>) -> impl IntoRe
 }
 
 pub async fn favicon_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let favicon_url = crate::db::get_setting(&state.pool, "favicon").await.unwrap_or_default();
+    let favicon_url = crate::db::get_setting(&state.pool, "favicon")
+        .await
+        .unwrap_or_default();
     if let Some(fav) = favicon_url {
         if !fav.trim().is_empty() {
             return Redirect::temporary(&fav).into_response();

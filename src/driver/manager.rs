@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::sync::Arc;
 use tokio::fs;
 
@@ -32,10 +32,7 @@ impl StorageManager {
             let addition = s.addition.clone().unwrap_or_default();
             match LocalDriver::new(&addition) {
                 Ok(driver) => {
-                    storages.push(MountedStorage {
-                        storage: s,
-                        driver,
-                    });
+                    storages.push(MountedStorage { storage: s, driver });
                 }
                 Err(err) => {
                     tracing::warn!("failed to mount storage {}: {:?}", s.mount_path, err);
@@ -122,7 +119,9 @@ impl StorageManager {
                 }
             } else if clean_path == *mount {
                 return Some((ms.clone(), String::new()));
-            } else if clean_path.starts_with(mount) && clean_path.as_bytes().get(mount.len()) == Some(&b'/') {
+            } else if clean_path.starts_with(mount)
+                && clean_path.as_bytes().get(mount.len()) == Some(&b'/')
+            {
                 if mount.len() > max_prefix_len {
                     max_prefix_len = mount.len();
                     let sub = &clean_path[mount.len()..];
@@ -175,7 +174,9 @@ impl StorageManager {
         // Check if path is exactly a virtual mount point
         let is_mount = {
             let storages = self.storages.read().unwrap();
-            storages.iter().any(|ms| ms.storage.mount_path.trim_matches('/') == clean)
+            storages
+                .iter()
+                .any(|ms| ms.storage.mount_path.trim_matches('/') == clean)
         };
         if is_mount {
             return Ok(FileObj::new(clean, 0, true, ""));
@@ -226,8 +227,12 @@ impl StorageManager {
 
     /// Move file or directory
     pub async fn move_to(&self, src_path: &str, dst_path: &str) -> Result<()> {
-        let src_match = self.find_storage(src_path).ok_or_else(|| anyhow!("src storage not found"))?;
-        let dst_match = self.find_storage(dst_path).ok_or_else(|| anyhow!("dst storage not found"))?;
+        let src_match = self
+            .find_storage(src_path)
+            .ok_or_else(|| anyhow!("src storage not found"))?;
+        let dst_match = self
+            .find_storage(dst_path)
+            .ok_or_else(|| anyhow!("dst storage not found"))?;
 
         if src_match.0.storage.id == dst_match.0.storage.id {
             src_match.0.driver.move_to(&src_match.1, &dst_match.1).await
@@ -241,8 +246,12 @@ impl StorageManager {
 
     /// Copy file or directory
     pub async fn copy_to(&self, src_path: &str, dst_path: &str) -> Result<()> {
-        let src_match = self.find_storage(src_path).ok_or_else(|| anyhow!("src storage not found"))?;
-        let dst_match = self.find_storage(dst_path).ok_or_else(|| anyhow!("dst storage not found"))?;
+        let src_match = self
+            .find_storage(src_path)
+            .ok_or_else(|| anyhow!("src storage not found"))?;
+        let dst_match = self
+            .find_storage(dst_path)
+            .ok_or_else(|| anyhow!("dst storage not found"))?;
 
         if src_match.0.storage.id == dst_match.0.storage.id {
             src_match.0.driver.copy_to(&src_match.1, &dst_match.1).await

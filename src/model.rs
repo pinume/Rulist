@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::path::Path;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ApiResponse<T> {
@@ -59,46 +59,6 @@ impl User {
     pub fn is_admin(&self) -> bool {
         self.role == ROLE_ADMIN
     }
-
-    pub fn can_see_hides(&self) -> bool {
-        (self.permission & 1) == 1
-    }
-
-    pub fn can_access_without_password(&self) -> bool {
-        ((self.permission >> 1) & 1) == 1
-    }
-
-    pub fn can_write_content(&self) -> bool {
-        ((self.permission >> 3) & 1) == 1
-    }
-
-    pub fn can_rename(&self) -> bool {
-        ((self.permission >> 4) & 1) == 1
-    }
-
-    pub fn can_move(&self) -> bool {
-        ((self.permission >> 5) & 1) == 1
-    }
-
-    pub fn can_copy(&self) -> bool {
-        ((self.permission >> 6) & 1) == 1
-    }
-
-    pub fn can_remove(&self) -> bool {
-        ((self.permission >> 7) & 1) == 1
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct SettingItem {
-    pub key: String,
-    pub value: String,
-    pub help: Option<String>,
-    pub r#type: String,
-    pub options: Option<String>,
-    pub group: i32,
-    pub flag: i32,
-    pub index: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -115,20 +75,6 @@ pub struct Storage {
     pub enable_sign: bool,
     pub order_by: Option<String>,
     pub order_direction: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Meta {
-    pub id: i64,
-    pub path: String,
-    pub password: Option<String>,
-    pub p_sub: bool,
-    pub hide: Option<String>,
-    pub h_sub: bool,
-    pub readme: Option<String>,
-    pub r_sub: bool,
-    pub header: Option<String>,
-    pub header_sub: bool,
 }
 
 pub const TYPE_UNKNOWN: i32 = 0;
@@ -191,11 +137,6 @@ pub struct LoginReq {
     pub password: String,
     #[serde(default)]
     pub otp_code: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct FsPathReq {
-    pub path: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -298,7 +239,12 @@ pub struct FsLinkResp {
 }
 
 impl FileObj {
-    pub fn new(name: impl Into<String>, size: i64, is_dir: bool, modified: impl Into<String>) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        size: i64,
+        is_dir: bool,
+        modified: impl Into<String>,
+    ) -> Self {
         let name_str = name.into();
         let file_type = if is_dir {
             TYPE_FOLDER
@@ -412,11 +358,7 @@ pub fn sort_files(files: &mut [FileObj], order_by: &str, order_dir: &str) {
             _ => natural_cmp(&a.name, &b.name),
         };
 
-        if desc {
-            ord.reverse()
-        } else {
-            ord
-        }
+        if desc { ord.reverse() } else { ord }
     });
 }
 
@@ -428,7 +370,10 @@ mod tests {
     fn test_natural_sort() {
         let mut list = vec!["file10.txt", "file2.txt", "file1.txt", "file20.txt"];
         list.sort_by(|a, b| natural_cmp(a, b));
-        assert_eq!(list, vec!["file1.txt", "file2.txt", "file10.txt", "file20.txt"]);
+        assert_eq!(
+            list,
+            vec!["file1.txt", "file2.txt", "file10.txt", "file20.txt"]
+        );
     }
 
     #[test]

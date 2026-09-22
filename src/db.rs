@@ -10,7 +10,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Pool, Row, Sqlite};
 
 use crate::auth::{encode_argon2_hash, rand_string, rand_token, static_hash};
-use crate::model::{User, ROLE_ADMIN};
+use crate::model::{ROLE_ADMIN, User};
 
 pub type DbPool = Pool<Sqlite>;
 
@@ -74,19 +74,6 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
             `order_by` TEXT,
             `order_direction` TEXT
         );
-
-        CREATE TABLE IF NOT EXISTS `x_meta` (
-            `id` INTEGER PRIMARY KEY AUTOINCREMENT,
-            `path` TEXT NOT NULL UNIQUE,
-            `password` TEXT,
-            `p_sub` NUMERIC NOT NULL DEFAULT 0,
-            `hide` TEXT,
-            `h_sub` NUMERIC NOT NULL DEFAULT 0,
-            `readme` TEXT,
-            `r_sub` NUMERIC NOT NULL DEFAULT 0,
-            `header` TEXT,
-            `header_sub` NUMERIC NOT NULL DEFAULT 0
-        );
         "#,
     )
     .execute(&pool)
@@ -100,48 +87,37 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
 }
 
 async fn seed_settings(pool: &DbPool) -> Result<()> {
-    let defaults = vec![
-        ("site_title", "Rulist", "string", 0, 0),
-        ("version", "v0.1.0-rust", "string", 0, 2),
-        ("announcement", "", "text", 0, 0),
-        ("robots_txt", "User-agent: *\nAllow: /", "text", 0, 0),
-        ("logo", "favicon.ico", "text", 1, 0),
-        ("favicon", "", "string", 1, 0),
-        ("main_color", "#1890ff", "string", 1, 0),
-        ("hide_files", r#"/\/README.md/i"#, "text", 0, 0),
-        ("home_container", "max_980px", "select", 1, 0),
-        ("home_icon", "🏠", "string", 1, 0),
-        ("package_download", "true", "bool", 0, 0),
-        ("sso_login_enabled", "false", "bool", 0, 0),
-        ("sign_all", "false", "bool", 0, 0),
-    ];
-
-    for (k, v, ty, grp, flag) in defaults {
-        sqlx::query(
-            "INSERT OR IGNORE INTO `x_setting_items` (`key`, `value`, `type`, `group`, `flag`) VALUES (?, ?, ?, ?, ?)",
-        )
-        .bind(k)
-        .bind(v)
-        .bind(ty)
-        .bind(grp)
-        .bind(flag)
-        .execute(pool)
-        .await?;
-    }
-
-    // Ensure a default token exists
-    let existing_token: Option<String> = sqlx::query_scalar(
-        "SELECT `value` FROM `x_setting_items` WHERE `key` = 'token'",
+    sqlx::query(
+        r#"
+        INSERT OR IGNORE INTO `x_setting_items` (`key`, `value`, `type`, `group`, `flag`) VALUES
+            ('site_title', 'Rulist', 'string', 0, 0),
+            ('version', 'v0.1.0-rust', 'string', 0, 2),
+            ('announcement', '', 'text', 0, 0),
+            ('robots_txt', 'User-agent: *\nAllow: /', 'text', 0, 0),
+            ('logo', 'favicon.ico', 'text', 1, 0),
+            ('favicon', '', 'string', 1, 0),
+            ('main_color', '#1890ff', 'string', 1, 0),
+            ('hide_files', '/\/README.md/i', 'text', 0, 0),
+            ('home_container', 'max_980px', 'select', 1, 0),
+            ('home_icon', '🏠', 'string', 1, 0),
+            ('package_download', 'true', 'bool', 0, 0),
+            ('sso_login_enabled', 'false', 'bool', 0, 0),
+            ('sign_all', 'false', 'bool', 0, 0)
+        "#,
     )
-    .fetch_optional(pool)
+    .execute(pool)
     .await?;
 
-    if existing_token.is_none() {
-        let token = rand_token();
+    let existing: Option<String> =
+        sqlx::query_scalar("SELECT `value` FROM `x_setting_items` WHERE `key` = 'token'")
+            .fetch_optional(pool)
+            .await?;
+
+    if existing.is_none() {
         sqlx::query(
             "INSERT INTO `x_setting_items` (`key`, `value`, `type`, `group`, `flag`) VALUES ('token', ?, 'string', 0, 1)",
         )
-        .bind(token)
+        .bind(rand_token())
         .execute(pool)
         .await?;
     }
@@ -150,12 +126,10 @@ async fn seed_settings(pool: &DbPool) -> Result<()> {
 }
 
 async fn seed_admin(pool: &DbPool) -> Result<()> {
-    let admin_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM `x_users` WHERE `role` = ?",
-    )
-    .bind(ROLE_ADMIN)
-    .fetch_one(pool)
-    .await?;
+    let admin_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `x_users` WHERE `role` = ?")
+        .bind(ROLE_ADMIN)
+        .fetch_one(pool)
+        .await?;
 
     if admin_count == 0 {
         let mut admin_password = rand_string(8);
@@ -186,19 +160,20 @@ async fn seed_admin(pool: &DbPool) -> Result<()> {
         .execute(pool)
         .await?;
 
-        println!("Successfully created the admin user and the initial password is: {}", admin_password);
+        println!(
+            "Successfully created the admin user and the initial password is: {}",
+            admin_password
+        );
     }
 
     Ok(())
 }
 
 pub async fn get_admin(pool: &DbPool) -> Result<Option<User>> {
-    let user = sqlx::query_as::<_, User>(
-        "SELECT * FROM `x_users` WHERE `role` = ? LIMIT 1",
-    )
-    .bind(ROLE_ADMIN)
-    .fetch_optional(pool)
-    .await?;
+    let user = sqlx::query_as::<_, User>("SELECT * FROM `x_users` WHERE `role` = ? LIMIT 1")
+        .bind(ROLE_ADMIN)
+        .fetch_optional(pool)
+        .await?;
     Ok(user)
 }
 
@@ -213,26 +188,23 @@ pub async fn set_admin_password(pool: &DbPool, new_password: &str) -> Result<()>
         .unwrap_or_default()
         .as_secs() as i64;
 
-    sqlx::query(
-        "UPDATE `x_users` SET `pwd_hash` = ?, `pwd_ts` = ?, `salt` = ? WHERE `id` = ?",
-    )
-    .bind(encoded_pwd)
-    .bind(now_ts)
-    .bind(salt)
-    .bind(admin.id)
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE `x_users` SET `pwd_hash` = ?, `pwd_ts` = ?, `salt` = ? WHERE `id` = ?")
+        .bind(encoded_pwd)
+        .bind(now_ts)
+        .bind(salt)
+        .bind(admin.id)
+        .execute(pool)
+        .await?;
 
     Ok(())
 }
 
 pub async fn get_setting(pool: &DbPool, key: &str) -> Result<Option<String>> {
-    let val: Option<String> = sqlx::query_scalar(
-        "SELECT `value` FROM `x_setting_items` WHERE `key` = ?",
-    )
-    .bind(key)
-    .fetch_optional(pool)
-    .await?;
+    let val: Option<String> =
+        sqlx::query_scalar("SELECT `value` FROM `x_setting_items` WHERE `key` = ?")
+            .bind(key)
+            .fetch_optional(pool)
+            .await?;
     Ok(val)
 }
 
@@ -251,24 +223,11 @@ pub async fn get_public_settings(pool: &DbPool) -> Result<HashMap<String, String
 }
 
 pub async fn get_user_by_name(pool: &DbPool, username: &str) -> Result<Option<User>> {
-    let user = sqlx::query_as::<_, User>(
-        "SELECT * FROM `x_users` WHERE `username` = ? LIMIT 1",
-    )
-    .bind(username)
-    .fetch_optional(pool)
-    .await?;
+    let user = sqlx::query_as::<_, User>("SELECT * FROM `x_users` WHERE `username` = ? LIMIT 1")
+        .bind(username)
+        .fetch_optional(pool)
+        .await?;
     Ok(user)
-}
-
-#[allow(dead_code)]
-pub async fn get_meta_for_path(pool: &DbPool, path: &str) -> Result<Option<crate::model::Meta>> {
-    let meta = sqlx::query_as::<_, crate::model::Meta>(
-        "SELECT * FROM `x_meta` WHERE `path` = ? LIMIT 1",
-    )
-    .bind(path)
-    .fetch_optional(pool)
-    .await?;
-    Ok(meta)
 }
 
 pub async fn get_all_users(pool: &DbPool) -> Result<Vec<User>> {
@@ -295,16 +254,21 @@ pub async fn delete_user_by_id(pool: &DbPool, id: i64) -> Result<()> {
 }
 
 pub async fn get_storages(pool: &DbPool) -> Result<Vec<crate::model::Storage>> {
-    let storages = sqlx::query_as::<_, crate::model::Storage>("SELECT * FROM `x_storages` WHERE `disabled` = 0")
-        .fetch_all(pool)
-        .await?;
+    let storages = sqlx::query_as::<_, crate::model::Storage>(
+        "SELECT * FROM `x_storages` WHERE `disabled` = 0",
+    )
+    .fetch_all(pool)
+    .await?;
     Ok(storages)
 }
 
 pub fn compute_local_path(base_path: &str, storages: &[crate::model::Storage]) -> String {
     let mut matched: Option<&crate::model::Storage> = None;
     for s in storages {
-        if s.driver == "Local" && (base_path == s.mount_path || base_path.starts_with(&format!("{}/", s.mount_path.trim_end_matches('/')))) {
+        if s.driver == "Local"
+            && (base_path == s.mount_path
+                || base_path.starts_with(&format!("{}/", s.mount_path.trim_end_matches('/'))))
+        {
             if matched.is_none() || s.mount_path.len() > matched.unwrap().mount_path.len() {
                 matched = Some(s);
             }
@@ -314,12 +278,15 @@ pub fn compute_local_path(base_path: &str, storages: &[crate::model::Storage]) -
     if let Some(s) = matched {
         if let Some(ref addition_str) = s.addition {
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(addition_str) {
-                let root = val.get("root_folder_path")
+                let root = val
+                    .get("root_folder_path")
                     .or_else(|| val.get("root_folder"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 if !root.is_empty() {
-                    let sub = base_path.trim_start_matches(&s.mount_path).trim_start_matches('/');
+                    let sub = base_path
+                        .trim_start_matches(&s.mount_path)
+                        .trim_start_matches('/');
                     if sub.is_empty() {
                         return root.to_string();
                     } else {
@@ -331,4 +298,3 @@ pub fn compute_local_path(base_path: &str, storages: &[crate::model::Storage]) -
     }
     String::new()
 }
-
