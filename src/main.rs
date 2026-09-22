@@ -7,6 +7,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod auth;
 mod config;
 mod db;
+mod driver;
 mod model;
 mod server;
 
@@ -147,7 +148,10 @@ async fn main() -> Result<()> {
             info!("initializing database at {:?}", db_path);
             let pool = db::init_db(&db_path).await?;
 
-            server::run_server(config, pool).await?;
+            info!("loading storage manager...");
+            let storage = driver::StorageManager::load_from_db(&pool).await?;
+
+            server::run_server(config, pool, storage).await?;
         }
     }
 

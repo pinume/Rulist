@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use std::cmp::Ordering;
+use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -127,4 +129,202 @@ pub struct Meta {
     pub r_sub: bool,
     pub header: Option<String>,
     pub header_sub: bool,
+}
+
+pub const TYPE_UNKNOWN: i32 = 0;
+pub const TYPE_FOLDER: i32 = 1;
+pub const TYPE_VIDEO: i32 = 2;
+pub const TYPE_AUDIO: i32 = 3;
+pub const TYPE_TEXT: i32 = 4;
+pub const TYPE_IMAGE: i32 = 5;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileObj {
+    pub name: String,
+    pub size: i64,
+    pub is_dir: bool,
+    pub modified: String,
+    pub sign: String,
+    pub thumb: String,
+    pub r#type: i32,
+    pub raw_url: String,
+    pub readme: String,
+    pub header: String,
+    pub provider: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct FsListReq {
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub password: Option<String>,
+    #[serde(default)]
+    pub page: Option<usize>,
+    #[serde(default)]
+    pub per_page: Option<usize>,
+    #[serde(default)]
+    pub refresh: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FsListResp {
+    pub content: Vec<FileObj>,
+    pub total: i64,
+    pub readme: String,
+    pub header: String,
+    pub write: bool,
+    pub provider: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct FsGetReq {
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub password: Option<String>,
+}
+
+impl FileObj {
+    pub fn new(name: impl Into<String>, size: i64, is_dir: bool, modified: impl Into<String>) -> Self {
+        let name_str = name.into();
+        let file_type = if is_dir {
+            TYPE_FOLDER
+        } else {
+            get_file_type(&name_str)
+        };
+
+        Self {
+            name: name_str,
+            size,
+            is_dir,
+            modified: modified.into(),
+            sign: String::new(),
+            thumb: String::new(),
+            r#type: file_type,
+            raw_url: String::new(),
+            readme: String::new(),
+            header: String::new(),
+            provider: "Local".to_string(),
+        }
+    }
+}
+
+pub fn get_file_type(filename: &str) -> i32 {
+    let ext = Path::new(filename)
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    match ext.as_str() {
+        "mp4" | "mkv" | "avi" | "mov" | "wmv" | "flv" | "webm" | "m4v" | "rmvb" | "ts" => {
+            TYPE_VIDEO
+        }
+        "mp3" | "flac" | "ogg" | "m4a" | "wav" | "opus" | "aac" | "aiff" | "wma" => TYPE_AUDIO,
+        "jpg" | "jpeg" | "png" | "gif" | "bmp" | "webp" | "svg" | "ico" | "tiff" | "heic" => {
+            TYPE_IMAGE
+        }
+        "txt" | "md" | "json" | "xml" | "yaml" | "yml" | "go" | "rs" | "py" | "js" | "html"
+        | "css" | "c" | "cpp" | "h" | "sh" | "log" | "sql" | "toml" | "ini" | "conf" => TYPE_TEXT,
+        _ => TYPE_UNKNOWN,
+    }
+}
+
+pub fn natural_cmp(a: &str, b: &str) -> Ordering {
+    let mut a_chars = a.chars().peekable();
+    let mut b_chars = b.chars().peekable();
+
+    loop {
+        match (a_chars.peek(), b_chars.peek()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(ca), Some(cb)) => {
+                if ca.is_ascii_digit() && cb.is_ascii_digit() {
+                    let mut a_num: u64 = 0;
+                    while let Some(c) = a_chars.peek() {
+                        if let Some(d) = c.to_digit(10) {
+                            a_num = a_num.saturating_mul(10).saturating_add(d as u64);
+                            a_chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+
+                    let mut b_num: u64 = 0;
+                    while let Some(c) = b_chars.peek() {
+                        if let Some(d) = c.to_digit(10) {
+                            b_num = b_num.saturating_mul(10).saturating_add(d as u64);
+                            b_chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+
+                    match a_num.cmp(&b_num) {
+                        Ordering::Equal => continue,
+                        other => return other,
+                    }
+                } else {
+                    let ca_lower = ca.to_lowercase().next().unwrap_or(*ca);
+                    let cb_lower = cb.to_lowercase().next().unwrap_or(*cb);
+                    match ca_lower.cmp(&cb_lower) {
+                        Ordering::Equal => {
+                            a_chars.next();
+                            b_chars.next();
+                        }
+                        other => return other,
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn sort_files(files: &mut [FileObj], order_by: &str, order_dir: &str) {
+    let desc = order_dir.eq_ignore_ascii_case("desc");
+    files.sort_by(|a, b| {
+        // Directories always come first
+        if a.is_dir != b.is_dir {
+            return if a.is_dir {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            };
+        }
+
+        let ord = match order_by {
+            "size" => a.size.cmp(&b.size),
+            "modified" => a.modified.cmp(&b.modified),
+            _ => natural_cmp(&a.name, &b.name),
+        };
+
+        if desc {
+            ord.reverse()
+        } else {
+            ord
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_natural_sort() {
+        let mut list = vec!["file10.txt", "file2.txt", "file1.txt", "file20.txt"];
+        list.sort_by(|a, b| natural_cmp(a, b));
+        assert_eq!(list, vec!["file1.txt", "file2.txt", "file10.txt", "file20.txt"]);
+    }
+
+    #[test]
+    fn test_get_file_type() {
+        assert_eq!(get_file_type("song.mp3"), TYPE_AUDIO);
+        assert_eq!(get_file_type("movie.mp4"), TYPE_VIDEO);
+        assert_eq!(get_file_type("photo.png"), TYPE_IMAGE);
+        assert_eq!(get_file_type("doc.md"), TYPE_TEXT);
+        assert_eq!(get_file_type("archive.bin"), TYPE_UNKNOWN);
+    }
 }
