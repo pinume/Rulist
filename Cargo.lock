@@ -1516,6 +1516,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "rulist"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "axum",
+ "base64",
+ "chrono",
+ "clap",
+ "futures-util",
+ "hex",
+ "hmac",
+ "jsonwebtoken",
+ "mime_guess",
+ "rand",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "subtle",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "rust-embed"
 version = "8.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2112,38 +2144,6 @@ checksum = "7e689342a48d2ea927c87ea50cabf8594854bf940e9310208848d680d668ed85"
 dependencies = [
  "num-conv",
  "time-core",
-]
-
-[[package]]
-name = "tinylist"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "argon2",
- "axum",
- "base64",
- "chrono",
- "clap",
- "futures-util",
- "hex",
- "hmac",
- "jsonwebtoken",
- "mime_guess",
- "rand",
- "rust-embed",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sqlx",
- "subtle",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-util",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

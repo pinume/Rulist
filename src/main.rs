@@ -14,10 +14,10 @@ mod sign;
 mod static_files;
 
 #[derive(Parser, Debug)]
-#[command(name = "tinylist", author, version = "0.1.0", about = "A lightweight, high-performance file listing tool written in Rust")]
+#[command(name = "rulist", author, version = "0.1.0", about = "A lightweight, high-performance file listing tool written in Rust (Rulist)")]
 struct Cli {
     /// Data directory path
-    #[arg(short, long, global = true, env = "OPENLIST_DATA_DIR", default_value = "data")]
+    #[arg(short, long, global = true, env = "RULIST_DATA_DIR", default_value = "data")]
     data_dir: PathBuf,
 
     /// Enable debug log level
@@ -30,7 +30,7 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Run TinyList HTTP server
+    /// Run Rulist HTTP server
     #[command(alias = "serve")]
     Server(ServerArgs),
 
@@ -76,9 +76,9 @@ async fn main() -> Result<()> {
 
     // Initialize logging
     let filter = if cli.debug {
-        "tinylist=debug,tower_http=debug,axum=debug"
+        "rulist=debug,tower_http=debug,axum=debug"
     } else {
-        "tinylist=info,tower_http=info"
+        "rulist=info,tower_http=info"
     };
 
     tracing_subscriber::registry()
@@ -107,8 +107,8 @@ async fn main() -> Result<()> {
                     if let Some(admin) = db::get_admin(&pool).await? {
                         println!("Admin user's username: {}", admin.username);
                         println!("The password can only be output at the first startup, and then stored as a hash value, which cannot be reversed");
-                        println!("You can reset the password with a random string by running [tinylist admin random]");
-                        println!("You can also set a new password by running [tinylist admin set NEW_PASSWORD]");
+                        println!("You can reset the password with a random string by running [rulist admin random]");
+                        println!("You can also set a new password by running [rulist admin set NEW_PASSWORD]");
                     } else {
                         eprintln!("Admin user not found in database");
                     }

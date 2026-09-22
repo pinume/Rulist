@@ -101,7 +101,7 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
 
 async fn seed_settings(pool: &DbPool) -> Result<()> {
     let defaults = vec![
-        ("site_title", "TinyList", "string", 0, 0),
+        ("site_title", "Rulist", "string", 0, 0),
         ("version", "v0.1.0-rust", "string", 0, 2),
         ("announcement", "", "text", 0, 0),
         ("robots_txt", "User-agent: *\nAllow: /", "text", 0, 0),

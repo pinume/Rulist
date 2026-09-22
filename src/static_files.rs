@@ -59,12 +59,12 @@ pub fn serve_dist_asset(path: &str) -> Option<Response<Body>> {
 pub async fn render_html(pool: &crate::db::DbPool, is_manage: bool) -> String {
     let raw_html = match DistAssets::get("index.html") {
         Some(f) => String::from_utf8_lossy(&f.data).to_string(),
-        None => return "TinyList frontend not found".to_string(),
+        None => return "Rulist frontend not found".to_string(),
     };
 
     let settings = crate::db::get_public_settings(pool).await.unwrap_or_default();
 
-    let site_title = settings.get("site_title").map(|s| s.as_str()).unwrap_or("TinyList");
+    let site_title = settings.get("site_title").map(|s| s.as_str()).unwrap_or("Rulist");
     let main_color = settings.get("main_color").map(|s| s.as_str()).unwrap_or("#1890ff");
     let logo = settings.get("logo").map(|s| s.as_str()).unwrap_or("favicon.ico");
     let favicon = settings.get("favicon").map(|s| s.as_str()).unwrap_or("");
@@ -78,6 +78,7 @@ pub async fn render_html(pool: &crate::db::DbPool, is_manage: bool) -> String {
         .replace("https://res.oplist.org/logo/logo.svg", fav)
         .replace("https://res.oplist.org/logo/logo.png", logo_first)
         .replace("<title>TinyList</title>", &format!("<title>{}</title>", site_title))
+        .replace("<title>Rulist</title>", &format!("<title>{}</title>", site_title))
         .replace("Loading...", site_title);
 
     if !is_manage {
@@ -105,7 +106,7 @@ pub async fn render_html(pool: &crate::db::DbPool, is_manage: bool) -> String {
 
 pub async fn manifest_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let settings = crate::db::get_public_settings(&state.pool).await.unwrap_or_default();
-    let site_title = settings.get("site_title").cloned().unwrap_or_else(|| "TinyList".to_string());
+    let site_title = settings.get("site_title").cloned().unwrap_or_else(|| "Rulist".to_string());
     let logo = settings.get("logo").cloned().unwrap_or_else(|| "favicon.ico".to_string());
     let logo_first = logo.lines().next().unwrap_or(&logo).to_string();
 
@@ -189,14 +190,14 @@ pub async fn spa_fallback_handler(
     if let Some(res) = serve_dist_asset(path) {
         return res;
     }
-    if path == "tinylist.svg" {
+    if path == "tinylist.svg" || path == "rulist.svg" {
         return Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "image/svg+xml")
             .body(Body::from(TINYLIST_SVG))
             .unwrap();
     }
-    if path == "tinylist.png" {
+    if path == "tinylist.png" || path == "rulist.png" {
         return Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "image/png")

@@ -60,6 +60,8 @@ pub async fn run_server(
         .route("/manifest.json", get(crate::static_files::manifest_handler))
         .route("/tinylist.svg", get(crate::static_files::dist_assets_handler))
         .route("/tinylist.png", get(crate::static_files::dist_assets_handler))
+        .route("/rulist.svg", get(crate::static_files::dist_assets_handler))
+        .route("/rulist.png", get(crate::static_files::dist_assets_handler))
         // Static assets from frontend dist
         .route("/assets/{*path}", get(crate::static_files::dist_assets_handler))
         .route("/static/{*path}", get(crate::static_files::dist_assets_handler))
