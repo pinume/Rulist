@@ -11,6 +11,7 @@ mod driver;
 mod model;
 mod server;
 mod sign;
+mod static_files;
 
 #[derive(Parser, Debug)]
 #[command(name = "tinylist", author, version = "0.1.0", about = "A lightweight, high-performance file listing tool written in Rust")]

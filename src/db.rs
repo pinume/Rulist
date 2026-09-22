@@ -102,7 +102,7 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
 async fn seed_settings(pool: &DbPool) -> Result<()> {
     let defaults = vec![
         ("site_title", "TinyList", "string", 0, 0),
-        ("version", "dev-rust", "string", 0, 1),
+        ("version", "v0.1.0-rust", "string", 0, 2),
         ("announcement", "", "text", 0, 0),
         ("robots_txt", "User-agent: *\nAllow: /", "text", 0, 0),
         ("logo", "favicon.ico", "text", 1, 0),
@@ -237,7 +237,7 @@ pub async fn get_setting(pool: &DbPool, key: &str) -> Result<Option<String>> {
 }
 
 pub async fn get_public_settings(pool: &DbPool) -> Result<HashMap<String, String>> {
-    let rows = sqlx::query("SELECT `key`, `value` FROM `x_setting_items` WHERE `flag` = 0 OR `key` = 'version'")
+    let rows = sqlx::query("SELECT `key`, `value` FROM `x_setting_items` WHERE `flag` IN (0, 2)")
         .fetch_all(pool)
         .await?;
 

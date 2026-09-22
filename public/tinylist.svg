@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">TinyList</title>
+  <defs>
+    <linearGradient id="folder" x1="104" y1="112" x2="392" y2="400" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#18baf4"/>
+      <stop offset="1" stop-color="#0797ee"/>
+    </linearGradient>
+    <linearGradient id="list" x1="248" y1="184" x2="408" y2="408" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#20d9b0"/>
+      <stop offset="1" stop-color="#10cfa4"/>
+    </linearGradient>
+  </defs>
+  <path d="M96 160c0-30.9 25.1-56 56-56h99.2c16.7 0 32.5 7.5 43.1 20.4L324 160h68c30.9 0 56 25.1 56 56v136c0 30.9-25.1 56-56 56H152c-30.9 0-56-25.1-56-56V160Z" fill="url(#folder)"/>
+  <path d="M160 224c0-17.7 14.3-32 32-32h104v216h-40V272h-64c-17.7 0-32-14.3-32-32v-16Z" fill="#fff"/>
+  <rect x="248" y="192" width="200" height="216" rx="48" fill="url(#list)"/>
+  <path d="M304 256h88M304 304h88M304 352h88" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="20"/>
+</svg>

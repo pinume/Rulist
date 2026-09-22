@@ -222,6 +222,29 @@ pub struct FsMoveCopyReq {
     pub names: Vec<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct FsDirsReq {
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub password: Option<String>,
+    #[serde(default)]
+    pub force_root: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirItem {
+    pub name: String,
+    pub modified: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateCurrentReq {
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub current_password: Option<String>,
+}
+
 impl FileObj {
     pub fn new(name: impl Into<String>, size: i64, is_dir: bool, modified: impl Into<String>) -> Self {
         let name_str = name.into();

@@ -18,13 +18,13 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
-use crate::auth::{generate_jwt, parse_jwt, verify_password};
+use crate::auth::{generate_jwt, parse_jwt, verify_password, verify_password_static_hash};
 use crate::config::Config;
 use crate::db::{get_admin, get_public_settings, get_setting, get_user_by_name, DbPool};
 use crate::driver::{SharedStorageManager, StorageManager};
 use crate::model::{
-    sort_files, ApiResponse, FsDirNamesReq, FsGetReq, FsListReq, FsListResp,
-    FsMoveCopyReq, FsRenameReq, LoginReq, User,
+    sort_files, ApiResponse, DirItem, FsDirNamesReq, FsDirsReq, FsGetReq, FsListReq,
+    FsListResp, FsMoveCopyReq, FsRenameReq, LoginReq, UpdateCurrentReq, User,
 };
 use crate::sign::{sign_path, verify_sign};
 
@@ -53,25 +53,45 @@ pub async fn run_server(
         .allow_headers(Any);
 
     let app = Router::new()
-        // Health & settings
-        .route("/ping", get(ping_handler))
-        .route("/api/public/settings", get(public_settings_handler))
+        // Health, favicon, manifest, robots
+        .route("/ping", get(crate::static_files::ping_handler))
+        .route("/favicon.ico", get(crate::static_files::favicon_handler))
+        .route("/robots.txt", get(crate::static_files::robots_handler))
+        .route("/manifest.json", get(crate::static_files::manifest_handler))
+        .route("/tinylist.svg", get(crate::static_files::dist_assets_handler))
+        .route("/tinylist.png", get(crate::static_files::dist_assets_handler))
+        // Static assets from frontend dist
+        .route("/assets/{*path}", get(crate::static_files::dist_assets_handler))
+        .route("/static/{*path}", get(crate::static_files::dist_assets_handler))
+        .route("/streamer/{*path}", get(crate::static_files::dist_assets_handler))
+        // Settings
+        .route("/api/public/settings", get(public_settings_handler).post(public_settings_handler))
         // Authentication
         .route("/api/auth/login", post(login_handler))
+        .route("/api/auth/login/hash", post(login_hash_handler))
         .route("/api/auth/me", get(current_user_handler))
+        .route("/api/me", get(current_user_handler))
+        .route("/api/me/update", post(update_current_handler))
+        .route("/api/auth/logout", get(logout_handler).post(logout_handler))
         // File system read
-        .route("/api/fs/list", post(fs_list_handler))
-        .route("/api/fs/get", post(fs_get_handler))
+        .route("/api/fs/list", post(fs_list_handler).get(fs_list_handler))
+        .route("/api/fs/get", post(fs_get_handler).get(fs_get_handler))
+        .route("/api/fs/dirs", post(fs_dirs_handler).get(fs_dirs_handler))
         // File system write
         .route("/api/fs/mkdir", post(fs_mkdir_handler))
         .route("/api/fs/rename", post(fs_rename_handler))
         .route("/api/fs/move", post(fs_move_handler))
+        .route("/api/fs/recursive_move", post(fs_move_handler))
         .route("/api/fs/copy", post(fs_copy_handler))
         .route("/api/fs/remove", post(fs_remove_handler))
+        .route("/api/fs/remove_empty_directory", post(fs_remove_handler))
         .route("/api/fs/put", put(fs_put_handler))
         // Direct download & streaming
-        .route("/d/{*path}", get(raw_download_handler))
-        .route("/p/{*path}", get(raw_preview_handler))
+        .route("/d/{*path}", get(raw_download_handler).head(raw_download_handler))
+        .route("/p/{*path}", get(raw_preview_handler).head(raw_preview_handler))
+        // SPA Fallback for all other routes
+        .fallback(crate::static_files::spa_fallback_handler)
+        .layer(tower_http::compression::CompressionLayer::new())
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -87,9 +107,6 @@ pub async fn run_server(
     Ok(())
 }
 
-async fn ping_handler() -> impl IntoResponse {
-    (StatusCode::OK, "pong")
-}
 
 async fn public_settings_handler(State(state): State<SharedState>) -> Response {
     match get_public_settings(&state.pool).await {
@@ -162,6 +179,146 @@ async fn login_handler(
     }
 }
 
+async fn login_hash_handler(
+    State(state): State<SharedState>,
+    Json(req): Json<LoginReq>,
+) -> Response {
+    let user = match get_user_by_name(&state.pool, &req.username).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(400, "user not found")),
+            )
+                .into_response()
+        }
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::<()>::error(500, err.to_string())),
+            )
+                .into_response()
+        }
+    };
+
+    if user.disabled {
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(400, "user is disabled")),
+        )
+            .into_response();
+    }
+
+    if !verify_password_static_hash(&req.password, &user.pwd_hash, &user.salt) {
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(400, "invalid username or password")),
+        )
+            .into_response();
+    }
+
+    match generate_jwt(
+        &user.username,
+        user.pwd_ts,
+        &state.config.jwt_secret,
+        state.config.token_expires_in,
+    ) {
+        Ok(token) => Json(ApiResponse::success(serde_json::json!({
+            "token": token
+        })))
+        .into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::<()>::error(500, err.to_string())),
+        )
+            .into_response(),
+    }
+}
+
+async fn logout_handler() -> Response {
+    Json(ApiResponse::success(())).into_response()
+}
+
+async fn update_current_handler(
+    headers: HeaderMap,
+    State(state): State<SharedState>,
+    Json(req): Json<UpdateCurrentReq>,
+) -> Response {
+    let mut user = match authenticate_user(&headers, &state).await {
+        Some(u) => u,
+        None => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(401, "Authentication required")),
+            )
+                .into_response();
+        }
+    };
+
+    if let Some(new_pwd) = &req.password {
+        if !new_pwd.is_empty() {
+            let cur_pwd = req.current_password.as_deref().unwrap_or("");
+            if cur_pwd.is_empty() {
+                return (
+                    StatusCode::OK,
+                    Json(ApiResponse::<()>::error(400, "Current password is required")),
+                )
+                    .into_response();
+            }
+            if !verify_password(cur_pwd, &user.pwd_hash, &user.salt) {
+                return (
+                    StatusCode::OK,
+                    Json(ApiResponse::<()>::error(403, "Current password is incorrect")),
+                )
+                    .into_response();
+            }
+
+            let salt = crate::auth::rand_string(16);
+            let s_hash = crate::auth::static_hash(new_pwd);
+            let encoded_pwd = crate::auth::encode_argon2_hash(&s_hash, &salt);
+            let now_ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+
+            if let Err(e) = sqlx::query(
+                "UPDATE `x_users` SET `pwd_hash` = ?, `salt` = ?, `pwd_ts` = ? WHERE `id` = ?"
+            )
+            .bind(&encoded_pwd)
+            .bind(&salt)
+            .bind(now_ts)
+            .bind(user.id)
+            .execute(&state.pool)
+            .await {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ApiResponse::<()>::error(500, e.to_string())),
+                )
+                    .into_response();
+            }
+            user.pwd_ts = now_ts;
+        }
+    }
+
+    if let Some(new_name) = &req.username {
+        if !new_name.is_empty() && new_name != &user.username {
+            if let Err(e) = sqlx::query("UPDATE `x_users` SET `username` = ? WHERE `id` = ?")
+                .bind(new_name)
+                .bind(user.id)
+                .execute(&state.pool)
+                .await {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ApiResponse::<()>::error(500, e.to_string())),
+                    )
+                        .into_response();
+                }
+        }
+    }
+
+    Json(ApiResponse::success(())).into_response()
+}
+
 async fn authenticate_user(headers: &HeaderMap, state: &AppState) -> Option<User> {
     let auth_header = headers.get(AUTHORIZATION)?.to_str().ok()?;
     let token = auth_header.strip_prefix("Bearer ").unwrap_or(auth_header);
@@ -192,7 +349,7 @@ async fn current_user_handler(
         Json(ApiResponse::success(user)).into_response()
     } else {
         (
-            StatusCode::UNAUTHORIZED,
+            StatusCode::OK,
             Json(ApiResponse::<()>::error(401, "Authentication required")),
         )
             .into_response()
@@ -204,9 +361,18 @@ async fn current_user_handler(
 // ---------------------------------------------------------------------------
 
 async fn fs_list_handler(
+    headers: HeaderMap,
     State(state): State<SharedState>,
     Json(req): Json<FsListReq>,
 ) -> Response {
+    if authenticate_user(&headers, &state).await.is_none() {
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(401, "Authentication required")),
+        )
+            .into_response();
+    }
+
     match state.storage.list(&req.path).await {
         Ok(mut content) => {
             sort_files(&mut content, "name", "asc");
@@ -247,9 +413,18 @@ async fn fs_list_handler(
 }
 
 async fn fs_get_handler(
+    headers: HeaderMap,
     State(state): State<SharedState>,
     Json(req): Json<FsGetReq>,
 ) -> Response {
+    if authenticate_user(&headers, &state).await.is_none() {
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(401, "Authentication required")),
+        )
+            .into_response();
+    }
+
     match state.storage.get(&req.path).await {
         Ok(mut file) => {
             let token = get_setting(&state.pool, "token")
@@ -272,6 +447,43 @@ async fn fs_get_handler(
         )
             .into_response(),
     }
+}
+
+async fn fs_dirs_handler(
+    headers: HeaderMap,
+    State(state): State<SharedState>,
+    Json(req): Json<FsDirsReq>,
+) -> Response {
+    if authenticate_user(&headers, &state).await.is_none() {
+        return (
+            StatusCode::OK,
+            Json(ApiResponse::<()>::error(401, "Authentication required")),
+        )
+            .into_response();
+    }
+
+    let path = if req.path.is_empty() { "/" } else { &req.path };
+    let files = match state.storage.list(path).await {
+        Ok(f) => f,
+        Err(err) => {
+            return (
+                StatusCode::OK,
+                Json(ApiResponse::<()>::error(500, err.to_string())),
+            )
+                .into_response();
+        }
+    };
+
+    let dirs: Vec<DirItem> = files
+        .into_iter()
+        .filter(|f| f.is_dir)
+        .map(|f| DirItem {
+            name: f.name,
+            modified: f.modified,
+        })
+        .collect();
+
+    Json(ApiResponse::success(dirs)).into_response()
 }
 
 // ---------------------------------------------------------------------------
