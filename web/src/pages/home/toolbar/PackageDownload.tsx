@@ -2,7 +2,7 @@ import "~/utils/zip-stream.js"
 import streamSaver from "streamsaver"
 import { getLinkByDirAndObj, useRouter, useT } from "~/hooks"
 import { fsList, joinBase, pathBase, pathJoin } from "~/utils"
-import { password, selectedObjs as _selectedObjs } from "~/store"
+import { selectedObjs as _selectedObjs } from "~/store"
 import { createSignal, For, Show } from "solid-js"
 import {
   Button,
@@ -51,7 +51,7 @@ const PackageDownload = (props: { onClose: () => void }) => {
         },
       ]
     } else {
-      const resp = await fsList(pathJoin(pathname(), pre, obj.name), password())
+      const resp = await fsList(pathJoin(pathname(), pre, obj.name))
       if (resp.code !== 200) {
         return resp.message
       }

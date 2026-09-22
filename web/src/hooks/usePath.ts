@@ -1,6 +1,5 @@
 import axios, { Canceler } from "axios"
 import {
-  password,
   ObjStore,
   State,
   getHistoryKey,
@@ -32,7 +31,6 @@ export const usePath = () => {
   const [, getObj] = useFetch((path: string) =>
     fsGet(
       path,
-      password(),
       new axios.CancelToken((c) => {
         cancelObj = c
       }),
@@ -41,7 +39,6 @@ export const usePath = () => {
   const [, getObjs] = useFetch((arg?: { path: string; force?: boolean }) => {
     return fsList(
       arg?.path,
-      password(),
       undefined,
       undefined,
       arg?.force,

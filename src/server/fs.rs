@@ -398,7 +398,19 @@ pub async fn fs_recursive_move_handler(
     // Create destination directories if needed
     for rel_dir in &dirs_to_create {
         let target_dir = format!("{}/{}", dst_prefix, rel_dir);
-        let _ = state.storage.mkdir(&target_dir).await;
+        if let Err(err) = state.storage.mkdir(&target_dir).await {
+            tracing::error!(
+                error = %err,
+                path = %target_dir,
+                "failed to create recursive move target directory"
+            );
+
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
     }
 
     for (src, dst) in moves {

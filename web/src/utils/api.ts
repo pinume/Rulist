@@ -11,14 +11,12 @@ import { r } from "."
 
 export const fsGet = (
   path: string = "/",
-  password = "",
   cancelToken?: CancelToken,
 ): Promise<FsGetResp> => {
   return r.post(
     "/fs/get",
     {
       path: path,
-      password: password,
     },
     {
       cancelToken: cancelToken,
@@ -27,7 +25,6 @@ export const fsGet = (
 }
 export const fsList = (
   path: string = "/",
-  password = "",
   page = 1,
   per_page = 0,
   refresh = false,
@@ -37,7 +34,6 @@ export const fsList = (
     "/fs/list",
     {
       path,
-      password,
       page,
       per_page,
       refresh,
@@ -50,10 +46,9 @@ export const fsList = (
 
 export const fsDirs = (
   path = "/",
-  password = "",
   forceRoot = false,
 ): PResp<Obj[]> => {
-  return r.post("/fs/dirs", { path, password, force_root: forceRoot })
+  return r.post("/fs/dirs", { path, force_root: forceRoot })
 }
 
 export const fsMkdir = (path: string): PEmptyResp => {

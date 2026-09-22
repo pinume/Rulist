@@ -2,6 +2,7 @@
 name = "rulist"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 authors = ["ubuntu <mhy2253@qq.com>"]
 description = "A lightweight, high-performance file listing tool written in Rust (Rulist)"
 

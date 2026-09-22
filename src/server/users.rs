@@ -139,6 +139,13 @@ pub async fn admin_user_create_handler(
     if raw_pwd.is_empty() {
         return api_error(StatusCode::BAD_REQUEST, 400, "password is required");
     }
+    if !crate::auth::valid_password(raw_pwd) {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            400,
+            "Password length must be between 8 and 128 characters",
+        );
+    }
 
     let role = req.role.unwrap_or(0);
     let local_path = req.local_path.as_deref().map(str::trim).unwrap_or("");
@@ -327,8 +334,16 @@ pub async fn admin_user_update_handler(
     if let Some(pwd) = req.password
         && !pwd.trim().is_empty()
     {
+        let pwd = pwd.trim();
+        if !crate::auth::valid_password(pwd) {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                400,
+                "Password length must be between 8 and 128 characters",
+            );
+        }
         let salt = crate::auth::rand_string(16);
-        let s_hash = crate::auth::static_hash(&pwd);
+        let s_hash = crate::auth::static_hash(pwd);
         let encoded_pwd = crate::auth::encode_argon2_hash(&s_hash, &salt);
         let now_ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

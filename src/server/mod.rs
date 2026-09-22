@@ -1569,6 +1569,32 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(json["code"], 400);
 
+        // Attempt to create user with short password (< 8 chars)
+        let short_pwd_req = AdminUserSaveReq {
+            id: None,
+            username: "short_pwd_user".to_string(),
+            password: Some("short".to_string()),
+            role: Some(0),
+            permission: Some(15),
+            disabled: Some(false),
+            local_path: Some("/tmp".to_string()),
+        };
+        let resp = users::admin_user_create_handler(
+            admin_headers.clone(),
+            State(state.clone()),
+            Json(short_pwd_req),
+        )
+        .await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 400);
+        assert_eq!(
+            json["message"],
+            "Password length must be between 8 and 128 characters"
+        );
+
         // Verify user was NOT persisted to DB
         assert!(
             crate::db::get_user_by_name(&pool, "bad_user")

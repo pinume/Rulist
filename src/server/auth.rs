@@ -130,7 +130,7 @@ pub async fn update_current_handler(
 
     if let Some(new_pwd) = &req.password
         && !new_pwd.is_empty()
-        && (new_pwd.len() < 8 || new_pwd.len() > 128)
+        && !crate::auth::valid_password(new_pwd)
     {
         return api_error(
             StatusCode::BAD_REQUEST,

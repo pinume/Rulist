@@ -16,6 +16,11 @@ const ARGON2_ITERATIONS: u32 = 2;
 const ARGON2_PARALLELISM: u32 = 1;
 const ARGON2_KEY_LEN: usize = 32;
 
+/// Validate password length requirements (8 to 128 characters)
+pub fn valid_password(password: &str) -> bool {
+    (8..=128).contains(&password.len())
+}
+
 /// Generate random alphanumeric string of length n
 pub fn rand_string(n: usize) -> String {
     if n == 0 {

@@ -31,7 +31,7 @@ import {
   onMount,
 } from "solid-js"
 import { useFetch, useT, useUtil } from "~/hooks"
-import { getMainColor, password } from "~/store"
+import { getMainColor } from "~/store"
 import { Obj } from "~/types"
 import {
   pathBase,
@@ -118,7 +118,7 @@ const FolderTreeNode = (props: { path: string }) => {
   const emptyIconVisible = () =>
     Boolean(showEmptyIcon && children() !== undefined && !children()?.length)
   const [loading, fetchDirs] = useFetch(() =>
-    fsDirs(props.path, password(), forceRoot),
+    fsDirs(props.path, forceRoot),
   )
   let isLoaded = false
   const load = async (force = false) => {
