@@ -582,14 +582,7 @@ pub(crate) async fn copy_path_safe(
     }
 
     let dst_exists = fs::symlink_metadata(dst).await.is_ok();
-    if !dst_exists {
-        if let Some(parent) = dst.parent() {
-            fs::create_dir_all(parent).await?;
-        }
-        return copy_path_recursive(src, dst).await;
-    }
-
-    if !overwrite {
+    if dst_exists && !overwrite {
         return Err(anyhow!("destination path already exists: {:?}", dst));
     }
 
@@ -610,37 +603,42 @@ pub(crate) async fn copy_path_safe(
         return Err(anyhow!("simulated copy failure before destination backup"));
     }
 
-    // Step B: backup existing destination
-    if let Err(err) = fs::rename(dst, &backup).await {
-        let _ = remove_path_recursive(&stage).await;
-        return Err(anyhow!(
-            "failed to backup existing destination {:?}: {}",
-            dst,
-            err
-        ));
+    // Step B: backup existing destination if present
+    if dst_exists {
+        if let Err(err) = fs::rename(dst, &backup).await {
+            let _ = remove_path_recursive(&stage).await;
+            return Err(anyhow!(
+                "failed to backup existing destination {:?}: {}",
+                dst,
+                err
+            ));
+        }
     }
 
     // Step C: promote stage to destination
     if let Err(err) = fs::rename(&stage, dst).await {
-        // Rollback: restore backup to dst and clean stage
-        let restore_res = fs::rename(&backup, dst).await;
-        if let Err(re) = restore_res {
-            tracing::error!(
-                error = %re,
-                "CRITICAL: failed to restore backup after stage rename failure"
-            );
+        if dst_exists {
+            let restore_res = fs::rename(&backup, dst).await;
+            if let Err(re) = restore_res {
+                tracing::error!(
+                    error = %re,
+                    "CRITICAL: failed to restore backup after stage rename failure"
+                );
+            }
         }
         let _ = remove_path_recursive(&stage).await;
         return Err(anyhow!("failed to replace destination with stage: {}", err));
     }
 
-    // Step D: remove backup
-    if let Err(err) = remove_path_recursive(&backup).await {
-        tracing::warn!(
-            error = %err,
-            path = ?backup,
-            "failed to remove backup after successful copy overwrite"
-        );
+    // Step D: remove backup if present
+    if dst_exists {
+        if let Err(err) = remove_path_recursive(&backup).await {
+            tracing::warn!(
+                error = %err,
+                path = ?backup,
+                "failed to remove backup after successful copy overwrite"
+            );
+        }
     }
 
     Ok(())
@@ -1319,6 +1317,52 @@ mod tests {
         );
 
         // Verify no leftover stage or backup files remain
+        let mut entries = tokio::fs::read_dir(tmp.path()).await.unwrap();
+        while let Some(entry) = entries.next_entry().await.unwrap() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            assert!(!name.starts_with(".rulist-copy-stage-"));
+            assert!(!name.starts_with(".rulist-backup-"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_copy_safe_nonexistent_dst_aborted_leaves_no_partial_destination() {
+        let tmp = tempdir().unwrap();
+        let addition = serde_json::json!({
+            "root_folder_path": tmp.path().to_str().unwrap()
+        })
+        .to_string();
+        let driver = LocalDriver::new(&addition).unwrap();
+
+        let src_dir = tmp.path().join("src_dir");
+        tokio::fs::create_dir(&src_dir).await.unwrap();
+        tokio::fs::write(src_dir.join("a.txt"), b"file a")
+            .await
+            .unwrap();
+        tokio::fs::write(src_dir.join("b.txt"), b"file b")
+            .await
+            .unwrap();
+        tokio::fs::write(src_dir.join("c.txt"), b"file c")
+            .await
+            .unwrap();
+
+        let dst_dir = tmp.path().join("dst_dir");
+
+        // Copy to non-existent destination with simulate_failure = true
+        let result = driver
+            .copy_to_safe_internal("src_dir", "dst_dir", false, true)
+            .await;
+        assert!(result.is_err());
+
+        // Source directory and all files remain intact
+        assert!(src_dir.join("a.txt").exists());
+        assert!(src_dir.join("b.txt").exists());
+        assert!(src_dir.join("c.txt").exists());
+
+        // Destination directory was never promoted and does NOT exist
+        assert!(!dst_dir.exists());
+
+        // No leftover staging or backup directories
         let mut entries = tokio::fs::read_dir(tmp.path()).await.unwrap();
         while let Some(entry) = entries.next_entry().await.unwrap() {
             let name = entry.file_name().to_string_lossy().to_string();
