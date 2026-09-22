@@ -26,9 +26,10 @@ use crate::config::Config;
 use crate::db::{DbPool, get_admin, get_public_settings, get_setting, get_user_by_name};
 use crate::driver::{SharedStorageManager, StorageManager};
 use crate::model::{
-    AdminUserSaveReq, ApiResponse, BatchRenameReq, DirItem, FsDirNamesReq, FsDirsReq, FsGetReq,
-    FsLinkReq, FsLinkResp, FsListReq, FsListResp, FsMoveCopyReq, FsRenameReq, LoginReq,
-    TwoFaGenerateReq, TwoFaVerifyReq, UpdateCurrentReq, User, UserWithMount, sort_files,
+    AdminUserSaveReq, ApiResponse, BatchRenameReq, ConflictPolicy, DirItem, FsDirNamesReq,
+    FsDirsReq, FsGetReq, FsLinkReq, FsLinkResp, FsListReq, FsListResp, FsMoveCopyReq,
+    FsRecursiveMoveReq, FsRenameReq, LoginReq, TwoFaGenerateReq, TwoFaVerifyReq, UpdateCurrentReq,
+    User, UserWithMount, sort_files,
 };
 use crate::sign::{sign_path, verify_sign};
 
@@ -897,9 +898,38 @@ async fn fs_move_handler(
         (Ok(src), Ok(dst)) => (src, dst),
         _ => return permission_denied(),
     };
-    for name in req.names {
+
+    let policy = req.policy();
+    let mut moves = Vec::new();
+    for name in &req.names {
         let src = format!("{}/{}", src_dir.trim_end_matches('/'), name);
         let dst = format!("{}/{}", dst_dir.trim_end_matches('/'), name);
+        let dst_exists = state.storage.get(&dst).await.is_ok();
+        if dst_exists {
+            match policy {
+                ConflictPolicy::Cancel => {
+                    return (
+                        StatusCode::OK,
+                        Json(ApiResponse::<()>::error(
+                            403,
+                            format!("file [{name}] exists"),
+                        )),
+                    )
+                        .into_response();
+                }
+                ConflictPolicy::Skip => {
+                    continue;
+                }
+                ConflictPolicy::Overwrite => {}
+            }
+        }
+        moves.push((src, dst));
+    }
+
+    for (src, dst) in moves {
+        if policy == ConflictPolicy::Overwrite && state.storage.get(&dst).await.is_ok() {
+            let _ = state.storage.remove(&dst).await;
+        }
         if let Err(err) = state.storage.move_to(&src, &dst).await {
             return (
                 StatusCode::OK,
@@ -912,17 +942,10 @@ async fn fs_move_handler(
     Json(ApiResponse::success(serde_json::Value::Null)).into_response()
 }
 
-#[derive(Deserialize)]
-struct RecursiveMoveReq {
-    src_dir: String,
-    dst_dir: String,
-    conflict_policy: String,
-}
-
 async fn fs_recursive_move_handler(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    Json(req): Json<RecursiveMoveReq>,
+    Json(req): Json<FsRecursiveMoveReq>,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
         return Json(ApiResponse::<()>::error(401, "Authentication required")).into_response();
@@ -940,16 +963,14 @@ async fn fs_recursive_move_handler(
     if src_dir == dst_dir || dst_dir.starts_with(&format!("{}/", src_dir.trim_end_matches('/'))) {
         return Json(ApiResponse::<()>::error(400, "invalid destination")).into_response();
     }
-    if !matches!(
-        req.conflict_policy.as_str(),
-        "cancel" | "overwrite" | "skip"
-    ) {
-        return Json(ApiResponse::<()>::error(400, "invalid conflict policy")).into_response();
-    }
 
-    let mut dirs = vec![src_dir];
+    let mut dirs_to_visit = vec![src_dir.clone()];
+    let mut dirs_to_create = Vec::new();
     let mut files = Vec::new();
-    while let Some(dir) = dirs.pop() {
+
+    let src_prefix = src_dir.trim_end_matches('/');
+
+    while let Some(dir) = dirs_to_visit.pop() {
         let entries = match state.storage.list(&dir).await {
             Ok(entries) => entries,
             Err(err) => {
@@ -958,40 +979,65 @@ async fn fs_recursive_move_handler(
         };
         for entry in entries {
             let path = format!("{}/{}", dir.trim_end_matches('/'), entry.name);
+            let rel_path = path
+                .strip_prefix(src_prefix)
+                .unwrap_or(&path)
+                .trim_start_matches('/')
+                .to_string();
+
             if entry.is_dir {
-                dirs.push(path);
+                dirs_to_create.push(rel_path.clone());
+                dirs_to_visit.push(path);
             } else {
-                files.push((path, entry.name));
+                files.push((path, rel_path));
             }
         }
     }
-    let mut existing = match state.storage.list(&dst_dir).await {
-        Ok(entries) => entries
-            .into_iter()
-            .map(|entry| entry.name)
-            .collect::<std::collections::HashSet<_>>(),
-        Err(err) => return Json(ApiResponse::<()>::error(500, err.to_string())).into_response(),
-    };
+
+    let policy = req.conflict_policy;
+    let dst_prefix = dst_dir.trim_end_matches('/');
     let mut moves = Vec::new();
-    for (src, name) in files {
-        let conflict = !existing.insert(name.clone());
-        if conflict && req.conflict_policy == "cancel" {
-            return Json(ApiResponse::<()>::error(
-                403,
-                format!("file [{name}] exists"),
-            ))
-            .into_response();
+
+    for (src_file, rel_path) in files {
+        let dst_file = format!("{}/{}", dst_prefix, rel_path);
+        let dst_exists = state.storage.get(&dst_file).await.is_ok();
+
+        if dst_exists {
+            match policy {
+                ConflictPolicy::Cancel => {
+                    return (
+                        StatusCode::OK,
+                        Json(ApiResponse::<()>::error(
+                            403,
+                            format!("file [{rel_path}] exists"),
+                        )),
+                    )
+                        .into_response();
+                }
+                ConflictPolicy::Skip => {
+                    continue;
+                }
+                ConflictPolicy::Overwrite => {}
+            }
         }
-        if conflict && req.conflict_policy == "skip" {
-            continue;
-        }
-        moves.push((src, format!("{}/{}", dst_dir.trim_end_matches('/'), name)));
+        moves.push((src_file, dst_file));
     }
+
+    // Create destination directories if needed
+    for rel_dir in &dirs_to_create {
+        let target_dir = format!("{}/{}", dst_prefix, rel_dir);
+        let _ = state.storage.mkdir(&target_dir).await;
+    }
+
     for (src, dst) in moves {
+        if policy == ConflictPolicy::Overwrite && state.storage.get(&dst).await.is_ok() {
+            let _ = state.storage.remove(&dst).await;
+        }
         if let Err(err) = state.storage.move_to(&src, &dst).await {
             return Json(ApiResponse::<()>::error(500, err.to_string())).into_response();
         }
     }
+
     Json(ApiResponse::success(())).into_response()
 }
 
@@ -1017,9 +1063,38 @@ async fn fs_copy_handler(
         (Ok(src), Ok(dst)) => (src, dst),
         _ => return permission_denied(),
     };
-    for name in req.names {
+
+    let policy = req.policy();
+    let mut copies = Vec::new();
+    for name in &req.names {
         let src = format!("{}/{}", src_dir.trim_end_matches('/'), name);
         let dst = format!("{}/{}", dst_dir.trim_end_matches('/'), name);
+        let dst_exists = state.storage.get(&dst).await.is_ok();
+        if dst_exists {
+            match policy {
+                ConflictPolicy::Cancel => {
+                    return (
+                        StatusCode::OK,
+                        Json(ApiResponse::<()>::error(
+                            403,
+                            format!("file [{name}] exists"),
+                        )),
+                    )
+                        .into_response();
+                }
+                ConflictPolicy::Skip => {
+                    continue;
+                }
+                ConflictPolicy::Overwrite => {}
+            }
+        }
+        copies.push((src, dst));
+    }
+
+    for (src, dst) in copies {
+        if policy == ConflictPolicy::Overwrite && state.storage.get(&dst).await.is_ok() {
+            let _ = state.storage.remove(&dst).await;
+        }
         if let Err(err) = state.storage.copy_to(&src, &dst).await {
             return (
                 StatusCode::OK,
@@ -2446,5 +2521,170 @@ mod tests {
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(json["code"], 200);
+    }
+
+    #[tokio::test]
+    async fn test_fs_conflict_policies_and_recursive_move_hierarchy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "AdminPassword123!")
+            .await
+            .unwrap();
+
+        // Create storage directory structure
+        let storage_root = tmp.path().join("storage");
+        tokio::fs::create_dir_all(&storage_root).await.unwrap();
+
+        // Insert storage record in DB
+        sqlx::query(
+            "INSERT INTO `x_storages` (`mount_path`, `driver`, `addition`) VALUES (?, ?, ?)",
+        )
+        .bind("/local")
+        .bind("Local")
+        .bind(
+            serde_json::json!({
+                "root_folder_path": storage_root.to_str().unwrap()
+            })
+            .to_string(),
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let config = Config::default();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: config.clone(),
+            storage: Arc::new(storage_mgr),
+        });
+
+        // Get admin token
+        let login_req = LoginReq {
+            username: "admin".to_string(),
+            password: "AdminPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = login_handler(State(state.clone()), Json(login_req)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let token = json["data"]["token"].as_str().unwrap().to_string();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+        );
+
+        // Setup directories:
+        // /local/src/sub/file1.txt ("file1 v1")
+        // /local/src/sub/file2.txt ("file2 v1")
+        // /local/src/root.txt ("root v1")
+        // /local/dst/sub/file1.txt ("existing dst file1")
+        let src_dir = storage_root.join("src/sub");
+        tokio::fs::create_dir_all(&src_dir).await.unwrap();
+        tokio::fs::write(src_dir.join("file1.txt"), b"file1 v1")
+            .await
+            .unwrap();
+        tokio::fs::write(src_dir.join("file2.txt"), b"file2 v1")
+            .await
+            .unwrap();
+        tokio::fs::write(storage_root.join("src/root.txt"), b"root v1")
+            .await
+            .unwrap();
+
+        let dst_sub = storage_root.join("dst/sub");
+        tokio::fs::create_dir_all(&dst_sub).await.unwrap();
+        tokio::fs::write(dst_sub.join("file1.txt"), b"existing dst file1")
+            .await
+            .unwrap();
+
+        // 1. Test recursive_move with ConflictPolicy::Cancel
+        // Because /local/dst/sub/file1.txt already exists, it must return 403, and move NO files!
+        let req_cancel = FsRecursiveMoveReq {
+            src_dir: "/local/src".to_string(),
+            dst_dir: "/local/dst".to_string(),
+            conflict_policy: ConflictPolicy::Cancel,
+        };
+        let resp =
+            fs_recursive_move_handler(State(state.clone()), headers.clone(), Json(req_cancel))
+                .await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 403);
+
+        // Verify NOTHING was moved
+        assert!(src_dir.join("file1.txt").exists());
+        assert!(src_dir.join("file2.txt").exists());
+        assert!(storage_root.join("src/root.txt").exists());
+        assert_eq!(
+            tokio::fs::read(dst_sub.join("file1.txt")).await.unwrap(),
+            b"existing dst file1"
+        );
+        assert!(!dst_sub.join("file2.txt").exists());
+        assert!(!storage_root.join("dst/root.txt").exists());
+
+        // 2. Test recursive_move with ConflictPolicy::Skip
+        // Skips file1.txt, moves file2.txt and root.txt, PRESERVING nested sub/ directory structure!
+        let req_skip = FsRecursiveMoveReq {
+            src_dir: "/local/src".to_string(),
+            dst_dir: "/local/dst".to_string(),
+            conflict_policy: ConflictPolicy::Skip,
+        };
+        let resp =
+            fs_recursive_move_handler(State(state.clone()), headers.clone(), Json(req_skip)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 200);
+
+        // Existing dst file1 was kept intact
+        assert_eq!(
+            tokio::fs::read(dst_sub.join("file1.txt")).await.unwrap(),
+            b"existing dst file1"
+        );
+        // Skipped source file1 remains in src
+        assert!(src_dir.join("file1.txt").exists());
+        // Moved files are now in dst with preserved hierarchy
+        assert!(!src_dir.join("file2.txt").exists());
+        assert_eq!(
+            tokio::fs::read(dst_sub.join("file2.txt")).await.unwrap(),
+            b"file2 v1"
+        );
+        assert!(!storage_root.join("src/root.txt").exists());
+        assert_eq!(
+            tokio::fs::read(storage_root.join("dst/root.txt"))
+                .await
+                .unwrap(),
+            b"root v1"
+        );
+
+        // 3. Test recursive_move with ConflictPolicy::Overwrite
+        // Overwrites dst/sub/file1.txt with src/sub/file1.txt
+        let req_overwrite = FsRecursiveMoveReq {
+            src_dir: "/local/src".to_string(),
+            dst_dir: "/local/dst".to_string(),
+            conflict_policy: ConflictPolicy::Overwrite,
+        };
+        let resp =
+            fs_recursive_move_handler(State(state.clone()), headers.clone(), Json(req_overwrite))
+                .await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 200);
+
+        // dst/sub/file1.txt is now overwritten with file1 v1
+        assert_eq!(
+            tokio::fs::read(dst_sub.join("file1.txt")).await.unwrap(),
+            b"file1 v1"
+        );
+        assert!(!src_dir.join("file1.txt").exists());
     }
 }

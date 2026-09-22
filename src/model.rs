@@ -164,6 +164,15 @@ pub struct FsDirNamesReq {
     pub names: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ConflictPolicy {
+    #[default]
+    Cancel,
+    Overwrite,
+    Skip,
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct FsMoveCopyReq {
     #[serde(default)]
@@ -172,6 +181,35 @@ pub struct FsMoveCopyReq {
     pub dst_dir: String,
     #[serde(default)]
     pub names: Vec<String>,
+    #[serde(default)]
+    pub conflict_policy: Option<ConflictPolicy>,
+    #[serde(default)]
+    pub overwrite: Option<bool>,
+    #[serde(default)]
+    pub skip_existing: Option<bool>,
+}
+
+impl FsMoveCopyReq {
+    pub fn policy(&self) -> ConflictPolicy {
+        if let Some(policy) = self.conflict_policy {
+            return policy;
+        }
+        if self.overwrite.unwrap_or(false) {
+            ConflictPolicy::Overwrite
+        } else if self.skip_existing.unwrap_or(false) {
+            ConflictPolicy::Skip
+        } else {
+            ConflictPolicy::Cancel
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FsRecursiveMoveReq {
+    pub src_dir: String,
+    pub dst_dir: String,
+    #[serde(default)]
+    pub conflict_policy: ConflictPolicy,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

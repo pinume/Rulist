@@ -75,23 +75,29 @@ export const fsBatchRename = (
   return r.post("/fs/batch_rename", { src_dir, rename_objects })
 }
 
+export type ConflictPolicy = "cancel" | "overwrite" | "skip"
+
 export const fsMove = (
   src_dir: string,
   dst_dir: string,
   names: string[],
-  overwrite: boolean,
-  skip_existing: boolean,
+  overwrite?: boolean,
+  skip_existing?: boolean,
+  conflict_policy?: ConflictPolicy,
 ): PEmptyResp => {
+  const policy: ConflictPolicy =
+    conflict_policy ??
+    (overwrite ? "overwrite" : skip_existing ? "skip" : "cancel")
   return r.post("/fs/move", {
     src_dir,
     dst_dir,
     names,
-    overwrite,
-    skip_existing,
+    overwrite: policy === "overwrite",
+    skip_existing: policy === "skip",
+    conflict_policy: policy,
   })
 }
 
-export type ConflictPolicy = "cancel" | "overwrite" | "skip"
 export const fsRecursiveMove = (
   src_dir: string,
   dst_dir: string,
@@ -108,17 +114,22 @@ export const fsCopy = (
   src_dir: string,
   dst_dir: string,
   names: string[],
-  overwrite: boolean,
-  skip_existing: boolean,
-  merge: boolean,
+  overwrite?: boolean,
+  skip_existing?: boolean,
+  merge?: boolean,
+  conflict_policy?: ConflictPolicy,
 ): PEmptyResp => {
+  const policy: ConflictPolicy =
+    conflict_policy ??
+    (overwrite ? "overwrite" : skip_existing ? "skip" : "cancel")
   return r.post("/fs/copy", {
     src_dir,
     dst_dir,
     names,
-    overwrite,
-    skip_existing,
+    overwrite: policy === "overwrite",
+    skip_existing: policy === "skip",
     merge,
+    conflict_policy: policy,
   })
 }
 
