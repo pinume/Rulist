@@ -71,7 +71,7 @@ pub async fn update_current_handler(
     State(state): State<SharedState>,
     Json(req): Json<UpdateCurrentReq>,
 ) -> Response {
-    let mut user = match authenticate_user(&headers, &state).await {
+    let user = match authenticate_user(&headers, &state).await {
         Some(u) => u,
         None => return api_error(StatusCode::OK, 401, "Authentication required"),
     };
@@ -99,15 +99,67 @@ pub async fn update_current_handler(
 
     if let Some(new_pwd) = &req.password
         && !new_pwd.is_empty()
+        && (new_pwd.len() < 8 || new_pwd.len() > 128)
     {
-        if new_pwd.len() < 8 || new_pwd.len() > 128 {
+        return api_error(
+            StatusCode::OK,
+            400,
+            "Password length must be between 8 and 128 characters",
+        );
+    }
+
+    let clean_name = req.username.as_deref().map(|n| n.trim()).unwrap_or("");
+    if username_changed {
+        if clean_name.len() > 64 {
             return api_error(
                 StatusCode::OK,
                 400,
-                "Password length must be between 8 and 128 characters",
+                "Username length cannot exceed 64 characters",
             );
         }
 
+        let exists_res: Result<Option<i64>, _> =
+            sqlx::query_scalar("SELECT `id` FROM `x_users` WHERE `username` = ? AND `id` != ?")
+                .bind(clean_name)
+                .bind(user.id)
+                .fetch_optional(&state.pool)
+                .await;
+
+        match exists_res {
+            Ok(Some(_)) => {
+                return api_error(StatusCode::CONFLICT, 409, "Username already exists");
+            }
+            Err(err) => {
+                tracing::error!(error = %err, "failed to check existing username");
+                return api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    500,
+                    "Internal server error",
+                );
+            }
+            Ok(None) => {}
+        }
+    }
+
+    if !username_changed && !password_changed {
+        return api_success(());
+    }
+
+    let mut tx = match state.pool.begin().await {
+        Ok(tx) => tx,
+        Err(err) => {
+            tracing::error!(error = %err, "failed to start profile update transaction");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
+    };
+
+    if let Some(new_pwd) = &req.password
+        && !new_pwd.is_empty()
+    {
         let salt = crate::auth::rand_string(16);
         let s_hash = crate::auth::static_hash(new_pwd);
         let encoded_pwd = crate::auth::encode_argon2_hash(&s_hash, &salt);
@@ -123,34 +175,44 @@ pub async fn update_current_handler(
         .bind(&salt)
         .bind(now_ts)
         .bind(user.id)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await
         {
-            return api_error(StatusCode::INTERNAL_SERVER_ERROR, 500, e.to_string());
+            tracing::error!(error = %e, "failed to update user password in transaction");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
         }
-        user.pwd_ts = now_ts;
     }
 
-    if let Some(new_name) = &req.username {
-        let clean_name = new_name.trim();
-        if !clean_name.is_empty() && clean_name != user.username {
-            if clean_name.len() > 64 {
+    if username_changed {
+        match sqlx::query("UPDATE `x_users` SET `username` = ? WHERE `id` = ?")
+            .bind(clean_name)
+            .bind(user.id)
+            .execute(&mut *tx)
+            .await
+        {
+            Ok(_) => {}
+            Err(e) => {
+                tracing::error!(error = %e, "failed to update username in transaction");
                 return api_error(
-                    StatusCode::OK,
-                    400,
-                    "Username length cannot exceed 64 characters",
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    500,
+                    "Internal server error",
                 );
             }
-
-            if let Err(e) = sqlx::query("UPDATE `x_users` SET `username` = ? WHERE `id` = ?")
-                .bind(clean_name)
-                .bind(user.id)
-                .execute(&state.pool)
-                .await
-            {
-                return api_error(StatusCode::INTERNAL_SERVER_ERROR, 500, e.to_string());
-            }
         }
+    }
+
+    if let Err(err) = tx.commit().await {
+        tracing::error!(error = %err, "failed to commit profile update transaction");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Internal server error",
+        );
     }
 
     api_success(())

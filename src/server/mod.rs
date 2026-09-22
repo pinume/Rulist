@@ -1340,4 +1340,141 @@ mod tests {
         assert!(keep1.join("a.txt").exists());
         assert!(keep2_child.join("b.txt").exists());
     }
+
+    #[tokio::test]
+    async fn test_profile_update_is_atomic_on_conflict() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "AdminPassword123!")
+            .await
+            .unwrap();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let config = Config::default();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: config.clone(),
+            storage: Arc::new(storage_mgr),
+        });
+
+        // Create alice and bob
+        let admin_login = LoginReq {
+            username: "admin".to_string(),
+            password: "AdminPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(admin_login)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let admin_token = json["data"]["token"].as_str().unwrap().to_string();
+        let mut admin_headers = HeaderMap::new();
+        admin_headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", admin_token)).unwrap(),
+        );
+
+        let alice_create = AdminUserSaveReq {
+            id: None,
+            username: "alice".to_string(),
+            password: Some("AlicePassword123!".to_string()),
+            role: Some(0),
+            permission: Some(15),
+            disabled: Some(false),
+            local_path: None,
+        };
+        let _ = users::admin_user_create_handler(
+            admin_headers.clone(),
+            State(state.clone()),
+            Json(alice_create),
+        )
+        .await;
+
+        let bob_create = AdminUserSaveReq {
+            id: None,
+            username: "bob".to_string(),
+            password: Some("BobPassword123!".to_string()),
+            role: Some(0),
+            permission: Some(15),
+            disabled: Some(false),
+            local_path: None,
+        };
+        let _ = users::admin_user_create_handler(
+            admin_headers.clone(),
+            State(state.clone()),
+            Json(bob_create),
+        )
+        .await;
+
+        // Login as alice
+        let alice_login = LoginReq {
+            username: "alice".to_string(),
+            password: "AlicePassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(alice_login)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let alice_token = json["data"]["token"].as_str().unwrap().to_string();
+        let mut alice_headers = HeaderMap::new();
+        alice_headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", alice_token)).unwrap(),
+        );
+
+        // Alice attempts to change username to 'bob' (conflict) and password to 'NewPassword123!'
+        let conflict_req = UpdateCurrentReq {
+            username: Some("bob".to_string()),
+            password: Some("NewPassword123!".to_string()),
+            current_password: Some("AlicePassword123!".to_string()),
+        };
+        let resp = auth::update_current_handler(
+            alice_headers.clone(),
+            State(state.clone()),
+            Json(conflict_req),
+        )
+        .await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 409);
+
+        // Verify username is still alice
+        let alice_user = crate::db::get_user_by_name(&pool, "alice")
+            .await
+            .unwrap()
+            .expect("alice must still exist");
+        assert_eq!(alice_user.username, "alice");
+
+        // Verify alice old password still works
+        let alice_relogin_old = LoginReq {
+            username: "alice".to_string(),
+            password: "AlicePassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(alice_relogin_old)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 200);
+
+        // Verify new password was NOT applied
+        let alice_relogin_new = LoginReq {
+            username: "alice".to_string(),
+            password: "NewPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(alice_relogin_new)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_ne!(json["code"], 200);
+    }
 }
