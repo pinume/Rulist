@@ -1,0 +1,54 @@
+import { password } from "~/store"
+import { EmptyResp } from "~/types"
+import { r } from "~/utils"
+import { SetUpload, Upload } from "./types"
+
+export const StreamUpload: Upload = async (
+  uploadPath: string,
+  file: File,
+  setUpload: SetUpload,
+  asTask = false,
+  overwrite = false,
+): Promise<undefined> => {
+  let oldTimestamp = new Date().valueOf()
+  let oldLoaded = 0
+  const headers: { [k: string]: any } = {
+    "File-Path": encodeURIComponent(uploadPath),
+    "As-Task": asTask,
+    "Content-Type": file.type || "application/octet-stream",
+    "Last-Modified": file.lastModified,
+    Password: password(),
+    Overwrite: overwrite.toString(),
+  }
+  setUpload("status", "uploading")
+  const resp: EmptyResp = await r.put("/fs/put", file, {
+    headers: headers,
+    onUploadProgress: (progressEvent) => {
+      if (progressEvent.total) {
+        const complete =
+          ((progressEvent.loaded / progressEvent.total) * 100) | 0
+        setUpload("progress", complete)
+
+        const timestamp = new Date().valueOf()
+        const duration = (timestamp - oldTimestamp) / 1000
+        if (duration > 1) {
+          const loaded = progressEvent.loaded - oldLoaded
+          const speed = loaded / duration
+          setUpload("speed", speed)
+
+          oldTimestamp = timestamp
+          oldLoaded = progressEvent.loaded
+        }
+
+        if (complete === 100) {
+          setUpload("status", "backending")
+        }
+      }
+    },
+  })
+  if (resp.code === 200) {
+    return
+  } else {
+    throw new Error(resp.message)
+  }
+}

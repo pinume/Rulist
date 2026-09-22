@@ -1,0 +1,64 @@
+import { getHideFiles } from "~/store"
+import { Obj } from "~/types"
+import { notify, pathJoin } from "~/utils"
+import { useT, useRouter } from "."
+
+export const useUtil = () => {
+  const t = useT()
+  const { pathname } = useRouter()
+  return {
+    copy: async (text: string) => {
+      let copied = false
+      try {
+        await navigator.clipboard.writeText(text)
+        copied = true
+      } catch {
+        const ta = document.createElement("textarea")
+        ta.value = text
+        ta.style.position = "fixed"
+        ta.style.opacity = "0"
+        const root = document.fullscreenElement ?? document.body
+        try {
+          root.appendChild(ta)
+          ta.select()
+          copied = document.execCommand("copy")
+        } catch {
+          copied = false
+        } finally {
+          ta.remove()
+        }
+      }
+      if (copied) {
+        notify.success(t("global.copied"))
+      } else {
+        notify.error(t("global.clipboard_denied"))
+      }
+    },
+    paste: async (): Promise<string> => {
+      try {
+        return navigator.clipboard.readText()
+      } catch (e: any) {
+        notify.error(e.message || t("global.clipboard_denied"))
+        return ""
+      }
+    },
+    isHide: (obj: Obj) => {
+      const hideFiles = getHideFiles()
+      for (const reg of hideFiles) {
+        if (reg.test(pathJoin(pathname(), obj.name))) {
+          return true
+        }
+      }
+      return false
+    },
+    isHidePath: (path: string) => {
+      const hideFiles = getHideFiles()
+      for (const reg of hideFiles) {
+        if (reg.test(path)) {
+          return true
+        }
+      }
+      return false
+    },
+  }
+}

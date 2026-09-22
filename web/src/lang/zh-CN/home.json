@@ -1,0 +1,141 @@
+{
+  "obj": {
+    "name": "名称",
+    "size": "大小",
+    "modified": "修改时间",
+    "count": {
+      "count": "共有 {{folders}} 个文件夹，{{files}} 个文件",
+      "count_folders": "共有 {{folders}} 个文件夹",
+      "count_files": "共有 {{files}} 个文件",
+      "selected": "已选中 {{folders}} 个文件夹，{{files}} 个文件",
+      "selected_folders": "已选中 {{folders}} 个文件夹",
+      "selected_files": "已选中 {{files}} 个文件"
+    }
+  },
+  "layouts": {
+    "list": "列表视图",
+    "grid": "网格视图",
+    "image": "图片视图"
+  },
+  "sidebar": {
+    "open": "打开文件夹导航",
+    "close": "关闭文件夹导航"
+  },
+  "no_images": "当前文件夹中没有图片",
+  "load_more": "加载更多",
+  "no_more": "没有更多内容",
+  "input_password": "请输入密码",
+  "toolbar": {
+    "more": "更多",
+    "refresh": "刷新",
+    "switch_lang": "切换语言",
+    "toggle_markdown_toc": "是否显示大纲",
+    "toggle_checkbox": "开关复选框",
+    "rename": "重命名",
+    "input_new_name": "输入新名称",
+    "move": "移动",
+    "copy": "复制",
+    "choose_dst_folder": "选择目标文件夹",
+    "delete": "删除",
+    "delete-tips": "确定要删除所选对象吗？",
+    "down_link": "下载链接",
+    "encode_down_link": "编码下载链接",
+    "mkdir": "新建文件夹",
+    "input_dir_name": "输入文件夹名称",
+    "new_file": "新建文件",
+    "input_filename": "输入文件名",
+    "cancel_select": "取消选择",
+    "download": "下载",
+    "package_download": "打包下载",
+    "package_download_disabled": "打包下载已禁用",
+    "pre_package_download-tips": "在浏览器中使用 StreamSaver 替代服务器进行包下载时，需要相应存储服务支持 CORS，不支持的存储将会导致下载失败。",
+    "package_download-tips": "正在下载，请稍候不要关闭页面",
+    "upload": "上传",
+    "settings": "设置",
+    "recursive_move": "聚合移动",
+    "recursive_move_directory-tips": "您确定要将当前文件夹及其子文件夹中的所有文件移动到指定的文件夹吗？",
+    "remove_empty_directory": "移除空文件夹",
+    "remove_empty_directory-tips": "您确定要删除所有空子文件夹吗？",
+    "batch_rename": "批量重命名",
+    "sequential_renaming": "顺序重命名",
+    "batch_rename_preview": "更改后文件",
+    "batch_rename_preview_old_name": "旧名称",
+    "batch_rename_preview_new_name": "新名称",
+    "sequential_renaming_desc": "新的文件名将会附加一个起始数值，并按顺序从起始值开始每次加 1 进行显示。请在首行输入新文件名，第二行输入起始数值。支持使用 {number} 占位符。",
+    "sequential_renaming_input1_placeholder": "新文件名（支持 {number} 占位符）",
+    "sequential_renaming_input2_placeholder": "起始编号（如 1）",
+    "sequential_renaming_input3_placeholder": "前导零填充宽度（可选）",
+    "find_replace": "查找并替换",
+    "find_replace_desc": "在所选文件名中查找指定文本并替换为新文本。首行输入查找内容，第二行输入替换内容。",
+    "find_replace_input1_placeholder": "查找内容",
+    "find_replace_input2_placeholder": "替换为"
+  },
+  "upload": {
+    "add_as_task": "添加为任务",
+    "upload-tips": "拖动文件到此处可上传，或点击：",
+    "release": "松开可上传",
+    "no_files_drag": "没有拖入文件。",
+    "upload_files": "选择文件",
+    "upload_folder": "选择文件夹",
+    "pending": "等待中",
+    "uploading": "上传中",
+    "backending": "后台上传中",
+    "success": "成功",
+    "error": "出错",
+    "retry": "重试",
+    "back": "返回上传",
+    "clear_done": "清空完成"
+  },
+  "local_settings": {
+    "show_folder_in_image_view_options": {
+      "top": "上方",
+      "bottom": "下方",
+      "none": "隐藏"
+    },
+    "position_of_header_navbar": "标题栏和导航栏的位置",
+    "position_of_header_navbar_options": {
+      "static": "常规",
+      "sticky": "吸附到页面顶部",
+      "only_navbar_sticky": "仅吸附导航栏"
+    },
+    "grid_item_size": "网格视图项目尺寸",
+    "show_sidebar": "显示侧边栏",
+    "show_sidebar_options": {
+      "none": "隐藏",
+      "visible": "显示"
+    },
+    "list_item_filename_overflow": "列表项目文件名过长",
+    "list_item_filename_overflow_options": {
+      "ellipsis": "省略号",
+      "scrollable": "可滚动",
+      "multi_line": "多行显示"
+    },
+    "open_item_on_checkbox": "在复选框上打开选项",
+    "open_item_on_checkbox_options": {
+      "direct": "直接打开",
+      "dblclick": "双击",
+      "disable_while_checked": "选中时禁用"
+    }
+  },
+  "package_download": {
+    "current_status": "当前状态",
+    "initializing": "正在初始化",
+    "fetching_struct": "正在获取文件夹结构",
+    "fetching_struct_failed": "获取文件夹结构失败",
+    "downloading": "正在下载文件，不要关闭或刷新页面",
+    "failed": "打包下载失败",
+    "success": "下载完成"
+  },
+  "footer": {
+    "powered_by": "由 Rulist 驱动"
+  },
+  "fetching_settings_failed": "获取设置失败： ",
+  "get_current_user_failed": "获取当前用户失败：",
+  "Loading storage, please wait": "正在加载储存，请稍候",
+  "conflict_policy": {
+    "cancel_if_exists": "如果文件存在则取消",
+    "overwrite_existing": "覆盖现有文件",
+    "skip_existing": "跳过现有文件",
+    "merge": "仅复制新文件和文件夹"
+  }
+}
