@@ -23,7 +23,7 @@ pub async fn fs_list_handler(
     Json(req): Json<FsListReq>,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
-        return api_error(StatusCode::OK, 401, "Authentication required");
+        return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
     };
     let path = match user_path(&user, &req.path) {
         Ok(path) => path,
@@ -61,7 +61,14 @@ pub async fn fs_list_handler(
             };
             api_success(resp)
         }
-        Err(err) => api_error(StatusCode::OK, 500, err.to_string()),
+        Err(err) => {
+            tracing::error!(error = %err, path = %path, "failed to list directory");
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            )
+        }
     }
 }
 
@@ -71,7 +78,7 @@ pub async fn fs_get_handler(
     Json(req): Json<FsGetReq>,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
-        return api_error(StatusCode::OK, 401, "Authentication required");
+        return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
     };
     let path = match user_path(&user, &req.path) {
         Ok(path) => path,
@@ -94,7 +101,14 @@ pub async fn fs_get_handler(
 
             api_success(file)
         }
-        Err(err) => api_error(StatusCode::OK, 500, err.to_string()),
+        Err(err) => {
+            tracing::error!(error = %err, path = %path, "failed to get file");
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            )
+        }
     }
 }
 
@@ -104,7 +118,7 @@ pub async fn fs_dirs_handler(
     Json(req): Json<FsDirsReq>,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
-        return api_error(StatusCode::OK, 401, "Authentication required");
+        return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
     };
     if req.force_root && !user.is_admin() {
         return permission_denied();
@@ -120,7 +134,14 @@ pub async fn fs_dirs_handler(
     };
     let files = match state.storage.list(&path).await {
         Ok(f) => f,
-        Err(err) => return api_error(StatusCode::OK, 500, err.to_string()),
+        Err(err) => {
+            tracing::error!(error = %err, path = %path, "failed to list dirs");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
     };
 
     let dirs: Vec<DirItem> = files
@@ -155,7 +176,14 @@ pub async fn fs_mkdir_handler(
     };
     match state.storage.mkdir(&path).await {
         Ok(_) => api_success(serde_json::Value::Null),
-        Err(err) => api_error(StatusCode::OK, 500, err.to_string()),
+        Err(err) => {
+            tracing::error!(error = %err, path = %path, "failed to create directory");
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            )
+        }
     }
 }
 
@@ -206,7 +234,14 @@ pub async fn fs_rename_handler(
 
     match state.storage.rename(&path, &req.name).await {
         Ok(_) => api_success(serde_json::Value::Null),
-        Err(err) => api_error(StatusCode::OK, 500, err.to_string()),
+        Err(err) => {
+            tracing::error!(error = %err, path = %path, name = %req.name, "failed to rename");
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            )
+        }
     }
 }
 
@@ -256,7 +291,7 @@ pub async fn fs_move_handler(
         if dst_exists {
             match policy {
                 ConflictPolicy::Cancel => {
-                    return api_error(StatusCode::OK, 403, format!("file [{name}] exists"));
+                    return api_error(StatusCode::FORBIDDEN, 403, format!("file [{name}] exists"));
                 }
                 ConflictPolicy::Skip => {
                     continue;
@@ -282,7 +317,12 @@ pub async fn fs_move_handler(
             }
         }
         if let Err(err) = state.storage.move_to(&src, &dst).await {
-            return api_error(StatusCode::OK, 500, err.to_string());
+            tracing::error!(error = %err, src = %src, dst = %dst, "failed to move file");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
         }
     }
 
@@ -295,7 +335,7 @@ pub async fn fs_recursive_move_handler(
     Json(req): Json<FsRecursiveMoveReq>,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
-        return api_error(StatusCode::OK, 401, "Authentication required");
+        return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
     };
     if !permitted(&user, 5) {
         return permission_denied();
@@ -337,7 +377,14 @@ pub async fn fs_recursive_move_handler(
                     }
                 }
             }
-            Err(err) => return api_error(StatusCode::OK, 500, err.to_string()),
+            Err(err) => {
+                tracing::error!(error = %err, path = %current_dir, "failed to list directory in recursive move");
+                return api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    500,
+                    "Internal server error",
+                );
+            }
         }
     }
 
@@ -355,7 +402,7 @@ pub async fn fs_recursive_move_handler(
             match policy {
                 ConflictPolicy::Cancel => {
                     return api_error(
-                        StatusCode::OK,
+                        StatusCode::FORBIDDEN,
                         403,
                         format!("destination path already exists: {dst_file}"),
                     );
@@ -390,7 +437,12 @@ pub async fn fs_recursive_move_handler(
             }
         }
         if let Err(err) = state.storage.move_to(&src, &dst).await {
-            return api_error(StatusCode::OK, 500, err.to_string());
+            tracing::error!(error = %err, src = %src, dst = %dst, "failed to move file in recursive move");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
         }
     }
 
@@ -428,7 +480,7 @@ pub async fn fs_copy_handler(
         if dst_exists {
             match policy {
                 ConflictPolicy::Cancel => {
-                    return api_error(StatusCode::OK, 403, format!("file [{name}] exists"));
+                    return api_error(StatusCode::FORBIDDEN, 403, format!("file [{name}] exists"));
                 }
                 ConflictPolicy::Skip => {
                     continue;
@@ -454,7 +506,12 @@ pub async fn fs_copy_handler(
             }
         }
         if let Err(err) = state.storage.copy_to(&src, &dst).await {
-            return api_error(StatusCode::OK, 500, err.to_string());
+            tracing::error!(error = %err, src = %src, dst = %dst, "failed to copy file");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
         }
     }
 
@@ -479,7 +536,12 @@ pub async fn fs_remove_handler(
     for name in req.names {
         let target = format!("{}/{}", dir.trim_end_matches('/'), name);
         if let Err(err) = state.storage.remove(&target).await {
-            return api_error(StatusCode::OK, 500, err.to_string());
+            tracing::error!(error = %err, target = %target, "failed to remove target");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
         }
     }
 
@@ -592,7 +654,10 @@ pub async fn fs_put_handler(
 
     let target = match ms.driver.safe_resolve(&sub) {
         Ok(t) => t,
-        Err(err) => return api_error(StatusCode::BAD_REQUEST, 400, err.to_string()),
+        Err(err) => {
+            tracing::warn!(error = %err, "safe_resolve failed in put");
+            return api_error(StatusCode::BAD_REQUEST, 400, "Invalid file path");
+        }
     };
 
     if sub.is_empty() {
@@ -604,7 +669,12 @@ pub async fn fs_put_handler(
     if let Some(parent) = target.parent()
         && let Err(err) = tokio::fs::create_dir_all(parent).await
     {
-        return api_error(StatusCode::INTERNAL_SERVER_ERROR, 500, err.to_string());
+        tracing::error!(error = %err, "failed to create parent dir for upload");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Internal server error",
+        );
     }
 
     let temp = target.with_file_name(format!(".rulist-upload-{}", crate::auth::rand_string(24)));
@@ -615,7 +685,14 @@ pub async fn fs_put_handler(
         .await
     {
         Ok(f) => f,
-        Err(err) => return api_error(StatusCode::INTERNAL_SERVER_ERROR, 500, err.to_string()),
+        Err(err) => {
+            tracing::error!(error = %err, "failed to create temp upload file");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
     };
 
     let max_upload_bytes: u64 = 100 * 1024 * 1024 * 1024; // 100 GB default safety limit
@@ -635,19 +712,30 @@ pub async fn fs_put_handler(
                 }
                 if let Err(err) = file.write_all(&bytes).await {
                     let _ = tokio::fs::remove_file(&temp).await;
-                    return api_error(StatusCode::INTERNAL_SERVER_ERROR, 500, err.to_string());
+                    tracing::error!(error = %err, "failed to write chunk to upload temp file");
+                    return api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        500,
+                        "Internal server error",
+                    );
                 }
             }
             Err(err) => {
                 let _ = tokio::fs::remove_file(&temp).await;
-                return api_error(StatusCode::BAD_REQUEST, 400, err.to_string());
+                tracing::warn!(error = %err, "failed to read stream chunk during upload");
+                return api_error(StatusCode::BAD_REQUEST, 400, "Failed to read upload data");
             }
         }
     }
 
     if let Err(err) = file.flush().await {
         let _ = tokio::fs::remove_file(&temp).await;
-        return api_error(StatusCode::INTERNAL_SERVER_ERROR, 500, err.to_string());
+        tracing::error!(error = %err, "failed to flush upload temp file");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Internal server error",
+        );
     }
     drop(file);
     if !overwrite && target.exists() {
@@ -656,7 +744,12 @@ pub async fn fs_put_handler(
     }
     if let Err(err) = tokio::fs::rename(&temp, &target).await {
         let _ = tokio::fs::remove_file(&temp).await;
-        return api_error(StatusCode::INTERNAL_SERVER_ERROR, 500, err.to_string());
+        tracing::error!(error = %err, "failed to finalize upload file");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Internal server error",
+        );
     }
 
     api_success(serde_json::Value::Null)
@@ -668,7 +761,7 @@ pub async fn fs_batch_rename_handler(
     Json(req): Json<BatchRenameReq>,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
-        return api_error(StatusCode::OK, 401, "Authentication required");
+        return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
     };
     if !permitted(&user, 4)
         || req
@@ -686,7 +779,12 @@ pub async fn fs_batch_rename_handler(
     for item in req.rename_objects {
         let src_path = format!("{}/{}", src_dir.trim_end_matches('/'), item.src_name);
         if let Err(err) = state.storage.rename(&src_path, &item.new_name).await {
-            return api_error(StatusCode::OK, 500, err.to_string());
+            tracing::error!(error = %err, src = %src_path, new_name = %item.new_name, "failed to rename object");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
         }
     }
     api_success(())
@@ -698,7 +796,7 @@ pub async fn fs_link_handler(
     Json(req): Json<FsLinkReq>,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
-        return api_error(StatusCode::OK, 401, "Authentication required");
+        return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
     };
 
     let token = get_setting(&state.pool, "token")

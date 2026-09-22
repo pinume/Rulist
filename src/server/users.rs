@@ -18,15 +18,22 @@ pub async fn admin_user_list_handler(
 ) -> Response {
     let user = match authenticate_user(&headers, &state).await {
         Some(u) => u,
-        None => return api_error(StatusCode::OK, 401, "Authentication required"),
+        None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
     };
     if !user.is_admin() {
-        return api_error(StatusCode::OK, 403, "Permission denied");
+        return api_error(StatusCode::FORBIDDEN, 403, "Permission denied");
     }
 
     let users = match get_all_users(&state.pool).await {
         Ok(u) => u,
-        Err(err) => return api_error(StatusCode::OK, 500, err.to_string()),
+        Err(err) => {
+            tracing::error!(error = %err, "failed to get all users");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
     };
     let storages = get_storages(&state.pool).await.unwrap_or_default();
 
@@ -62,21 +69,28 @@ pub async fn admin_user_get_handler(
 ) -> Response {
     let user = match authenticate_user(&headers, &state).await {
         Some(u) => u,
-        None => return api_error(StatusCode::OK, 401, "Authentication required"),
+        None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
     };
     if !user.is_admin() {
-        return api_error(StatusCode::OK, 403, "Permission denied");
+        return api_error(StatusCode::FORBIDDEN, 403, "Permission denied");
     }
 
     let id = match query.id {
         Some(id) => id,
-        None => return api_error(StatusCode::OK, 400, "missing id"),
+        None => return api_error(StatusCode::BAD_REQUEST, 400, "missing id"),
     };
 
     let target_user = match get_user_by_id(&state.pool, id).await {
         Ok(Some(u)) => u,
-        Ok(None) => return api_error(StatusCode::OK, 404, "user not found"),
-        Err(err) => return api_error(StatusCode::OK, 500, err.to_string()),
+        Ok(None) => return api_error(StatusCode::NOT_FOUND, 404, "user not found"),
+        Err(err) => {
+            tracing::error!(error = %err, id = id, "failed to get user by id");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
     };
 
     let storages = get_storages(&state.pool).await.unwrap_or_default();
@@ -115,15 +129,15 @@ pub async fn admin_user_create_handler(
 ) -> Response {
     let user = match authenticate_user(&headers, &state).await {
         Some(u) => u,
-        None => return api_error(StatusCode::OK, 401, "Authentication required"),
+        None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
     };
     if !user.is_admin() {
-        return api_error(StatusCode::OK, 403, "Permission denied");
+        return api_error(StatusCode::FORBIDDEN, 403, "Permission denied");
     }
 
     let raw_pwd = req.password.as_deref().unwrap_or("").trim();
     if raw_pwd.is_empty() {
-        return api_error(StatusCode::OK, 400, "password is required");
+        return api_error(StatusCode::BAD_REQUEST, 400, "password is required");
     }
 
     if let Some(local_path) = req.local_path.as_deref()
@@ -144,7 +158,14 @@ pub async fn admin_user_create_handler(
 
     let mut tx = match state.pool.begin().await {
         Ok(t) => t,
-        Err(e) => return api_error(StatusCode::OK, 500, e.to_string()),
+        Err(e) => {
+            tracing::error!(error = %e, "failed to begin user creation transaction");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
     };
 
     let res = sqlx::query(
@@ -163,7 +184,14 @@ pub async fn admin_user_create_handler(
 
     let new_id = match res {
         Ok(r) => r.last_insert_rowid(),
-        Err(err) => return api_error(StatusCode::OK, 400, err.to_string()),
+        Err(err) => {
+            tracing::warn!(error = %err, "failed to insert user");
+            let err_str = err.to_string();
+            if err_str.contains("UNIQUE") || err_str.contains("unique") {
+                return api_error(StatusCode::CONFLICT, 409, "Username already exists");
+            }
+            return api_error(StatusCode::BAD_REQUEST, 400, "Failed to create user");
+        }
     };
 
     if let Some(local_path) = req.local_path
@@ -181,7 +209,12 @@ pub async fn admin_user_create_handler(
             .execute(&mut *tx)
             .await
         {
-            return api_error(StatusCode::OK, 500, e.to_string());
+            tracing::error!(error = %e, "failed to update user base path");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
         }
 
         if let Err(e) = sqlx::query(
@@ -192,12 +225,22 @@ pub async fn admin_user_create_handler(
         .execute(&mut *tx)
         .await
         {
-            return api_error(StatusCode::OK, 500, e.to_string());
+            tracing::error!(error = %e, "failed to create user storage");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
         }
     }
 
     if let Err(e) = tx.commit().await {
-        return api_error(StatusCode::OK, 500, e.to_string());
+        tracing::error!(error = %e, "failed to commit user creation transaction");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Internal server error",
+        );
     }
 
     if let Err(err) = state.storage.reload_from_db(&state.pool).await {
@@ -222,24 +265,28 @@ pub async fn admin_user_update_handler(
 ) -> Response {
     let user = match authenticate_user(&headers, &state).await {
         Some(u) => u,
-        None => return api_error(StatusCode::OK, 401, "Authentication required"),
+        None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
     };
     if !user.is_admin() {
-        return api_error(StatusCode::OK, 403, "Permission denied");
+        return api_error(StatusCode::FORBIDDEN, 403, "Permission denied");
     }
 
     let target_id = match req.id {
         Some(id) => id,
-        None => return api_error(StatusCode::OK, 400, "missing id"),
+        None => return api_error(StatusCode::BAD_REQUEST, 400, "missing id"),
     };
 
     let mut target_user = match get_user_by_id(&state.pool, target_id).await {
         Ok(Some(u)) => u,
-        _ => return api_error(StatusCode::OK, 404, "user not found"),
+        _ => return api_error(StatusCode::NOT_FOUND, 404, "user not found"),
     };
 
     if target_user.is_admin() && req.disabled.unwrap_or(false) {
-        return api_error(StatusCode::OK, 400, "admin user can not be disabled");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            400,
+            "admin user can not be disabled",
+        );
     }
 
     if let Some(pwd) = req.password
@@ -275,7 +322,14 @@ pub async fn admin_user_update_handler(
 
     let mut tx = match state.pool.begin().await {
         Ok(t) => t,
-        Err(e) => return api_error(StatusCode::OK, 500, e.to_string()),
+        Err(e) => {
+            tracing::error!(error = %e, "failed to begin user update transaction");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
     };
 
     if let Err(e) = sqlx::query(
@@ -291,7 +345,12 @@ pub async fn admin_user_update_handler(
     .execute(&mut *tx)
     .await
     {
-        return api_error(StatusCode::OK, 500, e.to_string());
+        tracing::error!(error = %e, "failed to update user");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Internal server error",
+        );
     }
 
     if let Some(local_path) = req.local_path
@@ -319,7 +378,12 @@ pub async fn admin_user_update_handler(
                     .execute(&mut *tx)
                     .await
             {
-                return api_error(StatusCode::OK, 500, e.to_string());
+                tracing::error!(error = %e, "failed to update user storage");
+                return api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    500,
+                    "Internal server error",
+                );
             }
         } else {
             if let Err(e) = sqlx::query(
@@ -330,7 +394,12 @@ pub async fn admin_user_update_handler(
             .execute(&mut *tx)
             .await
             {
-                return api_error(StatusCode::OK, 500, e.to_string());
+                tracing::error!(error = %e, "failed to insert user storage");
+                return api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    500,
+                    "Internal server error",
+                );
             }
 
             if let Err(e) = sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
@@ -339,13 +408,23 @@ pub async fn admin_user_update_handler(
                 .execute(&mut *tx)
                 .await
             {
-                return api_error(StatusCode::OK, 500, e.to_string());
+                tracing::error!(error = %e, "failed to update user mount path");
+                return api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    500,
+                    "Internal server error",
+                );
             }
         }
     }
 
     if let Err(e) = tx.commit().await {
-        return api_error(StatusCode::OK, 500, e.to_string());
+        tracing::error!(error = %e, "failed to commit user update transaction");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Internal server error",
+        );
     }
 
     if let Err(err) = state.storage.reload_from_db(&state.pool).await {
@@ -370,24 +449,31 @@ pub async fn admin_user_delete_handler(
 ) -> Response {
     let user = match authenticate_user(&headers, &state).await {
         Some(u) => u,
-        None => return api_error(StatusCode::OK, 401, "Authentication required"),
+        None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
     };
     if !user.is_admin() {
-        return api_error(StatusCode::OK, 403, "Permission denied");
+        return api_error(StatusCode::FORBIDDEN, 403, "Permission denied");
     }
 
     let id = match query.id {
         Some(id) => id,
-        None => return api_error(StatusCode::OK, 400, "missing id"),
+        None => return api_error(StatusCode::BAD_REQUEST, 400, "missing id"),
     };
 
     if id == 1 {
-        return api_error(StatusCode::OK, 400, "cannot delete initial admin");
+        return api_error(StatusCode::BAD_REQUEST, 400, "cannot delete initial admin");
     }
 
     let mut tx = match state.pool.begin().await {
         Ok(t) => t,
-        Err(e) => return api_error(StatusCode::OK, 500, e.to_string()),
+        Err(e) => {
+            tracing::error!(error = %e, "failed to begin user delete transaction");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
     };
 
     let target_user = match sqlx::query_as::<_, User>("SELECT * FROM `x_users` WHERE `id` = ?")
@@ -396,8 +482,15 @@ pub async fn admin_user_delete_handler(
         .await
     {
         Ok(Some(u)) => u,
-        Ok(None) => return api_error(StatusCode::OK, 404, "user not found"),
-        Err(e) => return api_error(StatusCode::OK, 500, e.to_string()),
+        Ok(None) => return api_error(StatusCode::NOT_FOUND, 404, "user not found"),
+        Err(e) => {
+            tracing::error!(error = %e, id = id, "failed to query user for deletion");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
     };
 
     if target_user.is_admin() {
@@ -408,10 +501,21 @@ pub async fn admin_user_delete_handler(
                 .await
             {
                 Ok(c) => c,
-                Err(e) => return api_error(StatusCode::OK, 500, e.to_string()),
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to count admin users");
+                    return api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        500,
+                        "Internal server error",
+                    );
+                }
             };
         if admin_count <= 1 {
-            return api_error(StatusCode::OK, 400, "cannot delete last admin user");
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                400,
+                "cannot delete last admin user",
+            );
         }
     }
 
@@ -420,7 +524,12 @@ pub async fn admin_user_delete_handler(
         .execute(&mut *tx)
         .await
     {
-        return api_error(StatusCode::OK, 500, e.to_string());
+        tracing::error!(error = %e, id = id, "failed to delete otp pending for user");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Internal server error",
+        );
     }
 
     if let Err(e) = sqlx::query("DELETE FROM `x_users` WHERE `id` = ?")
@@ -428,7 +537,12 @@ pub async fn admin_user_delete_handler(
         .execute(&mut *tx)
         .await
     {
-        return api_error(StatusCode::OK, 500, e.to_string());
+        tracing::error!(error = %e, id = id, "failed to delete user from database");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Internal server error",
+        );
     }
 
     let user_mount = format!("/.users/{}", id);
@@ -437,11 +551,21 @@ pub async fn admin_user_delete_handler(
         .execute(&mut *tx)
         .await
     {
-        return api_error(StatusCode::OK, 500, e.to_string());
+        tracing::error!(error = %e, mount = %user_mount, "failed to delete user storage");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Internal server error",
+        );
     }
 
     if let Err(e) = tx.commit().await {
-        return api_error(StatusCode::OK, 500, e.to_string());
+        tracing::error!(error = %e, "failed to commit user deletion transaction");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Internal server error",
+        );
     }
 
     if let Err(err) = state.storage.reload_from_db(&state.pool).await {
@@ -466,10 +590,10 @@ pub async fn admin_user_cancel_2fa_handler(
 ) -> Response {
     let user = match authenticate_user(&headers, &state).await {
         Some(u) => u,
-        None => return api_error(StatusCode::OK, 401, "Authentication required"),
+        None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
     };
     if !user.is_admin() {
-        return api_error(StatusCode::OK, 403, "Permission denied");
+        return api_error(StatusCode::FORBIDDEN, 403, "Permission denied");
     }
 
     if let Some(id) = query.id

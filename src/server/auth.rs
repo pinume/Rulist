@@ -15,16 +15,40 @@ pub async fn login_handler(
 ) -> Response {
     let user = match get_user_by_name(&state.pool, &req.username).await {
         Ok(Some(u)) => u,
-        Ok(None) => return api_error(StatusCode::OK, 400, "user not found"),
-        Err(err) => return api_error(StatusCode::INTERNAL_SERVER_ERROR, 500, err.to_string()),
+        Ok(None) => {
+            tracing::warn!(username = %req.username, "login failed: user not found");
+            return api_error(
+                StatusCode::UNAUTHORIZED,
+                401,
+                "invalid username or password",
+            );
+        }
+        Err(err) => {
+            tracing::error!(error = %err, "login database error");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
     };
 
     if user.disabled {
-        return api_error(StatusCode::OK, 400, "user is disabled");
+        tracing::warn!(username = %user.username, "login failed: user is disabled");
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            401,
+            "invalid username or password",
+        );
     }
 
     if !verify_password(&req.password, &user.pwd_hash, &user.salt) {
-        return api_error(StatusCode::OK, 400, "invalid username or password");
+        tracing::warn!(username = %user.username, "login failed: invalid password");
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            401,
+            "invalid username or password",
+        );
     }
 
     // Check 2FA if enabled
@@ -33,10 +57,10 @@ pub async fn login_handler(
     {
         let otp_code = req.otp_code.as_deref().unwrap_or("").trim();
         if otp_code.is_empty() {
-            return api_error(StatusCode::OK, 402, "OTP code is required");
+            return api_error(StatusCode::UNAUTHORIZED, 402, "OTP code is required");
         }
         if !verify_totp(secret, otp_code) {
-            return api_error(StatusCode::OK, 400, "invalid otp code");
+            return api_error(StatusCode::UNAUTHORIZED, 400, "invalid otp code");
         }
     }
 
@@ -47,7 +71,14 @@ pub async fn login_handler(
         state.config.token_expires_in,
     ) {
         Ok(token) => api_success(serde_json::json!({ "token": token })),
-        Err(err) => api_error(StatusCode::INTERNAL_SERVER_ERROR, 500, err.to_string()),
+        Err(err) => {
+            tracing::error!(error = %err, "failed to generate jwt");
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            )
+        }
     }
 }
 
@@ -62,7 +93,7 @@ pub async fn current_user_handler(
     if let Some(user) = authenticate_user(&headers, &state).await {
         api_success(user)
     } else {
-        api_error(StatusCode::OK, 401, "Authentication required")
+        api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required")
     }
 }
 
@@ -73,7 +104,7 @@ pub async fn update_current_handler(
 ) -> Response {
     let user = match authenticate_user(&headers, &state).await {
         Some(u) => u,
-        None => return api_error(StatusCode::OK, 401, "Authentication required"),
+        None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
     };
 
     let username_changed = req
@@ -90,10 +121,10 @@ pub async fn update_current_handler(
     if username_changed || password_changed {
         let current_password = req.current_password.as_deref().unwrap_or("");
         if current_password.is_empty() {
-            return api_error(StatusCode::OK, 400, "Current password is required");
+            return api_error(StatusCode::BAD_REQUEST, 400, "Current password is required");
         }
         if !verify_password(current_password, &user.pwd_hash, &user.salt) {
-            return api_error(StatusCode::OK, 403, "Current password is incorrect");
+            return api_error(StatusCode::FORBIDDEN, 403, "Current password is incorrect");
         }
     }
 
@@ -102,7 +133,7 @@ pub async fn update_current_handler(
         && (new_pwd.len() < 8 || new_pwd.len() > 128)
     {
         return api_error(
-            StatusCode::OK,
+            StatusCode::BAD_REQUEST,
             400,
             "Password length must be between 8 and 128 characters",
         );
@@ -112,7 +143,7 @@ pub async fn update_current_handler(
     if username_changed {
         if clean_name.len() > 64 {
             return api_error(
-                StatusCode::OK,
+                StatusCode::BAD_REQUEST,
                 400,
                 "Username length cannot exceed 64 characters",
             );
@@ -225,20 +256,20 @@ pub async fn two_factor_generate_handler(
 ) -> Response {
     let user = match authenticate_user(&headers, &state).await {
         Some(u) => u,
-        None => return api_error(StatusCode::OK, 401, "Authentication required"),
+        None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
     };
 
     let current_password = req.current_password.trim();
     if current_password.is_empty() {
-        return api_error(StatusCode::OK, 400, "Current password is required");
+        return api_error(StatusCode::BAD_REQUEST, 400, "Current password is required");
     }
 
     if !verify_password(current_password, &user.pwd_hash, &user.salt) {
-        return api_error(StatusCode::OK, 403, "Current password is incorrect");
+        return api_error(StatusCode::FORBIDDEN, 403, "Current password is incorrect");
     }
 
     if user.otp {
-        return api_error(StatusCode::OK, 400, "2FA is already enabled");
+        return api_error(StatusCode::BAD_REQUEST, 400, "2FA is already enabled");
     }
 
     let site_title = get_setting(&state.pool, "site_title")
@@ -263,12 +294,24 @@ pub async fn two_factor_generate_handler(
     .execute(&state.pool)
     .await
     {
-        return api_error(StatusCode::INTERNAL_SERVER_ERROR, 500, err.to_string());
+        tracing::error!(error = %err, "failed to insert pending 2fa session");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Internal server error",
+        );
     }
 
     let qr = match generate_totp_qr(&site_title, &user.username, &secret) {
         Ok(data_uri) => data_uri,
-        Err(err) => return api_error(StatusCode::INTERNAL_SERVER_ERROR, 500, err.to_string()),
+        Err(err) => {
+            tracing::error!(error = %err, "failed to generate totp qr");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
     };
 
     api_success(serde_json::json!({
@@ -284,12 +327,16 @@ pub async fn two_factor_verify_handler(
 ) -> Response {
     let user = match authenticate_user(&headers, &state).await {
         Some(u) => u,
-        None => return api_error(StatusCode::OK, 401, "Authentication required"),
+        None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
     };
 
     let clean_code = req.code.trim();
     if clean_code.is_empty() {
-        return api_error(StatusCode::OK, 400, "Verification code is required");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            400,
+            "Verification code is required",
+        );
     }
 
     let pending: Option<(String, i64)> = match sqlx::query_as(
@@ -300,12 +347,19 @@ pub async fn two_factor_verify_handler(
     .await
     {
         Ok(p) => p,
-        Err(err) => return api_error(StatusCode::INTERNAL_SERVER_ERROR, 500, err.to_string()),
+        Err(err) => {
+            tracing::error!(error = %err, "failed to query pending 2fa session");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
     };
 
     let Some((secret, expires_at)) = pending else {
         return api_error(
-            StatusCode::OK,
+            StatusCode::BAD_REQUEST,
             400,
             "No pending 2FA session. Please generate a new secret.",
         );
@@ -322,19 +376,26 @@ pub async fn two_factor_verify_handler(
             .execute(&state.pool)
             .await;
         return api_error(
-            StatusCode::OK,
+            StatusCode::BAD_REQUEST,
             400,
             "2FA setup session expired. Please generate a new secret.",
         );
     }
 
     if !verify_totp(&secret, clean_code) {
-        return api_error(StatusCode::OK, 400, "Invalid verification code");
+        return api_error(StatusCode::BAD_REQUEST, 400, "Invalid verification code");
     }
 
     let mut tx = match state.pool.begin().await {
         Ok(t) => t,
-        Err(err) => return api_error(StatusCode::INTERNAL_SERVER_ERROR, 500, err.to_string()),
+        Err(err) => {
+            tracing::error!(error = %err, "failed to begin 2fa verify transaction");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
     };
 
     if let Err(err) = sqlx::query("UPDATE `x_users` SET `otp_secret` = ? WHERE `id` = ?")
@@ -343,7 +404,12 @@ pub async fn two_factor_verify_handler(
         .execute(&mut *tx)
         .await
     {
-        return api_error(StatusCode::INTERNAL_SERVER_ERROR, 500, err.to_string());
+        tracing::error!(error = %err, "failed to update user otp secret");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Internal server error",
+        );
     }
 
     if let Err(err) = sqlx::query("DELETE FROM `x_otp_pending` WHERE `user_id` = ?")
@@ -351,11 +417,21 @@ pub async fn two_factor_verify_handler(
         .execute(&mut *tx)
         .await
     {
-        return api_error(StatusCode::INTERNAL_SERVER_ERROR, 500, err.to_string());
+        tracing::error!(error = %err, "failed to delete pending 2fa session");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Internal server error",
+        );
     }
 
     if let Err(err) = tx.commit().await {
-        return api_error(StatusCode::INTERNAL_SERVER_ERROR, 500, err.to_string());
+        tracing::error!(error = %err, "failed to commit 2fa verify transaction");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Internal server error",
+        );
     }
 
     api_success(())

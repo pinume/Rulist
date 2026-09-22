@@ -1,4 +1,4 @@
-import { cookieStorage, createStorageSignal } from "@solid-primitives/storage"
+import { createStorageSignal } from "@solid-primitives/storage"
 import { createMemo, createSignal } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { Obj, ObjType, StoreObj } from "~/types"
@@ -213,15 +213,8 @@ export const toggleCheckbox = () => {
 }
 
 export { objStore }
-// browser password
-const [_password, _setPassword] = createSignal<string>(
-  cookieStorage.getItem("browser-password") || "",
-)
-export { _password as password }
-export const setPassword = (password: string) => {
-  _setPassword(password)
-  cookieStorage.setItem("browser-password", password)
-}
+const [password, setPassword] = createSignal<string>("")
+export { password, setPassword }
 
 const getCountStr = (
   objs: StoreObj[],

@@ -33,11 +33,9 @@ instance.interceptors.response.use(
   (error) => {
     // response error
     console.error(error) // for debug
-    // notificationService.show({
-    //   status: "danger",
-    //   title: error.code,
-    //   description: error.message,
-    // });
+    if (error.response?.data) {
+      return error.response.data
+    }
     return {
       code: axios.isCancel(error) ? -1 : error.response?.status,
       message: error.message,

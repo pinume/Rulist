@@ -115,8 +115,6 @@ pub struct FsListReq {
     #[serde(default)]
     pub path: String,
     #[serde(default)]
-    pub password: Option<String>,
-    #[serde(default)]
     pub page: Option<usize>,
     #[serde(default)]
     pub per_page: Option<usize>,
@@ -138,8 +136,6 @@ pub struct FsListResp {
 pub struct FsGetReq {
     #[serde(default)]
     pub path: String,
-    #[serde(default)]
-    pub password: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -204,8 +200,6 @@ pub struct FsRemoveEmptyDirsReq {
 pub struct FsDirsReq {
     #[serde(default)]
     pub path: String,
-    #[serde(default)]
-    pub password: Option<String>,
     #[serde(default)]
     pub force_root: bool,
 }

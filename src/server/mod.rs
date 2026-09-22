@@ -42,12 +42,27 @@ pub async fn run_server(
         storage: Arc::new(storage),
     });
 
+    let app = build_app(state);
+
+    let addr: SocketAddr =
+        format!("{}:{}", config.scheme.address, config.scheme.http_port).parse()?;
+    info!("start HTTP server @ {}", addr);
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+
+    Ok(())
+}
+
+pub fn build_app(state: SharedState) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let app = Router::new()
+    Router::new()
         // Health, favicon, manifest, robots
         .route("/ping", get(crate::static_files::ping_handler))
         .route("/favicon.ico", get(crate::static_files::favicon_handler))
@@ -134,11 +149,11 @@ pub async fn run_server(
         )
         .route(
             "/api/admin/user/delete",
-            post(users::admin_user_delete_handler).get(users::admin_user_delete_handler),
+            post(users::admin_user_delete_handler),
         )
         .route(
             "/api/admin/user/cancel_2fa",
-            post(users::admin_user_cancel_2fa_handler).get(users::admin_user_cancel_2fa_handler),
+            post(users::admin_user_cancel_2fa_handler),
         )
         // Direct download & streaming
         .route(
@@ -154,24 +169,20 @@ pub async fn run_server(
         .layer(tower_http::compression::CompressionLayer::new())
         .layer(cors)
         .layer(TraceLayer::new_for_http())
-        .with_state(state);
-
-    let addr: SocketAddr =
-        format!("{}:{}", config.scheme.address, config.scheme.http_port).parse()?;
-    info!("start HTTP server @ {}", addr);
-
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
-
-    Ok(())
+        .with_state(state)
 }
 
 async fn public_settings_handler(State(state): State<SharedState>) -> Response {
     match get_public_settings(&state.pool).await {
         Ok(settings) => api_success(settings),
-        Err(err) => api_error(StatusCode::INTERNAL_SERVER_ERROR, 500, err.to_string()),
+        Err(err) => {
+            tracing::error!(error = %err, "failed to get public settings");
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            )
+        }
     }
 }
 
@@ -184,7 +195,7 @@ pub(crate) fn api_success<T: serde::Serialize>(data: T) -> Response {
 }
 
 pub(crate) fn permission_denied() -> Response {
-    api_error(StatusCode::OK, 403, "Permission denied")
+    api_error(StatusCode::FORBIDDEN, 403, "Permission denied")
 }
 
 pub(crate) async fn authenticate_user(headers: &HeaderMap, state: &AppState) -> Option<User> {
@@ -360,7 +371,7 @@ mod tests {
             Json(bad_gen_req),
         )
         .await;
-        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
         let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
@@ -440,18 +451,20 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(json["code"], 400);
 
-        // 6b. Login with wrong password -> should return code 400
+        // 6b. Login with wrong password -> should return code 401 and StatusCode::UNAUTHORIZED
         let login_req = LoginReq {
             username: "admin".to_string(),
             password: "WrongPassword!".to_string(),
             otp_code: None,
         };
         let resp = auth::login_handler(State(state.clone()), Json(login_req)).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
         let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-        assert_eq!(json["code"], 400);
+        assert_eq!(json["code"], 401);
+        assert_eq!(json["message"], "invalid username or password");
 
         // 7. Login without OTP code -> should return code 402 (OTP required)
         let login_req = LoginReq {
@@ -460,6 +473,7 @@ mod tests {
             otp_code: None,
         };
         let resp = auth::login_handler(State(state.clone()), Json(login_req)).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
         let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
@@ -473,6 +487,7 @@ mod tests {
             otp_code: Some("000000".to_string()),
         };
         let resp = auth::login_handler(State(state.clone()), Json(login_req)).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
         let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
@@ -1007,11 +1022,12 @@ mod tests {
         let resp =
             users::admin_user_create_handler(headers.clone(), State(state.clone()), Json(dup_req))
                 .await;
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
         let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-        assert_eq!(json["code"], 400);
+        assert_eq!(json["code"], 409);
 
         // 3. 最后一个 admin 删除保护：必须返回错误，不能删空管理员
         // Trying to delete admin (id=1)
@@ -1651,5 +1667,193 @@ mod tests {
         assert!(!a_file.exists());
         assert!(b_file.exists());
         assert_eq!(tokio::fs::read(&b_file).await.unwrap(), b"content of a");
+    }
+
+    #[tokio::test]
+    async fn test_login_error_unification_and_normalized_status_codes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "AdminPassword123!")
+            .await
+            .unwrap();
+
+        // Create a disabled user
+        let salt = crate::auth::rand_string(16);
+        let s_hash = crate::auth::static_hash("DisabledPassword123!");
+        let pwd_hash = crate::auth::encode_argon2_hash(&s_hash, &salt);
+        sqlx::query(
+            "INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `salt`, `base_path`, `role`, `disabled`, `permission`) VALUES (?, ?, 0, ?, '/', 0, 1, 0)",
+        )
+        .bind("disabled_user")
+        .bind(&pwd_hash)
+        .bind(&salt)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: Config::default(),
+            storage: Arc::new(storage_mgr),
+        });
+
+        // Case 1: Non-existent user -> 401 UNAUTHORIZED, code 401, "invalid username or password"
+        let nonexistent_req = LoginReq {
+            username: "nonexistent".to_string(),
+            password: "AnyPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(nonexistent_req)).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["code"], 401);
+        assert_eq!(json["message"], "invalid username or password");
+
+        // Case 2: Disabled user -> 401 UNAUTHORIZED, code 401, "invalid username or password"
+        let disabled_req = LoginReq {
+            username: "disabled_user".to_string(),
+            password: "DisabledPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(disabled_req)).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["code"], 401);
+        assert_eq!(json["message"], "invalid username or password");
+
+        // Case 3: Wrong password -> 401 UNAUTHORIZED, code 401, "invalid username or password"
+        let wrong_pwd_req = LoginReq {
+            username: "admin".to_string(),
+            password: "WrongPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(wrong_pwd_req)).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["code"], 401);
+        assert_eq!(json["message"], "invalid username or password");
+    }
+
+    #[tokio::test]
+    async fn test_dangerous_get_admin_routes_are_rejected() {
+        use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "AdminPassword123!")
+            .await
+            .unwrap();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: Config::default(),
+            storage: Arc::new(storage_mgr),
+        });
+
+        let app = build_app(state);
+
+        // GET /api/admin/user/delete must return 405 Method Not Allowed
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/admin/user/delete?id=2")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+
+        // GET /api/admin/user/cancel_2fa must return 405 Method Not Allowed
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/admin/user/cancel_2fa?id=2")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+    }
+
+    #[tokio::test]
+    async fn test_unauthenticated_and_forbidden_api_error_normalization() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "AdminPassword123!")
+            .await
+            .unwrap();
+
+        // Create regular non-admin user
+        let salt = crate::auth::rand_string(16);
+        let s_hash = crate::auth::static_hash("UserPass123!");
+        let pwd_hash = crate::auth::encode_argon2_hash(&s_hash, &salt);
+        sqlx::query(
+            "INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `salt`, `base_path`, `role`, `disabled`, `permission`) VALUES (?, ?, 0, ?, '/', 0, 0, 0)",
+        )
+        .bind("regular")
+        .bind(&pwd_hash)
+        .bind(&salt)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: Config::default(),
+            storage: Arc::new(storage_mgr),
+        });
+
+        // 1. /api/me without auth -> 401 UNAUTHORIZED, code 401
+        let no_auth_headers = HeaderMap::new();
+        let resp = auth::current_user_handler(State(state.clone()), no_auth_headers.clone()).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["code"], 401);
+
+        // 2. /api/admin/user/list as non-admin -> 403 FORBIDDEN, code 403
+        let regular_token =
+            crate::auth::generate_jwt("regular", 0, &state.config.jwt_secret, 3600).unwrap();
+        let mut regular_headers = HeaderMap::new();
+        regular_headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", regular_token)).unwrap(),
+        );
+
+        let resp = users::admin_user_list_handler(regular_headers, State(state.clone())).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["code"], 403);
+
+        // 3. /api/fs/list without auth -> 401 UNAUTHORIZED, code 401
+        let fs_req = crate::model::FsListReq {
+            path: "/".to_string(),
+            ..Default::default()
+        };
+        let resp = fs::fs_list_handler(no_auth_headers, State(state.clone()), Json(fs_req)).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["code"], 401);
     }
 }
