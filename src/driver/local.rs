@@ -170,21 +170,7 @@ impl LocalDriver {
             return Err(anyhow!("cannot remove storage root"));
         }
         let full_path = self.safe_resolve(subpath)?;
-        let meta = fs::metadata(&full_path)
-            .await
-            .with_context(|| format!("target does not exist: {:?}", full_path))?;
-
-        if meta.is_dir() {
-            fs::remove_dir_all(&full_path)
-                .await
-                .with_context(|| format!("failed to remove directory: {:?}", full_path))?;
-        } else {
-            fs::remove_file(&full_path)
-                .await
-                .with_context(|| format!("failed to remove file: {:?}", full_path))?;
-        }
-
-        Ok(())
+        remove_path_recursive(&full_path).await
     }
 
     /// Rename an item within the same directory
@@ -217,6 +203,10 @@ impl LocalDriver {
         let src_path = self.safe_resolve(src_subpath)?;
         let dst_path = self.safe_resolve(dst_subpath)?;
 
+        if src_path == dst_path {
+            return Ok(());
+        }
+
         if let Some(parent) = dst_path.parent() {
             fs::create_dir_all(parent).await?;
         }
@@ -227,18 +217,13 @@ impl LocalDriver {
         }
 
         // Cross-device fallback: copy then remove
-        fs::copy(&src_path, &dst_path).await?;
-        let meta = fs::metadata(&src_path).await?;
-        if meta.is_dir() {
-            fs::remove_dir_all(&src_path).await?;
-        } else {
-            fs::remove_file(&src_path).await?;
-        }
+        copy_path_recursive(&src_path, &dst_path).await?;
+        remove_path_recursive(&src_path).await?;
 
         Ok(())
     }
 
-    /// Copy file
+    /// Copy file or directory
     pub async fn copy_to(&self, src_subpath: &str, dst_subpath: &str) -> Result<()> {
         if src_subpath.trim_matches('/').is_empty() || dst_subpath.trim_matches('/').is_empty() {
             return Err(anyhow!("cannot copy storage root"));
@@ -246,15 +231,99 @@ impl LocalDriver {
         let src_path = self.safe_resolve(src_subpath)?;
         let dst_path = self.safe_resolve(dst_subpath)?;
 
-        if let Some(parent) = dst_path.parent() {
+        copy_path_recursive(&src_path, &dst_path).await
+    }
+}
+
+pub(crate) async fn copy_path_recursive(src: &Path, dst: &Path) -> Result<()> {
+    if src == dst {
+        return Err(anyhow!("source and destination are identical: {:?}", src));
+    }
+
+    let meta = fs::symlink_metadata(src)
+        .await
+        .with_context(|| format!("source path does not exist: {:?}", src))?;
+
+    if meta.file_type().is_symlink() {
+        return Err(anyhow!("symlinks are not supported: {:?}", src));
+    }
+
+    if meta.is_file() {
+        if let Some(parent) = dst.parent() {
             fs::create_dir_all(parent).await?;
         }
-
-        fs::copy(&src_path, &dst_path)
+        fs::copy(src, dst)
             .await
-            .with_context(|| format!("failed to copy {:?} to {:?}", src_path, dst_path))?;
-        Ok(())
+            .with_context(|| format!("failed to copy {:?} to {:?}", src, dst))?;
+        return Ok(());
     }
+
+    if meta.is_dir() {
+        if dst.starts_with(src) {
+            return Err(anyhow!(
+                "cannot copy directory into itself: {:?} -> {:?}",
+                src,
+                dst
+            ));
+        }
+
+        fs::create_dir_all(dst).await?;
+        let mut stack = vec![(src.to_path_buf(), dst.to_path_buf())];
+
+        while let Some((cur_src, cur_dst)) = stack.pop() {
+            let mut entries = fs::read_dir(&cur_src)
+                .await
+                .with_context(|| format!("failed to read directory: {:?}", cur_src))?;
+
+            while let Some(entry) = entries.next_entry().await? {
+                let entry_path = entry.path();
+                let file_type = entry.file_type().await?;
+
+                if file_type.is_symlink() {
+                    return Err(anyhow!("symlinks are not supported: {:?}", entry_path));
+                }
+
+                let target_path = cur_dst.join(entry.file_name());
+
+                if file_type.is_dir() {
+                    fs::create_dir_all(&target_path).await?;
+                    stack.push((entry_path, target_path));
+                } else if file_type.is_file() {
+                    if let Some(parent) = target_path.parent() {
+                        fs::create_dir_all(parent).await?;
+                    }
+                    fs::copy(&entry_path, &target_path).await.with_context(|| {
+                        format!("failed to copy {:?} to {:?}", entry_path, target_path)
+                    })?;
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    Err(anyhow!("unsupported file type for {:?}", src))
+}
+
+pub(crate) async fn remove_path_recursive(path: &Path) -> Result<()> {
+    let meta = fs::symlink_metadata(path)
+        .await
+        .with_context(|| format!("target does not exist: {:?}", path))?;
+
+    if meta.file_type().is_symlink() {
+        return Err(anyhow!("symlinks are not supported: {:?}", path));
+    }
+
+    if meta.is_dir() {
+        fs::remove_dir_all(path)
+            .await
+            .with_context(|| format!("failed to remove directory: {:?}", path))?;
+    } else {
+        fs::remove_file(path)
+            .await
+            .with_context(|| format!("failed to remove file: {:?}", path))?;
+    }
+
+    Ok(())
 }
 
 fn fs_canonical_or_abs(p: &str) -> Result<PathBuf> {
@@ -335,5 +404,169 @@ mod tests {
                 .unwrap();
         assert!(driver.safe_resolve("escape/secret.txt").is_err());
         assert!(driver.open("escape/secret.txt").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_copy_single_file() {
+        let tmp = tempdir().unwrap();
+        let driver =
+            LocalDriver::new(&serde_json::json!({"root_folder_path": tmp.path()}).to_string())
+                .unwrap();
+
+        tokio::fs::write(tmp.path().join("file.txt"), b"sample content")
+            .await
+            .unwrap();
+        driver.copy_to("file.txt", "file_copy.txt").await.unwrap();
+
+        assert_eq!(
+            tokio::fs::read(tmp.path().join("file.txt")).await.unwrap(),
+            b"sample content"
+        );
+        assert_eq!(
+            tokio::fs::read(tmp.path().join("file_copy.txt"))
+                .await
+                .unwrap(),
+            b"sample content"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_move_single_file_across_paths() {
+        let tmp = tempdir().unwrap();
+        let driver =
+            LocalDriver::new(&serde_json::json!({"root_folder_path": tmp.path()}).to_string())
+                .unwrap();
+
+        tokio::fs::create_dir_all(tmp.path().join("src_dir"))
+            .await
+            .unwrap();
+        tokio::fs::write(tmp.path().join("src_dir/file.txt"), b"move content")
+            .await
+            .unwrap();
+
+        driver
+            .move_to("src_dir/file.txt", "dst_dir/file_moved.txt")
+            .await
+            .unwrap();
+
+        assert!(!tmp.path().join("src_dir/file.txt").exists());
+        assert_eq!(
+            tokio::fs::read(tmp.path().join("dst_dir/file_moved.txt"))
+                .await
+                .unwrap(),
+            b"move content"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_copy_empty_dir() {
+        let tmp = tempdir().unwrap();
+        let driver =
+            LocalDriver::new(&serde_json::json!({"root_folder_path": tmp.path()}).to_string())
+                .unwrap();
+
+        driver.mkdir("empty_dir").await.unwrap();
+        driver.copy_to("empty_dir", "empty_copy").await.unwrap();
+
+        let meta = tokio::fs::metadata(tmp.path().join("empty_copy"))
+            .await
+            .unwrap();
+        assert!(meta.is_dir());
+        let list = driver.list("empty_copy").await.unwrap();
+        assert!(list.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_copy_nested_multilevel_dir() {
+        let tmp = tempdir().unwrap();
+        let driver =
+            LocalDriver::new(&serde_json::json!({"root_folder_path": tmp.path()}).to_string())
+                .unwrap();
+
+        let deep_dir = tmp.path().join("nested/sub1/sub2");
+        tokio::fs::create_dir_all(&deep_dir).await.unwrap();
+        tokio::fs::write(deep_dir.join("deep.txt"), b"deep content")
+            .await
+            .unwrap();
+        tokio::fs::write(tmp.path().join("nested/root_level.txt"), b"root content")
+            .await
+            .unwrap();
+
+        driver.copy_to("nested", "nested_copy").await.unwrap();
+
+        assert_eq!(
+            tokio::fs::read(tmp.path().join("nested_copy/sub1/sub2/deep.txt"))
+                .await
+                .unwrap(),
+            b"deep content"
+        );
+        assert_eq!(
+            tokio::fs::read(tmp.path().join("nested_copy/root_level.txt"))
+                .await
+                .unwrap(),
+            b"root content"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_copy_unicode_chinese_filenames() {
+        let tmp = tempdir().unwrap();
+        let driver =
+            LocalDriver::new(&serde_json::json!({"root_folder_path": tmp.path()}).to_string())
+                .unwrap();
+
+        let chinese_dir = tmp.path().join("中文目录/子目录");
+        tokio::fs::create_dir_all(&chinese_dir).await.unwrap();
+        let test_file = chinese_dir.join("测试文档.txt");
+        tokio::fs::write(&test_file, "你好，世界！🦀".as_bytes())
+            .await
+            .unwrap();
+
+        driver.copy_to("中文目录", "备份目录").await.unwrap();
+
+        let copied_file = tmp.path().join("备份目录/子目录/测试文档.txt");
+        assert!(copied_file.exists());
+        assert_eq!(
+            tokio::fs::read_to_string(&copied_file).await.unwrap(),
+            "你好，世界！🦀"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_reject_symlink_copy() {
+        let root = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        let secret = outside.path().join("secret.txt");
+        tokio::fs::write(&secret, b"sensitive data").await.unwrap();
+
+        let symlink_path = root.path().join("link_to_outside");
+        std::os::unix::fs::symlink(outside.path(), &symlink_path).unwrap();
+
+        let driver =
+            LocalDriver::new(&serde_json::json!({"root_folder_path": root.path()}).to_string())
+                .unwrap();
+
+        // 1. safe_resolve rejects top-level symlink
+        assert!(
+            driver
+                .copy_to("link_to_outside", "copy_dest")
+                .await
+                .is_err()
+        );
+
+        // 2. copy_path_recursive directly rejects symlink source
+        assert!(
+            copy_path_recursive(&symlink_path, &root.path().join("copy_dest"))
+                .await
+                .is_err()
+        );
+
+        // 3. Directory containing symlink is rejected during recursive copy
+        let dir_with_link = root.path().join("dir_with_link");
+        tokio::fs::create_dir_all(&dir_with_link).await.unwrap();
+        std::os::unix::fs::symlink(&secret, dir_with_link.join("link_file")).unwrap();
+
+        assert!(driver.copy_to("dir_with_link", "dir_copy").await.is_err());
     }
 }

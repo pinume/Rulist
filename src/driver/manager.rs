@@ -257,11 +257,7 @@ impl StorageManager {
         } else {
             let src_full = src_match.0.driver.safe_resolve(&src_match.1)?;
             let dst_full = dst_match.0.driver.safe_resolve(&dst_match.1)?;
-            if let Some(parent) = dst_full.parent() {
-                fs::create_dir_all(parent).await?;
-            }
-            fs::copy(&src_full, &dst_full).await?;
-            Ok(())
+            crate::driver::local::copy_path_recursive(&src_full, &dst_full).await
         }
     }
 }
