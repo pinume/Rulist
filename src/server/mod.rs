@@ -283,7 +283,7 @@ mod tests {
     use super::*;
     use crate::model::{
         AdminUserSaveReq, ConflictPolicy, FsMoveCopyReq, FsRecursiveMoveReq, FsRemoveEmptyDirsReq,
-        LoginReq, TwoFaGenerateReq, TwoFaVerifyReq, UpdateCurrentReq,
+        FsRenameReq, LoginReq, TwoFaGenerateReq, TwoFaVerifyReq, UpdateCurrentReq,
     };
     use axum::http::HeaderValue;
 
@@ -1533,5 +1533,123 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn test_deterministic_rename_overwrite_semantics() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "AdminPassword123!")
+            .await
+            .unwrap();
+
+        let storage_root = tmp.path().join("storage");
+        tokio::fs::create_dir_all(&storage_root).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO `x_storages` (`mount_path`, `driver`, `addition`) VALUES (?, ?, ?)",
+        )
+        .bind("/local")
+        .bind("Local")
+        .bind(
+            serde_json::json!({
+                "root_folder_path": storage_root.to_str().unwrap()
+            })
+            .to_string(),
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let config = Config::default();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: config.clone(),
+            storage: Arc::new(storage_mgr),
+        });
+
+        let admin_login = LoginReq {
+            username: "admin".to_string(),
+            password: "AdminPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(admin_login)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let admin_token = json["data"]["token"].as_str().unwrap().to_string();
+        let mut admin_headers = HeaderMap::new();
+        admin_headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", admin_token)).unwrap(),
+        );
+
+        let a_file = storage_root.join("a.txt");
+        tokio::fs::write(&a_file, b"content of a").await.unwrap();
+
+        // 1. rename a.txt -> a.txt + overwrite=true: must succeed and not delete source
+        let rename_self = FsRenameReq {
+            path: "/local/a.txt".to_string(),
+            name: "a.txt".to_string(),
+            overwrite: true,
+        };
+        let resp = fs::fs_rename_handler(
+            State(state.clone()),
+            admin_headers.clone(),
+            Json(rename_self),
+        )
+        .await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 200);
+        assert!(a_file.exists());
+        assert_eq!(tokio::fs::read(&a_file).await.unwrap(), b"content of a");
+
+        // 2. create b.txt, then rename a.txt -> b.txt with overwrite=false: returns 409
+        let b_file = storage_root.join("b.txt");
+        tokio::fs::write(&b_file, b"content of b").await.unwrap();
+
+        let rename_conflict = FsRenameReq {
+            path: "/local/a.txt".to_string(),
+            name: "b.txt".to_string(),
+            overwrite: false,
+        };
+        let resp = fs::fs_rename_handler(
+            State(state.clone()),
+            admin_headers.clone(),
+            Json(rename_conflict),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+        assert!(a_file.exists());
+        assert_eq!(tokio::fs::read(&a_file).await.unwrap(), b"content of a");
+        assert!(b_file.exists());
+        assert_eq!(tokio::fs::read(&b_file).await.unwrap(), b"content of b");
+
+        // 3. rename a.txt -> b.txt with overwrite=true: succeeds, b.txt gets a's content, a.txt is removed
+        let rename_overwrite = FsRenameReq {
+            path: "/local/a.txt".to_string(),
+            name: "b.txt".to_string(),
+            overwrite: true,
+        };
+        let resp = fs::fs_rename_handler(
+            State(state.clone()),
+            admin_headers.clone(),
+            Json(rename_overwrite),
+        )
+        .await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 200);
+        assert!(!a_file.exists());
+        assert!(b_file.exists());
+        assert_eq!(tokio::fs::read(&b_file).await.unwrap(), b"content of a");
     }
 }

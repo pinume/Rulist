@@ -200,6 +200,10 @@ impl LocalDriver {
             .ok_or_else(|| anyhow!("cannot rename root"))?;
         let dst_path = parent.join(new_name);
 
+        if src_path == dst_path {
+            return Ok(());
+        }
+
         fs::rename(&src_path, &dst_path)
             .await
             .with_context(|| format!("failed to rename {:?} to {:?}", src_path, dst_path))?;

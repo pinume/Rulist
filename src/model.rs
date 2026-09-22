@@ -154,6 +154,8 @@ pub struct LoginReq {
 pub struct FsRenameReq {
     pub path: String,
     pub name: String,
+    #[serde(default)]
+    pub overwrite: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

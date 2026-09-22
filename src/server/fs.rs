@@ -174,6 +174,36 @@ pub async fn fs_rename_handler(
         Ok(path) => path,
         Err(_) => return permission_denied(),
     };
+
+    let parent = match path.rfind('/') {
+        Some(idx) => &path[..idx],
+        None => "",
+    };
+    let target = format!("{}/{}", parent.trim_end_matches('/'), req.name);
+
+    if path.trim_end_matches('/') == target.trim_end_matches('/') {
+        return api_success(serde_json::Value::Null);
+    }
+
+    let target_exists = state.storage.get(&target).await.is_ok();
+    if target_exists {
+        if !req.overwrite {
+            return api_error(
+                StatusCode::CONFLICT,
+                409,
+                format!("file [{}] exists", req.name),
+            );
+        }
+        if let Err(err) = state.storage.remove(&target).await {
+            tracing::error!(error = %err, path = %target, "failed to remove rename destination");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Failed to overwrite destination",
+            );
+        }
+    }
+
     match state.storage.rename(&path, &req.name).await {
         Ok(_) => api_success(serde_json::Value::Null),
         Err(err) => api_error(StatusCode::OK, 500, err.to_string()),
