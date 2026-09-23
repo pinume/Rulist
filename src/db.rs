@@ -231,10 +231,11 @@ pub async fn set_admin_password(pool: &DbPool, new_password: &str) -> Result<()>
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64;
+    let new_pwd_ts = now_ts.max(admin.pwd_ts + 1);
 
     sqlx::query("UPDATE `x_users` SET `pwd_hash` = ?, `pwd_ts` = ?, `salt` = ? WHERE `id` = ?")
         .bind(encoded_pwd)
-        .bind(now_ts)
+        .bind(new_pwd_ts)
         .bind(salt)
         .bind(admin.id)
         .execute(pool)

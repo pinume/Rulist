@@ -72,16 +72,6 @@ export const ObjStore = {
   setWrite: (write: boolean) => setObjStore("write", write),
   setWriteContentBypass: (write_content_bypass: boolean) =>
     setObjStore("write_content_bypass", write_content_bypass),
-  // setGetResp: (resp: FsGetResp) => {
-  //   setObjStore("obj", resp.data);
-  //   setObjs(resp.data.related);
-  //   setObjStore("readme", resp.data.readme);
-  // },
-  // setListResp: (resp: FsListResp) => {
-  //   setObjs(resp.data.content);
-  //   setObjStore("readme", resp.data.readme);
-  //   setObjStore("write", resp.data.write);
-  // },
   setState: (state: State) => setObjStore("state", state),
   setErr: (err: string) => setObjStore("err", err),
 }

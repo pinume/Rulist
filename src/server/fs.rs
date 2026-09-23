@@ -33,7 +33,21 @@ pub async fn fs_list_handler(
 
     match state.storage.list(&path).await {
         Ok(mut content) => {
-            sort_files(&mut content, "name", "asc");
+            sort_files(&mut content);
+            let total = content.len() as i64;
+
+            if let Some(per_page) = req.per_page
+                && per_page > 0
+            {
+                let page = req.page.unwrap_or(1).max(1);
+                let start = (page - 1).saturating_mul(per_page);
+                if start < content.len() {
+                    let end = (start + per_page).min(content.len());
+                    content = content[start..end].to_vec();
+                } else {
+                    content.clear();
+                }
+            }
 
             // Attach signs and raw_urls to files
             let token = get_setting(&state.pool, "token")
@@ -51,7 +65,6 @@ pub async fn fs_list_handler(
                 }
             }
 
-            let total = content.len() as i64;
             let resp = FsListResp {
                 content,
                 total,
@@ -706,11 +719,25 @@ pub async fn fs_put_handler(
         );
     }
     drop(file);
-    if !overwrite && target.exists() {
+    if !overwrite {
+        if target.exists() {
+            let _ = tokio::fs::remove_file(&temp).await;
+            return api_error(StatusCode::CONFLICT, 409, "file already exists");
+        }
+        if let Err(err) = tokio::fs::hard_link(&temp, &target).await {
+            let _ = tokio::fs::remove_file(&temp).await;
+            if err.kind() == std::io::ErrorKind::AlreadyExists || target.exists() {
+                return api_error(StatusCode::CONFLICT, 409, "file already exists");
+            }
+            tracing::error!(error = %err, "failed to finalize upload file via hard_link");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
         let _ = tokio::fs::remove_file(&temp).await;
-        return api_error(StatusCode::CONFLICT, 409, "file already exists");
-    }
-    if let Err(err) = tokio::fs::rename(&temp, &target).await {
+    } else if let Err(err) = tokio::fs::rename(&temp, &target).await {
         let _ = tokio::fs::remove_file(&temp).await;
         tracing::error!(error = %err, "failed to finalize upload file");
         return api_error(

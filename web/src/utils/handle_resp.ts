@@ -25,15 +25,6 @@ export const handleResp = <T>(
   }
 }
 
-export const handleRespWithoutAuth = <T>(
-  resp: Resp<T>,
-  success?: (data: T) => void,
-  fail?: (message: string, code?: number) => void,
-  notify_error: boolean = true,
-) => {
-  return handleResp(resp, success, fail, false, notify_error)
-}
-
 export const handleRespWithoutNotify = <T>(
   resp: Resp<T>,
   success?: (data: T) => void,

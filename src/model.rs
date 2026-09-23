@@ -116,8 +116,6 @@ pub struct FsListReq {
     pub page: Option<usize>,
     #[serde(default)]
     pub per_page: Option<usize>,
-    #[serde(default)]
-    pub refresh: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -382,8 +380,7 @@ pub fn natural_cmp(a: &str, b: &str) -> Ordering {
     }
 }
 
-pub fn sort_files(files: &mut [FileObj], order_by: &str, order_dir: &str) {
-    let desc = order_dir.eq_ignore_ascii_case("desc");
+pub fn sort_files(files: &mut [FileObj]) {
     files.sort_by(|a, b| {
         // Directories always come first
         if a.is_dir != b.is_dir {
@@ -393,14 +390,7 @@ pub fn sort_files(files: &mut [FileObj], order_by: &str, order_dir: &str) {
                 Ordering::Greater
             };
         }
-
-        let ord = match order_by {
-            "size" => a.size.cmp(&b.size),
-            "modified" => a.modified.cmp(&b.modified),
-            _ => natural_cmp(&a.name, &b.name),
-        };
-
-        if desc { ord.reverse() } else { ord }
+        natural_cmp(&a.name, &b.name)
     });
 }
 

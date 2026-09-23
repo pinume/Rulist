@@ -200,7 +200,7 @@ pub async fn update_current_handler(
             .as_secs() as i64;
 
         if let Err(e) = sqlx::query(
-            "UPDATE `x_users` SET `pwd_hash` = ?, `salt` = ?, `pwd_ts` = ? WHERE `id` = ?",
+            "UPDATE `x_users` SET `pwd_hash` = ?, `salt` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?) WHERE `id` = ?",
         )
         .bind(&encoded_pwd)
         .bind(&salt)

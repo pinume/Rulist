@@ -5,3 +5,4 @@
 *.db
 *.db-*
 /data
+/verification_report.md

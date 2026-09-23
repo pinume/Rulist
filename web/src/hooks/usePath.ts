@@ -41,7 +41,6 @@ export const usePath = () => {
       arg?.path,
       undefined,
       undefined,
-      arg?.force,
       new axios.CancelToken((c) => {
         cancelList = c
       }),

@@ -27,7 +27,6 @@ export const fsList = (
   path: string = "/",
   page = 1,
   per_page = 0,
-  refresh = false,
   cancelToken?: CancelToken,
 ): Promise<FsListResp> => {
   return r.post(
@@ -36,7 +35,6 @@ export const fsList = (
       path,
       page,
       per_page,
-      refresh,
     },
     {
       cancelToken: cancelToken,
@@ -130,4 +128,8 @@ export const fsNewFile = (
       Overwrite: overwrite.toString(),
     },
   })
+}
+
+export const fsLink = (path: string): PResp<{ url: string }> => {
+  return r.post("/fs/link", { path })
 }

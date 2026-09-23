@@ -1,12 +1,7 @@
 import { createLocalStorage } from "@solid-primitives/storage"
 
-const [local, setLocal, { remove, clear, toJSON }] = createLocalStorage()
-// export function isValidKey(
-//   key: string | number | symbol,
-//   object: object
-// ): key is keyof typeof object {
-//   return key in object
-// }
+const [local, setLocal] = createLocalStorage()
+
 
 export const initialLocalSettings = [
   {
@@ -46,4 +41,4 @@ for (const setting of initialLocalSettings) {
   }
 }
 
-export { local, setLocal, remove, clear, toJSON }
+export { local, setLocal }

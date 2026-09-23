@@ -18,13 +18,6 @@ export const getSettingBool = (key: string) => {
   const value = getSetting(key)
   return value === "true" || value === "1"
 }
-export const getSettingNumber = (key: string, defaultV?: number) => {
-  const value = getSetting(key)
-  if (value) {
-    return Number(value)
-  }
-  return defaultV ?? 0
-}
 export const getMainColor = (): string => {
   if (window.OPENLIST_CONFIG.main_color) {
     return window.OPENLIST_CONFIG.main_color

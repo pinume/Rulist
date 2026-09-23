@@ -337,7 +337,7 @@ pub async fn admin_user_update_handler(
             .as_secs() as i64;
         target_user.pwd_hash = encoded_pwd;
         target_user.salt = salt;
-        target_user.pwd_ts = now_ts;
+        target_user.pwd_ts = now_ts.max(target_user.pwd_ts + 1);
     }
 
     target_user.username = req.username;

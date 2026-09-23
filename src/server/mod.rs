@@ -293,9 +293,9 @@ async fn shutdown_signal() {
 mod tests {
     use super::*;
     use crate::model::{
-        AdminUserSaveReq, BatchRenameItem, BatchRenameReq, ConflictPolicy, FsMoveCopyReq,
-        FsRecursiveMoveReq, FsRemoveEmptyDirsReq, FsRenameReq, LoginReq, TwoFaGenerateReq,
-        TwoFaVerifyReq, UpdateCurrentReq,
+        AdminUserSaveReq, BatchRenameItem, BatchRenameReq, ConflictPolicy, FsListReq,
+        FsMoveCopyReq, FsRecursiveMoveReq, FsRemoveEmptyDirsReq, FsRenameReq, LoginReq,
+        TwoFaGenerateReq, TwoFaVerifyReq, UpdateCurrentReq,
     };
     use axum::http::HeaderValue;
 
@@ -2380,5 +2380,771 @@ mod tests {
             tokio::fs::read(&foo_file).await.unwrap()
         };
         assert_eq!(read_back, b"content FOO");
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_upload_overwrite_false_prevents_clobbering() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "AdminPassword123!")
+            .await
+            .unwrap();
+
+        let storage_root = tmp.path().join("storage");
+        tokio::fs::create_dir_all(&storage_root).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO `x_storages` (`mount_path`, `driver`, `addition`) VALUES (?, ?, ?)",
+        )
+        .bind("/local")
+        .bind("Local")
+        .bind(
+            serde_json::json!({
+                "root_folder_path": storage_root.to_str().unwrap()
+            })
+            .to_string(),
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let config = Config::default();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: config.clone(),
+            storage: Arc::new(storage_mgr),
+        });
+
+        let admin_login = LoginReq {
+            username: "admin".to_string(),
+            password: "AdminPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(admin_login)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let admin_token = json["data"]["token"].as_str().unwrap().to_string();
+
+        let mut headers1 = HeaderMap::new();
+        headers1.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", admin_token)).unwrap(),
+        );
+        headers1.insert(
+            "File-Path",
+            HeaderValue::from_static("%2Flocal%2Fconcurrent.txt"),
+        );
+        headers1.insert("Overwrite", HeaderValue::from_static("false"));
+
+        let headers2 = headers1.clone();
+
+        let data1 = vec![b'A'; 65536];
+        let data2 = vec![b'B'; 65536];
+
+        let req1 = axum::http::Request::builder()
+            .method("PUT")
+            .body(axum::body::Body::from(data1.clone()))
+            .unwrap();
+
+        let req2 = axum::http::Request::builder()
+            .method("PUT")
+            .body(axum::body::Body::from(data2.clone()))
+            .unwrap();
+
+        let state1 = state.clone();
+        let state2 = state.clone();
+
+        let handle1 =
+            tokio::spawn(async move { fs::fs_put_handler(State(state1), headers1, req1).await });
+        let handle2 =
+            tokio::spawn(async move { fs::fs_put_handler(State(state2), headers2, req2).await });
+
+        let (resp1, resp2) = tokio::join!(handle1, handle2);
+        let resp1 = resp1.unwrap();
+        let resp2 = resp2.unwrap();
+
+        let mut statuses = vec![resp1.status(), resp2.status()];
+        statuses.sort();
+
+        // Exactly one must succeed (200 OK) and one must be rejected (409 CONFLICT)
+        assert_eq!(statuses, vec![StatusCode::OK, StatusCode::CONFLICT]);
+
+        // Verify the file content on disk is completely intact and matches either data1 or data2
+        let file_path = storage_root.join("concurrent.txt");
+        assert!(file_path.exists());
+        let content = tokio::fs::read(&file_path).await.unwrap();
+        assert!(
+            content == data1 || content == data2,
+            "File content must be completely equal to one of the uploads"
+        );
+        assert_eq!(content.len(), 65536);
+
+        // Verify no leftover upload temp files
+        let mut entries = tokio::fs::read_dir(&storage_root).await.unwrap();
+        while let Some(entry) = entries.next_entry().await.unwrap() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            assert!(
+                !name.starts_with(".rulist-upload-"),
+                "Leftover upload temp file: {}",
+                name
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_range_requests_boundary_and_416() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "AdminPassword123!")
+            .await
+            .unwrap();
+
+        let storage_root = tmp.path().join("storage");
+        tokio::fs::create_dir_all(&storage_root).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO `x_storages` (`mount_path`, `driver`, `addition`) VALUES (?, ?, ?)",
+        )
+        .bind("/local")
+        .bind("Local")
+        .bind(
+            serde_json::json!({
+                "root_folder_path": storage_root.to_str().unwrap()
+            })
+            .to_string(),
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let config = Config::default();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: config.clone(),
+            storage: Arc::new(storage_mgr),
+        });
+
+        let admin_login = LoginReq {
+            username: "admin".to_string(),
+            password: "AdminPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(admin_login)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let admin_token = json["data"]["token"].as_str().unwrap().to_string();
+
+        let mut base_headers = HeaderMap::new();
+        base_headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", admin_token)).unwrap(),
+        );
+
+        // 1. Empty file: Range request should return 416 with Content-Range: bytes */0
+        let empty_path = storage_root.join("empty.txt");
+        tokio::fs::write(&empty_path, b"").await.unwrap();
+
+        let mut empty_headers = base_headers.clone();
+        empty_headers.insert("range", HeaderValue::from_static("bytes=0-0"));
+        let resp = stream::raw_download_handler(
+            State(state.clone()),
+            axum::extract::Path("local/empty.txt".to_string()),
+            axum::extract::Query(stream::SignQuery { sign: None }),
+            empty_headers,
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(resp.headers().get("content-range").unwrap(), "bytes */0");
+
+        // 2. Non-empty file (10 bytes: 0123456789)
+        let test_path = storage_root.join("test.txt");
+        tokio::fs::write(&test_path, b"0123456789").await.unwrap();
+
+        // 2a. bytes=-0 should return 416 with Content-Range: bytes */10
+        let mut neg_zero_headers = base_headers.clone();
+        neg_zero_headers.insert("range", HeaderValue::from_static("bytes=-0"));
+        let resp = stream::raw_download_handler(
+            State(state.clone()),
+            axum::extract::Path("local/test.txt".to_string()),
+            axum::extract::Query(stream::SignQuery { sign: None }),
+            neg_zero_headers,
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(resp.headers().get("content-range").unwrap(), "bytes */10");
+
+        // 2b. Start out of bounds (bytes=10-20 on 10-byte file) should return 416
+        let mut oob_headers = base_headers.clone();
+        oob_headers.insert("range", HeaderValue::from_static("bytes=10-20"));
+        let resp = stream::raw_download_handler(
+            State(state.clone()),
+            axum::extract::Path("local/test.txt".to_string()),
+            axum::extract::Query(stream::SignQuery { sign: None }),
+            oob_headers,
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(resp.headers().get("content-range").unwrap(), "bytes */10");
+
+        // 2c. Normal suffix range (bytes=-5 on 10-byte file) should return 206 with Content-Range: bytes 5-9/10
+        let mut suffix_headers = base_headers.clone();
+        suffix_headers.insert("range", HeaderValue::from_static("bytes=-5"));
+        let resp = stream::raw_download_handler(
+            State(state.clone()),
+            axum::extract::Path("local/test.txt".to_string()),
+            axum::extract::Query(stream::SignQuery { sign: None }),
+            suffix_headers,
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(resp.headers().get("content-range").unwrap(), "bytes 5-9/10");
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(&body_bytes[..], b"56789");
+    }
+
+    #[tokio::test]
+    async fn test_fs_list_pagination() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "AdminPassword123!")
+            .await
+            .unwrap();
+
+        let storage_root = tmp.path().join("storage");
+        tokio::fs::create_dir_all(&storage_root).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO `x_storages` (`mount_path`, `driver`, `addition`) VALUES (?, ?, ?)",
+        )
+        .bind("/local")
+        .bind("Local")
+        .bind(
+            serde_json::json!({
+                "root_folder_path": storage_root.to_str().unwrap()
+            })
+            .to_string(),
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let config = Config::default();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: config.clone(),
+            storage: Arc::new(storage_mgr),
+        });
+
+        let admin_login = LoginReq {
+            username: "admin".to_string(),
+            password: "AdminPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(admin_login)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let admin_token = json["data"]["token"].as_str().unwrap().to_string();
+
+        let mut admin_headers = HeaderMap::new();
+        admin_headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", admin_token)).unwrap(),
+        );
+
+        for name in &["a.txt", "b.txt", "c.txt", "d.txt", "e.txt"] {
+            tokio::fs::write(storage_root.join(name), b"test")
+                .await
+                .unwrap();
+        }
+
+        // 1. Page 1, per_page 2 -> [a.txt, b.txt], total 5
+        let req_p1 = FsListReq {
+            path: "/local".to_string(),
+            page: Some(1),
+            per_page: Some(2),
+        };
+        let resp =
+            fs::fs_list_handler(admin_headers.clone(), State(state.clone()), Json(req_p1)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["data"]["total"], 5);
+        let items: Vec<String> = json["data"]["content"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["name"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(items, vec!["a.txt", "b.txt"]);
+
+        // 2. Page 2, per_page 2 -> [c.txt, d.txt], total 5
+        let req_p2 = FsListReq {
+            path: "/local".to_string(),
+            page: Some(2),
+            per_page: Some(2),
+        };
+        let resp =
+            fs::fs_list_handler(admin_headers.clone(), State(state.clone()), Json(req_p2)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["data"]["total"], 5);
+        let items: Vec<String> = json["data"]["content"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["name"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(items, vec!["c.txt", "d.txt"]);
+
+        // 3. Page 3, per_page 2 -> [e.txt], total 5
+        let req_p3 = FsListReq {
+            path: "/local".to_string(),
+            page: Some(3),
+            per_page: Some(2),
+        };
+        let resp =
+            fs::fs_list_handler(admin_headers.clone(), State(state.clone()), Json(req_p3)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["data"]["total"], 5);
+        let items: Vec<String> = json["data"]["content"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["name"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(items, vec!["e.txt"]);
+
+        // 4. Page 4, per_page 2 -> [], total 5
+        let req_p4 = FsListReq {
+            path: "/local".to_string(),
+            page: Some(4),
+            per_page: Some(2),
+        };
+        let resp =
+            fs::fs_list_handler(admin_headers.clone(), State(state.clone()), Json(req_p4)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["data"]["total"], 5);
+        assert_eq!(json["data"]["content"].as_array().unwrap().len(), 0);
+
+        // 5. per_page: None or 0 -> all 5 items
+        let req_all = FsListReq {
+            path: "/local".to_string(),
+            page: Some(1),
+            per_page: Some(0),
+        };
+        let resp =
+            fs::fs_list_handler(admin_headers.clone(), State(state.clone()), Json(req_all)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["data"]["total"], 5);
+        assert_eq!(json["data"]["content"].as_array().unwrap().len(), 5);
+    }
+
+    #[tokio::test]
+    async fn test_preview_csp_sandbox_header() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "AdminPassword123!")
+            .await
+            .unwrap();
+
+        let storage_root = tmp.path().join("storage");
+        tokio::fs::create_dir_all(&storage_root).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO `x_storages` (`mount_path`, `driver`, `addition`) VALUES (?, ?, ?)",
+        )
+        .bind("/local")
+        .bind("Local")
+        .bind(
+            serde_json::json!({
+                "root_folder_path": storage_root.to_str().unwrap()
+            })
+            .to_string(),
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: Config::default(),
+            storage: Arc::new(storage_mgr),
+        });
+
+        let admin_login = LoginReq {
+            username: "admin".to_string(),
+            password: "AdminPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(admin_login)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let admin_token = json["data"]["token"].as_str().unwrap().to_string();
+
+        let mut base_headers = HeaderMap::new();
+        base_headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", admin_token)).unwrap(),
+        );
+
+        let test_html_path = storage_root.join("test.html");
+        tokio::fs::write(&test_html_path, b"<html><script>alert(1)</script></html>")
+            .await
+            .unwrap();
+
+        // 1. Preview handler (/p): must return Content-Security-Policy: sandbox and inline Content-Disposition
+        let preview_resp = stream::raw_preview_handler(
+            State(state.clone()),
+            axum::extract::Path("local/test.html".to_string()),
+            axum::extract::Query(stream::SignQuery { sign: None }),
+            base_headers.clone(),
+        )
+        .await;
+        assert_eq!(preview_resp.status(), StatusCode::OK);
+        assert_eq!(
+            preview_resp
+                .headers()
+                .get(axum::http::header::CONTENT_SECURITY_POLICY)
+                .unwrap(),
+            "sandbox"
+        );
+        let disp = preview_resp
+            .headers()
+            .get(axum::http::header::CONTENT_DISPOSITION)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(disp.starts_with("inline"));
+
+        // 2. Download handler (/d): must NOT have Content-Security-Policy and must be attachment
+        let download_resp = stream::raw_download_handler(
+            State(state.clone()),
+            axum::extract::Path("local/test.html".to_string()),
+            axum::extract::Query(stream::SignQuery { sign: None }),
+            base_headers.clone(),
+        )
+        .await;
+        assert_eq!(download_resp.status(), StatusCode::OK);
+        assert!(
+            download_resp
+                .headers()
+                .get(axum::http::header::CONTENT_SECURITY_POLICY)
+                .is_none()
+        );
+        let dl_disp = download_resp
+            .headers()
+            .get(axum::http::header::CONTENT_DISPOSITION)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(dl_disp.starts_with("attachment"));
+
+        // 3. Partial content (Range) preview: must also include Content-Security-Policy: sandbox
+        let mut range_headers = base_headers.clone();
+        range_headers.insert("range", HeaderValue::from_static("bytes=0-10"));
+        let range_preview_resp = stream::raw_preview_handler(
+            State(state.clone()),
+            axum::extract::Path("local/test.html".to_string()),
+            axum::extract::Query(stream::SignQuery { sign: None }),
+            range_headers,
+        )
+        .await;
+        assert_eq!(range_preview_resp.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            range_preview_resp
+                .headers()
+                .get(axum::http::header::CONTENT_SECURITY_POLICY)
+                .unwrap(),
+            "sandbox"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_same_second_password_change_invalidates_jwt() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "AdminPassword123!")
+            .await
+            .unwrap();
+
+        let storage_root = tmp.path().join("storage");
+        tokio::fs::create_dir_all(&storage_root).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO `x_storages` (`mount_path`, `driver`, `addition`) VALUES (?, ?, ?)",
+        )
+        .bind("/local")
+        .bind("Local")
+        .bind(
+            serde_json::json!({
+                "root_folder_path": storage_root.to_str().unwrap()
+            })
+            .to_string(),
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: Config::default(),
+            storage: Arc::new(storage_mgr),
+        });
+
+        // Step 1: Admin logs in, gets token1
+        let admin_login = LoginReq {
+            username: "admin".to_string(),
+            password: "AdminPassword123!".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(admin_login)).await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let token1 = json["data"]["token"].as_str().unwrap().to_string();
+
+        let mut headers1 = HeaderMap::new();
+        headers1.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", token1)).unwrap(),
+        );
+        assert!(authenticate_user(&headers1, &state).await.is_some());
+
+        // Step 2: First password update via update_current_handler
+        let req1 = UpdateCurrentReq {
+            username: None,
+            password: Some("Password2026_A!".to_string()),
+            current_password: Some("AdminPassword123!".to_string()),
+        };
+        let resp1 =
+            auth::update_current_handler(headers1.clone(), State(state.clone()), Json(req1)).await;
+        assert_eq!(resp1.status(), StatusCode::OK);
+
+        // token1 is invalidated immediately
+        assert!(authenticate_user(&headers1, &state).await.is_none());
+
+        // Step 3: Immediately login with new password to get token2
+        let login2 = LoginReq {
+            username: "admin".to_string(),
+            password: "Password2026_A!".to_string(),
+            otp_code: None,
+        };
+        let resp2 = auth::login_handler(State(state.clone()), Json(login2)).await;
+        let body_bytes = axum::body::to_bytes(resp2.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json2: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let token2 = json2["data"]["token"].as_str().unwrap().to_string();
+
+        let mut headers2 = HeaderMap::new();
+        headers2.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", token2)).unwrap(),
+        );
+        assert!(authenticate_user(&headers2, &state).await.is_some());
+
+        // Read pwd_ts after first update
+        let admin_before_second = crate::db::get_admin(&pool).await.unwrap().unwrap();
+        let ts_before = admin_before_second.pwd_ts;
+
+        // Step 4: Immediately in the same second, update password again
+        let req2 = UpdateCurrentReq {
+            username: None,
+            password: Some("Password2026_B!".to_string()),
+            current_password: Some("Password2026_A!".to_string()),
+        };
+        let resp3 =
+            auth::update_current_handler(headers2.clone(), State(state.clone()), Json(req2)).await;
+        assert_eq!(resp3.status(), StatusCode::OK);
+
+        let admin_after_second = crate::db::get_admin(&pool).await.unwrap().unwrap();
+        let ts_after = admin_after_second.pwd_ts;
+
+        // pwd_ts must be strictly greater than ts_before
+        assert!(
+            ts_after > ts_before,
+            "pwd_ts must strictly increase even in same second: ts_after={}, ts_before={}",
+            ts_after,
+            ts_before
+        );
+
+        // Crucial check: token2 MUST now be invalidated because ts_after > token2's pwd_ts
+        assert!(
+            authenticate_user(&headers2, &state).await.is_none(),
+            "token2 must be invalidated by immediate same-second password update"
+        );
+
+        // Step 5: Test admin_user_update_handler strictly increments pwd_ts
+        let admin_login3 = LoginReq {
+            username: "admin".to_string(),
+            password: "Password2026_B!".to_string(),
+            otp_code: None,
+        };
+        let resp_admin3 = auth::login_handler(State(state.clone()), Json(admin_login3)).await;
+        let body_bytes = axum::body::to_bytes(resp_admin3.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json_admin3: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let admin_token3 = json_admin3["data"]["token"].as_str().unwrap().to_string();
+
+        let mut admin_headers3 = HeaderMap::new();
+        admin_headers3.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", admin_token3)).unwrap(),
+        );
+
+        let create_user_req = AdminUserSaveReq {
+            id: None,
+            username: "testuser".to_string(),
+            password: Some("UserPass123!".to_string()),
+            local_path: Some(storage_root.to_str().unwrap().to_string()),
+            role: Some(0),
+            permission: Some(0),
+            disabled: Some(false),
+        };
+        let resp_create = users::admin_user_create_handler(
+            admin_headers3.clone(),
+            State(state.clone()),
+            Json(create_user_req),
+        )
+        .await;
+        assert_eq!(resp_create.status(), StatusCode::OK);
+
+        let created_user = crate::db::get_user_by_name(&pool, "testuser")
+            .await
+            .unwrap()
+            .unwrap();
+
+        // Login as testuser -> get user_token1
+        let user_login1 = LoginReq {
+            username: "testuser".to_string(),
+            password: "UserPass123!".to_string(),
+            otp_code: None,
+        };
+        let resp_u1 = auth::login_handler(State(state.clone()), Json(user_login1)).await;
+        let body_bytes = axum::body::to_bytes(resp_u1.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json_u1: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let user_token1 = json_u1["data"]["token"].as_str().unwrap().to_string();
+
+        let mut user_headers1 = HeaderMap::new();
+        user_headers1.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", user_token1)).unwrap(),
+        );
+        assert!(authenticate_user(&user_headers1, &state).await.is_some());
+
+        // Admin updates testuser's password
+        let update_user_req1 = AdminUserSaveReq {
+            id: Some(created_user.id),
+            username: "testuser".to_string(),
+            password: Some("UserPassNew1!".to_string()),
+            local_path: Some(storage_root.to_str().unwrap().to_string()),
+            role: Some(0),
+            permission: Some(0),
+            disabled: Some(false),
+        };
+        let resp_u_update1 = users::admin_user_update_handler(
+            admin_headers3.clone(),
+            State(state.clone()),
+            Json(update_user_req1),
+        )
+        .await;
+        assert_eq!(resp_u_update1.status(), StatusCode::OK);
+
+        // user_token1 is invalidated
+        assert!(authenticate_user(&user_headers1, &state).await.is_none());
+
+        // Login with new password -> user_token2
+        let user_login2 = LoginReq {
+            username: "testuser".to_string(),
+            password: "UserPassNew1!".to_string(),
+            otp_code: None,
+        };
+        let resp_u2 = auth::login_handler(State(state.clone()), Json(user_login2)).await;
+        let body_bytes = axum::body::to_bytes(resp_u2.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json_u2: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let user_token2 = json_u2["data"]["token"].as_str().unwrap().to_string();
+
+        let mut user_headers2 = HeaderMap::new();
+        user_headers2.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", user_token2)).unwrap(),
+        );
+        assert!(authenticate_user(&user_headers2, &state).await.is_some());
+
+        // Immediately update password again via admin_user_update_handler
+        let update_user_req2 = AdminUserSaveReq {
+            id: Some(created_user.id),
+            username: "testuser".to_string(),
+            password: Some("UserPassNew2!".to_string()),
+            local_path: Some(storage_root.to_str().unwrap().to_string()),
+            role: Some(0),
+            permission: Some(0),
+            disabled: Some(false),
+        };
+        let resp_u_update2 = users::admin_user_update_handler(
+            admin_headers3.clone(),
+            State(state.clone()),
+            Json(update_user_req2),
+        )
+        .await;
+        assert_eq!(resp_u_update2.status(), StatusCode::OK);
+
+        // user_token2 must be invalidated
+        assert!(
+            authenticate_user(&user_headers2, &state).await.is_none(),
+            "user_token2 must be invalidated by immediate same-second admin password update"
+        );
+
+        // Step 6: Test set_admin_password strictly increments pwd_ts
+        let admin_before_reset = crate::db::get_admin(&pool).await.unwrap().unwrap();
+        crate::db::set_admin_password(&pool, "ResetPass1!")
+            .await
+            .unwrap();
+        let admin_after_reset1 = crate::db::get_admin(&pool).await.unwrap().unwrap();
+        assert!(admin_after_reset1.pwd_ts > admin_before_reset.pwd_ts);
+
+        crate::db::set_admin_password(&pool, "ResetPass2!")
+            .await
+            .unwrap();
+        let admin_after_reset2 = crate::db::get_admin(&pool).await.unwrap().unwrap();
+        assert!(admin_after_reset2.pwd_ts > admin_after_reset1.pwd_ts);
     }
 }

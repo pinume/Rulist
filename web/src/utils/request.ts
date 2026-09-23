@@ -11,17 +11,6 @@ const instance = axios.create({
   withCredentials: false,
 })
 
-instance.interceptors.request.use(
-  (config) => {
-    // do something before request is sent
-    return config
-  },
-  (error) => {
-    // do something with request error
-    console.log("Error: " + error.message) // for debug
-    return Promise.reject(error)
-  },
-)
 
 // response interceptor
 instance.interceptors.response.use(

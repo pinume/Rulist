@@ -1,7 +1,7 @@
 import "~/utils/zip-stream.js"
 import streamSaver from "streamsaver"
-import { getLinkByDirAndObj, useRouter, useT } from "~/hooks"
-import { fsList, joinBase, pathBase, pathJoin } from "~/utils"
+import { useRouter, useT } from "~/hooks"
+import { api, fsLink, fsList, joinBase, pathBase, pathJoin } from "~/utils"
 import { selectedObjs as _selectedObjs } from "~/store"
 import { createSignal, For, Show } from "solid-js"
 import {
@@ -21,7 +21,6 @@ const trimSlash = (str: string) => {
 
 interface File {
   path: string
-  url: string
 }
 
 const PackageDownload = (props: { onClose: () => void }) => {
@@ -43,11 +42,6 @@ const PackageDownload = (props: { onClose: () => void }) => {
       return [
         {
           path: pathJoin(pre, obj.name),
-          url: getLinkByDirAndObj(
-            pathJoin(pathname(), pre),
-            obj,
-            true,
-          ),
         },
       ]
     } else {
@@ -94,7 +88,7 @@ const PackageDownload = (props: { onClose: () => void }) => {
     setStatus(3)
     let fileArr = downFiles.values()
     let readableZipStream = new (window as any).ZIP({
-      pull(ctrl: any) {
+      async pull(ctrl: any) {
         const it = fileArr.next()
         if (it.done) {
           ctrl.close()
@@ -103,18 +97,28 @@ const PackageDownload = (props: { onClose: () => void }) => {
           if (selectedObjs.length === 1) {
             name = name.replace(`${saveName}/`, "")
           }
-          const url = it.value.url
-          return fetch(url).then((res) => {
-            if (!res.ok) {
-              throw new Error(
-                `Failed to fetch ${name}: ${res.status} ${res.statusText}`,
-              )
-            }
-            setFetchings((prev) => [...prev, name])
-            ctrl.enqueue({
-              name,
-              stream: res.body,
-            })
+          const filePath = pathJoin(pathname(), it.value.path)
+          const linkResp = await fsLink(filePath)
+          if (linkResp.code !== 200) {
+            throw new Error(
+              `Failed to get link for ${name}: ${linkResp.message}`,
+            )
+          }
+          const rawUrl = linkResp.data.url
+          const url =
+            rawUrl.startsWith("http://") || rawUrl.startsWith("https://")
+              ? rawUrl
+              : `${api}${rawUrl}`
+          const res = await fetch(url)
+          if (!res.ok) {
+            throw new Error(
+              `Failed to fetch ${name}: ${res.status} ${res.statusText}`,
+            )
+          }
+          setFetchings((prev) => [...prev, name])
+          ctrl.enqueue({
+            name,
+            stream: res.body,
           })
         }
       },

@@ -3,7 +3,8 @@ use std::path::Path;
 use axum::body::Body;
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::header::{
-    ACCEPT_RANGES, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE,
+    ACCEPT_RANGES, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_SECURITY_POLICY,
+    CONTENT_TYPE,
 };
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -142,35 +143,41 @@ async fn stream_file(
     // Range header handling
     let range_header = headers.get("range").and_then(|r| r.to_str().ok());
 
-    if let Some(range_val) = range_header
-        && let Some((start, end)) = parse_range(range_val, file_size)
-    {
-        let part_len = end - start + 1;
-        if file.seek(SeekFrom::Start(start)).await.is_err() {
-            return (StatusCode::RANGE_NOT_SATISFIABLE, "Range Not Satisfiable").into_response();
+    if let Some(range_val) = range_header {
+        if let Some((start, end)) = parse_range(range_val, file_size) {
+            let part_len = end - start + 1;
+            if file.seek(SeekFrom::Start(start)).await.is_err() {
+                return range_not_satisfiable(file_size);
+            }
+
+            let stream = ReaderStream::new(file.take(part_len));
+            let body = Body::from_stream(stream);
+
+            let mut resp = (StatusCode::PARTIAL_CONTENT, body).into_response();
+            let h = resp.headers_mut();
+            h.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+            h.insert(
+                CONTENT_TYPE,
+                HeaderValue::from_str(&content_type)
+                    .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+            );
+            h.insert(
+                CONTENT_LENGTH,
+                HeaderValue::from_str(&part_len.to_string())
+                    .unwrap_or(HeaderValue::from_static("0")),
+            );
+            h.insert(
+                CONTENT_RANGE,
+                HeaderValue::from_str(&format!("bytes {}-{}/{}", start, end, file_size)).unwrap(),
+            );
+            h.insert(CONTENT_DISPOSITION, disposition.clone());
+            if !as_attachment {
+                h.insert(CONTENT_SECURITY_POLICY, HeaderValue::from_static("sandbox"));
+            }
+            return resp;
+        } else {
+            return range_not_satisfiable(file_size);
         }
-
-        let stream = ReaderStream::new(file.take(part_len));
-        let body = Body::from_stream(stream);
-
-        let mut resp = (StatusCode::PARTIAL_CONTENT, body).into_response();
-        let h = resp.headers_mut();
-        h.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-        h.insert(
-            CONTENT_TYPE,
-            HeaderValue::from_str(&content_type)
-                .unwrap_or(HeaderValue::from_static("application/octet-stream")),
-        );
-        h.insert(
-            CONTENT_LENGTH,
-            HeaderValue::from_str(&part_len.to_string()).unwrap_or(HeaderValue::from_static("0")),
-        );
-        h.insert(
-            CONTENT_RANGE,
-            HeaderValue::from_str(&format!("bytes {}-{}/{}", start, end, file_size)).unwrap(),
-        );
-        h.insert(CONTENT_DISPOSITION, disposition.clone());
-        return resp;
     }
 
     // Full response
@@ -190,6 +197,19 @@ async fn stream_file(
         HeaderValue::from_str(&file_size.to_string()).unwrap_or(HeaderValue::from_static("0")),
     );
     h.insert(CONTENT_DISPOSITION, disposition);
+    if !as_attachment {
+        h.insert(CONTENT_SECURITY_POLICY, HeaderValue::from_static("sandbox"));
+    }
+    resp
+}
+
+fn range_not_satisfiable(file_size: u64) -> Response {
+    let mut resp = (StatusCode::RANGE_NOT_SATISFIABLE, "Range Not Satisfiable").into_response();
+    let h = resp.headers_mut();
+    h.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+    if let Ok(val) = HeaderValue::from_str(&format!("bytes */{}", file_size)) {
+        h.insert(CONTENT_RANGE, val);
+    }
     resp
 }
 
@@ -216,7 +236,10 @@ fn safe_content_disposition(filename: &str, as_attachment: bool) -> HeaderValue 
         .unwrap_or_else(|_| HeaderValue::from_static("attachment; filename=\"file\""))
 }
 
-fn parse_range(range: &str, total: u64) -> Option<(u64, u64)> {
+pub(crate) fn parse_range(range: &str, total: u64) -> Option<(u64, u64)> {
+    if total == 0 {
+        return None;
+    }
     let bytes_prefix = "bytes=";
     if !range.starts_with(bytes_prefix) {
         return None;
@@ -225,23 +248,77 @@ fn parse_range(range: &str, total: u64) -> Option<(u64, u64)> {
     let mut parts = s.split('-');
     let start_str = parts.next()?.trim();
     let end_str = parts.next()?.trim();
+    if parts.next().is_some() {
+        return None;
+    }
 
     if start_str.is_empty() {
         // Suffix range: -N means last N bytes
         let len: u64 = end_str.parse().ok()?;
+        if len == 0 {
+            return None;
+        }
         let start = total.saturating_sub(len);
-        Some((start, total.saturating_sub(1)))
+        Some((start, total - 1))
     } else {
         let start: u64 = start_str.parse().ok()?;
-        let end = if end_str.is_empty() {
-            total.saturating_sub(1)
-        } else {
-            end_str.parse().ok()?
-        };
-        if start <= end && start < total {
-            Some((start, end.min(total - 1)))
-        } else {
-            None
+        if start >= total {
+            return None;
         }
+        let end = if end_str.is_empty() {
+            total - 1
+        } else {
+            let parsed_end: u64 = end_str.parse().ok()?;
+            if parsed_end < start {
+                return None;
+            }
+            parsed_end.min(total - 1)
+        };
+        Some((start, end))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_range_empty_file() {
+        assert_eq!(parse_range("bytes=0-0", 0), None);
+        assert_eq!(parse_range("bytes=0-", 0), None);
+        assert_eq!(parse_range("bytes=-0", 0), None);
+        assert_eq!(parse_range("bytes=-5", 0), None);
+    }
+
+    #[test]
+    fn test_parse_range_bytes_neg_zero() {
+        assert_eq!(parse_range("bytes=-0", 100), None);
+        assert_eq!(parse_range("bytes=-0", 1), None);
+    }
+
+    #[test]
+    fn test_parse_range_suffix() {
+        assert_eq!(parse_range("bytes=-10", 100), Some((90, 99)));
+        assert_eq!(parse_range("bytes=-1", 100), Some((99, 99)));
+        assert_eq!(parse_range("bytes=-100", 100), Some((0, 99)));
+        assert_eq!(parse_range("bytes=-200", 100), Some((0, 99)));
+    }
+
+    #[test]
+    fn test_parse_range_start_out_of_bounds() {
+        assert_eq!(parse_range("bytes=100-150", 100), None);
+        assert_eq!(parse_range("bytes=100-", 100), None);
+        assert_eq!(parse_range("bytes=200-", 100), None);
+    }
+
+    #[test]
+    fn test_parse_range_standard() {
+        assert_eq!(parse_range("bytes=0-49", 100), Some((0, 49)));
+        assert_eq!(parse_range("bytes=50-", 100), Some((50, 99)));
+        assert_eq!(parse_range("bytes=50-200", 100), Some((50, 99)));
+        assert_eq!(parse_range("bytes=50-40", 100), None);
+        assert_eq!(parse_range("invalid", 100), None);
+        assert_eq!(parse_range("bytes=--", 100), None);
+        assert_eq!(parse_range("bytes=0-1-2", 100), None);
     }
 }
