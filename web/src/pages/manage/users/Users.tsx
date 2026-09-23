@@ -33,9 +33,7 @@ import {
   UserMethods,
   PPageResp,
   PEmptyResp,
-} from "~/types"
 import { DeletePopover } from "../common/DeletePopover"
-import { Wether } from "~/components"
 
 const mobileOnlyClass = css({
   display: "block",
@@ -327,7 +325,9 @@ const Users = () => {
                     <Permissions user={user} />
                   </Td>
                   <Td>
-                    <Wether yes={!user.disabled} />
+                    <Badge colorScheme={!user.disabled ? "success" : "danger"}>
+                      {t(`global.${!user.disabled ? "yes" : "no"}`)}
+                    </Badge>
                   </Td>
                   <Td>
                     <HStack spacing="$2">

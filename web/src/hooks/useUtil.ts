@@ -43,22 +43,11 @@ export const useUtil = () => {
       }
     },
     isHide: (obj: Obj) => {
-      const hideFiles = getHideFiles()
-      for (const reg of hideFiles) {
-        if (reg.test(pathJoin(pathname(), obj.name))) {
-          return true
-        }
-      }
-      return false
+      const fullPath = pathJoin(pathname(), obj.name)
+      return getHideFiles().some((reg) => reg.test(fullPath))
     },
     isHidePath: (path: string) => {
-      const hideFiles = getHideFiles()
-      for (const reg of hideFiles) {
-        if (reg.test(path)) {
-          return true
-        }
-      }
-      return false
+      return getHideFiles().some((reg) => reg.test(path))
     },
   }
 }

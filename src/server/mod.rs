@@ -68,8 +68,6 @@ pub fn build_app(state: SharedState) -> Router {
         .route("/favicon.ico", get(crate::static_files::favicon_handler))
         .route("/robots.txt", get(crate::static_files::robots_handler))
         .route("/manifest.json", get(crate::static_files::manifest_handler))
-        .route("/rulist.svg", get(crate::static_files::rulist_svg_handler))
-        .route("/rulist.png", get(crate::static_files::rulist_png_handler))
         // Static assets from frontend dist
         .route(
             "/assets/{*path}",

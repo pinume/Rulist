@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-use sqlx::{Pool, Row, Sqlite};
+use sqlx::{Pool, Sqlite};
 
 use crate::auth::{encode_argon2_hash, rand_string, rand_token, static_hash};
 use crate::model::{ROLE_ADMIN, User};
@@ -254,17 +254,13 @@ pub async fn get_setting(pool: &DbPool, key: &str) -> Result<Option<String>> {
 }
 
 pub async fn get_public_settings(pool: &DbPool) -> Result<HashMap<String, String>> {
-    let rows = sqlx::query("SELECT `key`, `value` FROM `x_setting_items` WHERE `flag` IN (0, 2)")
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query_as::<_, (String, String)>(
+        "SELECT `key`, `value` FROM `x_setting_items` WHERE `flag` IN (0, 2)",
+    )
+    .fetch_all(pool)
+    .await?;
 
-    let mut map = HashMap::new();
-    for row in rows {
-        let k: String = row.get("key");
-        let v: String = row.get("value");
-        map.insert(k, v);
-    }
-    Ok(map)
+    Ok(rows.into_iter().collect())
 }
 
 pub async fn get_user_by_name(pool: &DbPool, username: &str) -> Result<Option<User>> {

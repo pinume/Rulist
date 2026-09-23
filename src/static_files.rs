@@ -13,8 +13,6 @@ use crate::server::AppState;
 #[folder = "public/dist/"]
 pub struct DistAssets;
 
-pub const RULIST_SVG: &[u8] = include_bytes!("../public/rulist.svg");
-pub const RULIST_PNG: &[u8] = include_bytes!("../public/rulist.png");
 
 pub fn serve_dist_asset(path: &str) -> Option<Response<Body>> {
     let clean_path = path.trim_start_matches('/');
@@ -160,13 +158,10 @@ pub async fn favicon_handler(State(state): State<Arc<AppState>>) -> impl IntoRes
         return Redirect::temporary(&fav).into_response();
     }
 
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "image/svg+xml")
-        .header(header::CACHE_CONTROL, "public, max-age=86400")
-        .body(Body::from(RULIST_SVG))
-        .unwrap()
-        .into_response()
+    if let Some(res) = serve_dist_asset("rulist.svg") {
+        return res;
+    }
+    StatusCode::NOT_FOUND.into_response()
 }
 
 pub async fn robots_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -185,24 +180,6 @@ pub async fn robots_handler(State(state): State<Arc<AppState>>) -> impl IntoResp
 
 pub async fn ping_handler() -> impl IntoResponse {
     (StatusCode::OK, "pong")
-}
-
-pub async fn rulist_svg_handler() -> impl IntoResponse {
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "image/svg+xml")
-        .header(header::CACHE_CONTROL, "public, max-age=86400")
-        .body(Body::from(RULIST_SVG))
-        .unwrap()
-}
-
-pub async fn rulist_png_handler() -> impl IntoResponse {
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "image/png")
-        .header(header::CACHE_CONTROL, "public, max-age=86400")
-        .body(Body::from(RULIST_PNG))
-        .unwrap()
 }
 
 pub async fn dist_assets_handler(uri: Uri) -> impl IntoResponse {
@@ -229,20 +206,6 @@ pub async fn spa_fallback_handler(
     // 1. Direct match in embedded assets
     if let Some(res) = serve_dist_asset(path) {
         return res;
-    }
-    if path == "rulist.svg" {
-        return Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "image/svg+xml")
-            .body(Body::from(RULIST_SVG))
-            .unwrap();
-    }
-    if path == "rulist.png" {
-        return Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "image/png")
-            .body(Body::from(RULIST_PNG))
-            .unwrap();
     }
 
     // 2. Otherwise serve SPA HTML

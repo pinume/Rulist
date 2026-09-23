@@ -17,32 +17,10 @@ export function getFileSize(size: number) {
   return (size / Math.pow(num, 4)).toFixed(2) + "T" //T
 }
 
-const full = (p: number) => {
-  return p < 10 ? "0" + p : p
-}
-
 export function formatDate(dateStr: string) {
-  const date = new Date(dateStr)
-  const year = date.getFullYear()
-  const mon = date.getMonth() + 1
-  const day = date.getDate()
-  const hour = date.getHours()
-  const min = date.getMinutes()
-  const sec = date.getSeconds()
-
-  return (
-    year +
-    "-" +
-    full(mon) +
-    "-" +
-    full(day) +
-    " " +
-    full(hour) +
-    ":" +
-    full(min) +
-    ":" +
-    full(sec)
-  )
+  const d = new Date(dateStr)
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
 export const validateFilename = (

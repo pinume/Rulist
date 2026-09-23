@@ -151,29 +151,9 @@ async fn stream_file(
             }
 
             let stream = ReaderStream::new(file.take(part_len));
-            let body = Body::from_stream(stream);
-
-            let mut resp = (StatusCode::PARTIAL_CONTENT, body).into_response();
-            let h = resp.headers_mut();
-            h.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-            h.insert(
-                CONTENT_TYPE,
-                HeaderValue::from_str(&content_type)
-                    .unwrap_or(HeaderValue::from_static("application/octet-stream")),
-            );
-            h.insert(
-                CONTENT_LENGTH,
-                HeaderValue::from_str(&part_len.to_string())
-                    .unwrap_or(HeaderValue::from_static("0")),
-            );
-            h.insert(
-                CONTENT_RANGE,
-                HeaderValue::from_str(&format!("bytes {}-{}/{}", start, end, file_size)).unwrap(),
-            );
-            h.insert(CONTENT_DISPOSITION, disposition.clone());
-            if !as_attachment {
-                h.insert(CONTENT_SECURITY_POLICY, HeaderValue::from_static("sandbox"));
-            }
+            let mut resp = (StatusCode::PARTIAL_CONTENT, Body::from_stream(stream)).into_response();
+            let range_str = format!("bytes {start}-{end}/{file_size}");
+            apply_stream_headers(&mut resp, &content_type, part_len, disposition, as_attachment, Some(&range_str));
             return resp;
         } else {
             return range_not_satisfiable(file_size);
@@ -182,25 +162,36 @@ async fn stream_file(
 
     // Full response
     let stream = ReaderStream::new(file);
-    let body = Body::from_stream(stream);
+    let mut resp = (StatusCode::OK, Body::from_stream(stream)).into_response();
+    apply_stream_headers(&mut resp, &content_type, file_size, disposition, as_attachment, None);
+    resp
+}
 
-    let mut resp = (StatusCode::OK, body).into_response();
+fn apply_stream_headers(
+    resp: &mut Response,
+    content_type: &str,
+    len: u64,
+    disposition: HeaderValue,
+    as_attachment: bool,
+    content_range: Option<&str>,
+) {
     let h = resp.headers_mut();
     h.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
     h.insert(
         CONTENT_TYPE,
-        HeaderValue::from_str(&content_type)
+        HeaderValue::from_str(content_type)
             .unwrap_or(HeaderValue::from_static("application/octet-stream")),
     );
-    h.insert(
-        CONTENT_LENGTH,
-        HeaderValue::from_str(&file_size.to_string()).unwrap_or(HeaderValue::from_static("0")),
-    );
+    h.insert(CONTENT_LENGTH, HeaderValue::from(len));
     h.insert(CONTENT_DISPOSITION, disposition);
+    if let Some(range) = content_range {
+        if let Ok(val) = HeaderValue::from_str(range) {
+            h.insert(CONTENT_RANGE, val);
+        }
+    }
     if !as_attachment {
         h.insert(CONTENT_SECURITY_POLICY, HeaderValue::from_static("sandbox"));
     }
-    resp
 }
 
 fn range_not_satisfiable(file_size: u64) -> Response {

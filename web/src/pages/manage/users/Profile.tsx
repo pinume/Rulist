@@ -14,7 +14,7 @@ import {
   useColorModeValue,
   VStack,
 } from "@hope-ui/solid"
-import { createSignal, For, JSXElement, onCleanup, Show } from "solid-js"
+import { createSignal, For, Show } from "solid-js"
 import { useFetch, useManageTitle, useRouter, useT } from "~/hooks"
 import { setMe, me, getSettingBool } from "~/store"
 import {

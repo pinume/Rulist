@@ -237,13 +237,6 @@ impl LocalDriver {
         remove_path_recursive(&full_path).await
     }
 
-    /// Rename an item within the same directory
-    pub async fn rename(&self, subpath: &str, new_name: &str) -> Result<()> {
-        self.rename_safe(subpath, new_name, false)
-            .await
-            .map_err(|e| anyhow!("{e}"))
-    }
-
     /// Safely rename an item with overwrite and backup restoration
     pub async fn rename_safe(
         &self,
@@ -1000,7 +993,7 @@ mod tests {
 
         // Test rename
         driver
-            .rename("folder1/test.txt", "renamed.txt")
+            .rename_safe("folder1/test.txt", "renamed.txt", false)
             .await
             .unwrap();
         assert!(driver.get("folder1/renamed.txt").await.is_ok());

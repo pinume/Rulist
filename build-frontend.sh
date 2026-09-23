@@ -5,8 +5,6 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 web_root="$repo_root/web"
 
-command -v grep >/dev/null
-
 (
   cd "$web_root"
   if command -v corepack >/dev/null 2>&1; then

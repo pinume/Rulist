@@ -12,16 +12,45 @@ pub struct IdQuery {
     pub id: Option<i64>,
 }
 
+async fn require_admin(headers: &HeaderMap, state: &crate::server::AppState) -> Result<User, Response> {
+    let Some(user) = authenticate_user(headers, state).await else {
+        return Err(api_error(
+            StatusCode::UNAUTHORIZED,
+            401,
+            "Authentication required",
+        ));
+    };
+    if !user.is_admin() {
+        return Err(api_error(StatusCode::FORBIDDEN, 403, "Permission denied"));
+    }
+    Ok(user)
+}
+
+fn to_user_with_mount(u: User, storages: &[crate::model::Storage]) -> UserWithMount {
+    let local_path = if u.is_admin() {
+        String::new()
+    } else {
+        compute_local_path(&u.base_path, storages)
+    };
+    UserWithMount {
+        id: u.id,
+        username: u.username,
+        base_path: u.base_path,
+        role: u.role,
+        disabled: u.disabled,
+        permission: u.permission,
+        sso_id: u.sso_id,
+        local_path,
+        otp: u.otp,
+    }
+}
+
 pub async fn admin_user_list_handler(
     headers: HeaderMap,
     State(state): State<SharedState>,
 ) -> Response {
-    let user = match authenticate_user(&headers, &state).await {
-        Some(u) => u,
-        None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
-    };
-    if !user.is_admin() {
-        return api_error(StatusCode::FORBIDDEN, 403, "Permission denied");
+    if let Err(res) = require_admin(&headers, &state).await {
+        return res;
     }
 
     let users = match get_all_users(&state.pool).await {
@@ -39,24 +68,7 @@ pub async fn admin_user_list_handler(
 
     let content: Vec<UserWithMount> = users
         .into_iter()
-        .map(|u| {
-            let local_path = if u.is_admin() {
-                String::new()
-            } else {
-                compute_local_path(&u.base_path, &storages)
-            };
-            UserWithMount {
-                id: u.id,
-                username: u.username,
-                base_path: u.base_path,
-                role: u.role,
-                disabled: u.disabled,
-                permission: u.permission,
-                sso_id: u.sso_id,
-                local_path,
-                otp: u.otp,
-            }
-        })
+        .map(|u| to_user_with_mount(u, &storages))
         .collect();
 
     let total = content.len() as i64;
@@ -71,12 +83,8 @@ pub async fn admin_user_get_handler(
     Query(query): Query<IdQuery>,
     State(state): State<SharedState>,
 ) -> Response {
-    let user = match authenticate_user(&headers, &state).await {
-        Some(u) => u,
-        None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
-    };
-    if !user.is_admin() {
-        return api_error(StatusCode::FORBIDDEN, 403, "Permission denied");
+    if let Err(res) = require_admin(&headers, &state).await {
+        return res;
     }
 
     let id = match query.id {
@@ -98,25 +106,7 @@ pub async fn admin_user_get_handler(
     };
 
     let storages = get_storages(&state.pool).await.unwrap_or_default();
-    let local_path = if target_user.is_admin() {
-        String::new()
-    } else {
-        compute_local_path(&target_user.base_path, &storages)
-    };
-
-    let res = UserWithMount {
-        id: target_user.id,
-        username: target_user.username,
-        base_path: target_user.base_path,
-        role: target_user.role,
-        disabled: target_user.disabled,
-        permission: target_user.permission,
-        sso_id: target_user.sso_id,
-        local_path,
-        otp: target_user.otp,
-    };
-
-    api_success(res)
+    api_success(to_user_with_mount(target_user, &storages))
 }
 
 fn validate_local_path(path: &str) -> Result<(), anyhow::Error> {
@@ -135,12 +125,8 @@ pub async fn admin_user_create_handler(
     State(state): State<SharedState>,
     Json(req): Json<AdminUserSaveReq>,
 ) -> Response {
-    let user = match authenticate_user(&headers, &state).await {
-        Some(u) => u,
-        None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
-    };
-    if !user.is_admin() {
-        return api_error(StatusCode::FORBIDDEN, 403, "Permission denied");
+    if let Err(res) = require_admin(&headers, &state).await {
+        return res;
     }
 
     let raw_pwd = req.password.as_deref().unwrap_or("").trim();
@@ -291,12 +277,8 @@ pub async fn admin_user_update_handler(
     State(state): State<SharedState>,
     Json(req): Json<AdminUserSaveReq>,
 ) -> Response {
-    let user = match authenticate_user(&headers, &state).await {
-        Some(u) => u,
-        None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
-    };
-    if !user.is_admin() {
-        return api_error(StatusCode::FORBIDDEN, 403, "Permission denied");
+    if let Err(res) = require_admin(&headers, &state).await {
+        return res;
     }
 
     let target_id = match req.id {
@@ -528,12 +510,8 @@ pub async fn admin_user_delete_handler(
     Query(query): Query<IdQuery>,
     State(state): State<SharedState>,
 ) -> Response {
-    let user = match authenticate_user(&headers, &state).await {
-        Some(u) => u,
-        None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
-    };
-    if !user.is_admin() {
-        return api_error(StatusCode::FORBIDDEN, 403, "Permission denied");
+    if let Err(res) = require_admin(&headers, &state).await {
+        return res;
     }
 
     let id = match query.id {
@@ -669,12 +647,8 @@ pub async fn admin_user_cancel_2fa_handler(
     Query(query): Query<IdQuery>,
     State(state): State<SharedState>,
 ) -> Response {
-    let user = match authenticate_user(&headers, &state).await {
-        Some(u) => u,
-        None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
-    };
-    if !user.is_admin() {
-        return api_error(StatusCode::FORBIDDEN, 403, "Permission denied");
+    if let Err(res) = require_admin(&headers, &state).await {
+        return res;
     }
 
     if let Some(id) = query.id

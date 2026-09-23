@@ -33,25 +33,35 @@ pub fn rand_string(n: usize) -> String {
         .collect()
 }
 
+fn hex_encode(bytes: impl AsRef<[u8]>) -> String {
+    let b = bytes.as_ref();
+    let mut s = String::with_capacity(b.len() * 2);
+    for byte in b {
+        use std::fmt::Write;
+        let _ = write!(s, "{byte:02x}");
+    }
+    s
+}
+
 /// Generate random token formatted as rulist-<hex>
 pub fn rand_token() -> String {
     let mut bytes = [0u8; 48];
     thread_rng().fill(&mut bytes[..]);
-    format!("rulist-{}", hex::encode(bytes))
+    format!("rulist-{}", hex_encode(bytes))
 }
 
 /// Compute initial static hash: SHA256(password + "-" + STATIC_HASH_SALT)
 pub fn static_hash(password: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(format!("{}-{}", password, STATIC_HASH_SALT).as_bytes());
-    hex::encode(hasher.finalize())
+    hex_encode(hasher.finalize())
 }
 
 /// Compute legacy password hash: SHA256(static_hash + "-" + salt)
 pub fn legacy_hash(pwd_static_hash: &str, salt: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(format!("{}-{}", pwd_static_hash, salt).as_bytes());
-    hex::encode(hasher.finalize())
+    hex_encode(hasher.finalize())
 }
 
 /// Create Argon2id instance with Rulist's exact parameter configuration
@@ -136,7 +146,7 @@ pub fn generate_jwt(
 
     let mut nonce = [0u8; 16];
     thread_rng().fill(&mut nonce[..]);
-    let jti = hex::encode(nonce);
+    let jti = hex_encode(nonce);
 
     let exp = now + (expires_in_hours as usize * 3600);
 

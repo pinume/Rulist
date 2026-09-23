@@ -45,7 +45,6 @@
     "@solid-primitives/i18n": "^2.2.1",
     "@solid-primitives/storage": "^1.3.11",
     "@solidjs/router": "^0.9.1",
-    "@stitches/core": "^1.2.8",
     "@viselect/vanilla": "^3.9.0",
     "axios": "^1.18.1",
     "solid-contextmenu": "0.0.2",

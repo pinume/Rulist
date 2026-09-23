@@ -19,13 +19,56 @@ import {
   bus,
   fsBatchRename,
   handleRespWithNotifySuccess,
+  hoverColor,
   notify,
   validateFilename,
 } from "~/utils"
 import { createSignal, For, onCleanup, Show } from "solid-js"
 import { selectedObjs } from "~/store"
 import { RenameObj } from "~/types"
-import { RenameItem } from "~/pages/home/toolbar/RenameItem"
+
+const RenameItem = (props: { obj: RenameObj; index: number }) => {
+  return (
+    <div style={{ width: "100%" }}>
+      <HStack
+        class="list-item"
+        w="$full"
+        p="$2"
+        rounded="$lg"
+        transition="all 0.3s"
+        _hover={{
+          transform: "scale(1.01)",
+          bgColor: hoverColor(),
+        }}
+      >
+        <Text
+          w={{ "@initial": "50%", "@md": "50%" }}
+          class="name"
+          css={{
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+          title={props.obj.src_name}
+        >
+          {props.obj.src_name}
+        </Text>
+        <Text
+          w={{ "@initial": "50%", "@md": "50%" }}
+          class="name"
+          css={{
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+          title={props.obj.new_name}
+        >
+          {props.obj.new_name}
+        </Text>
+      </HStack>
+    </div>
+  )
+}
 
 export const BatchRename = () => {
   const {
