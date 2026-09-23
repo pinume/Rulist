@@ -1,15 +1,14 @@
 use std::collections::HashMap;
-use std::env;
 use std::fs;
 use std::path::Path;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Pool, Sqlite};
 
-use crate::auth::{encode_argon2_hash, rand_string, rand_token, static_hash};
+use crate::auth::{encode_argon2_hash, rand_string, rand_token, static_hash, verify_password};
 use crate::model::{ROLE_ADMIN, User};
 
 pub type DbPool = Pool<Sqlite>;
@@ -45,6 +44,7 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
             `role` INTEGER NOT NULL DEFAULT 0,
             `disabled` NUMERIC NOT NULL DEFAULT 0,
             `permission` INTEGER NOT NULL DEFAULT 0,
+            `password_unset` NUMERIC NOT NULL DEFAULT 0,
             `otp_secret` TEXT,
             `sso_id` TEXT
         );
@@ -86,8 +86,53 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
     .await
     .context("failed to initialize SQLite schema")?;
 
+    let has_password_unset: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_table_info('x_users') WHERE name = 'password_unset'",
+    )
+    .fetch_one(&pool)
+    .await?;
+    if has_password_unset == 0 {
+        sqlx::query("ALTER TABLE `x_users` ADD COLUMN `password_unset` NUMERIC NOT NULL DEFAULT 0")
+            .execute(&pool)
+            .await?;
+        let users: Vec<(i64, String, String)> =
+            sqlx::query_as("SELECT `id`, `pwd_hash`, `salt` FROM `x_users`")
+                .fetch_all(&pool)
+                .await?;
+        for (id, pwd_hash, salt) in users {
+            if verify_password("", &pwd_hash, &salt) {
+                sqlx::query("UPDATE `x_users` SET `password_unset` = 1 WHERE `id` = ?")
+                    .bind(id)
+                    .execute(&pool)
+                    .await?;
+            }
+        }
+    }
+
+    let invalid_admins: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM `x_users` WHERE `role` = ? AND (`username` != 'admin' OR `disabled` != 0)",
+    )
+    .bind(ROLE_ADMIN)
+    .fetch_one(&pool)
+    .await?;
+    let admin_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `x_users` WHERE `role` = ?")
+        .bind(ROLE_ADMIN)
+        .fetch_one(&pool)
+        .await?;
+    if invalid_admins > 0 || admin_count > 1 {
+        bail!(
+            "database must contain at most one enabled administrator named admin; resolve legacy accounts before startup"
+        );
+    }
+    if admin_count == 0 && get_user_by_name(&pool, "admin").await?.is_some() {
+        bail!("username admin is already assigned to a non-administrator");
+    }
+
     seed_settings(&pool).await?;
     seed_admin(&pool).await?;
+    sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS `x_users_single_admin` ON `x_users` (`role`) WHERE `role` = 2")
+        .execute(&pool)
+        .await?;
 
     let result = sqlx::query(
         "UPDATE `x_users`
@@ -132,7 +177,7 @@ async fn seed_settings(pool: &DbPool) -> Result<()> {
         r#"
         INSERT OR IGNORE INTO `x_setting_items` (`key`, `value`, `type`, `group`, `flag`) VALUES
             ('site_title', 'Rulist', 'string', 0, 0),
-            ('version', 'v0.1.0-rust', 'string', 0, 2),
+            ('version', 'v0.1.1-rust', 'string', 0, 2),
             ('announcement', '', 'text', 0, 0),
             ('robots_txt', 'User-agent: *\nAllow: /', 'text', 0, 0),
             ('logo', 'favicon.ico', 'text', 1, 0),
@@ -172,16 +217,8 @@ async fn seed_admin(pool: &DbPool) -> Result<()> {
         .await?;
 
     if admin_count == 0 {
-        let mut admin_password = rand_string(8);
-        if let Ok(env_pass) =
-            env::var("RULIST_ADMIN_PASSWORD").or_else(|_| env::var("OPENLIST_ADMIN_PASSWORD"))
-            && !env_pass.is_empty()
-        {
-            admin_password = env_pass;
-        }
-
         let salt = rand_string(16);
-        let s_hash = static_hash(&admin_password);
+        let s_hash = static_hash("");
         let encoded_pwd = encode_argon2_hash(&s_hash, &salt);
         let now_ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -190,8 +227,8 @@ async fn seed_admin(pool: &DbPool) -> Result<()> {
 
         sqlx::query(
             r#"
-            INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `salt`, `base_path`, `role`, `disabled`, `permission`)
-            VALUES ('admin', ?, ?, ?, '/', ?, 0, 0)
+            INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `salt`, `base_path`, `role`, `disabled`, `permission`, `password_unset`)
+            VALUES ('admin', ?, ?, ?, '/', ?, 0, 0, 1)
             "#,
         )
         .bind(&encoded_pwd)
@@ -202,8 +239,7 @@ async fn seed_admin(pool: &DbPool) -> Result<()> {
         .await?;
 
         println!(
-            "Successfully created the admin user and the initial password is: {}",
-            admin_password
+            "Created admin with an empty password; set a password after login or with the CLI"
         );
     }
 
@@ -221,9 +257,15 @@ pub async fn get_admin(pool: &DbPool) -> Result<Option<User>> {
     Ok(user)
 }
 
-pub async fn set_admin_password(pool: &DbPool, new_password: &str) -> Result<()> {
-    let admin = get_admin(pool).await?.context("admin user not found")?;
-
+pub async fn set_user_password(
+    pool: &DbPool,
+    username: &str,
+    new_password: &str,
+    reset: bool,
+) -> Result<()> {
+    let user = get_user_by_name(pool, username)
+        .await?
+        .context("user not found")?;
     let salt = rand_string(16);
     let s_hash = static_hash(new_password);
     let encoded_pwd = encode_argon2_hash(&s_hash, &salt);
@@ -231,17 +273,36 @@ pub async fn set_admin_password(pool: &DbPool, new_password: &str) -> Result<()>
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64;
-    let new_pwd_ts = now_ts.max(admin.pwd_ts + 1);
-
-    sqlx::query("UPDATE `x_users` SET `pwd_hash` = ?, `pwd_ts` = ?, `salt` = ? WHERE `id` = ?")
+    let mut tx = pool.begin().await?;
+    sqlx::query("UPDATE `x_users` SET `pwd_hash` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?), `salt` = ?, `password_unset` = ?, `otp_secret` = CASE WHEN ? THEN '' ELSE `otp_secret` END WHERE `id` = ?")
         .bind(encoded_pwd)
-        .bind(new_pwd_ts)
+        .bind(now_ts)
         .bind(salt)
-        .bind(admin.id)
-        .execute(pool)
+        .bind(reset)
+        .bind(reset)
+        .bind(user.id)
+        .execute(&mut *tx)
         .await?;
+    if reset {
+        sqlx::query("DELETE FROM `x_otp_pending` WHERE `user_id` = ?")
+            .bind(user.id)
+            .execute(&mut *tx)
+            .await?;
+        if user.is_admin() {
+            sqlx::query("UPDATE `x_setting_items` SET `value` = ? WHERE `key` = 'token'")
+                .bind(rand_token())
+                .execute(&mut *tx)
+                .await?;
+        }
+    }
+    tx.commit().await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+pub async fn set_admin_password(pool: &DbPool, new_password: &str) -> Result<()> {
+    set_user_password(pool, "admin", new_password, false).await
 }
 
 pub async fn get_setting(pool: &DbPool, key: &str) -> Result<Option<String>> {
@@ -260,7 +321,12 @@ pub async fn get_public_settings(pool: &DbPool) -> Result<HashMap<String, String
     .fetch_all(pool)
     .await?;
 
-    Ok(rows.into_iter().collect())
+    let mut settings: HashMap<_, _> = rows.into_iter().collect();
+    settings.insert(
+        "version".to_string(),
+        format!("v{}-rust", env!("CARGO_PKG_VERSION")),
+    );
+    Ok(settings)
 }
 
 pub async fn get_user_by_name(pool: &DbPool, username: &str) -> Result<Option<User>> {

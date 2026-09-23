@@ -9,7 +9,7 @@ use crate::driver::local::RenameError;
 use crate::model::{
     BatchRenameReq, ConflictPolicy, DirItem, FsDirNamesReq, FsDirsReq, FsGetReq, FsLinkReq,
     FsLinkResp, FsListReq, FsListResp, FsMoveCopyReq, FsRecursiveMoveReq, FsRemoveEmptyDirsReq,
-    FsRenameReq, sort_files,
+    FsRenameReq, sort_files_by, sorted_file_page,
 };
 use crate::server::stream::percent_decode;
 use crate::server::{
@@ -33,20 +33,23 @@ pub async fn fs_list_handler(
 
     match state.storage.list(&path).await {
         Ok(mut content) => {
-            sort_files(&mut content);
             let total = content.len() as i64;
 
-            if let Some(per_page) = req.per_page
-                && per_page > 0
-            {
+            if let Some(per_page) = req.per_page.filter(|&size| size > 0) {
                 let page = req.page.unwrap_or(1).max(1);
-                let start = (page - 1).saturating_mul(per_page);
-                if start < content.len() {
-                    let end = (start + per_page).min(content.len());
-                    content = content[start..end].to_vec();
-                } else {
-                    content.clear();
-                }
+                content = sorted_file_page(
+                    &mut content,
+                    req.order_by.as_deref(),
+                    req.reverse.unwrap_or(false),
+                    page,
+                    per_page,
+                );
+            } else {
+                sort_files_by(
+                    &mut content,
+                    req.order_by.as_deref(),
+                    req.reverse.unwrap_or(false),
+                );
             }
 
             // Attach signs and raw_urls to files

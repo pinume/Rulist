@@ -1,74 +1,35 @@
 import { HStack, VStack, Text } from "@hope-ui/solid"
-import { batch, createEffect, createSignal, For, Show, onMount } from "solid-js"
-import { useT, useRouter } from "~/hooks"
+import { For, Show } from "solid-js"
+import { usePath, useT, useRouter } from "~/hooks"
 import {
   allChecked,
   checkboxOpen,
   countMsg,
   isIndeterminate,
+  saveSortState,
+  ObjStore,
+  OrderBy,
   objStore,
   selectAll,
   selectedMsg,
-  sortObjs,
 } from "~/store"
-import { OrderBy } from "~/store"
 import { Col, cols, ListItem } from "./ListItem"
 import { ItemCheckbox, useSelectWithMouse } from "./helper"
 import { bus } from "~/utils"
 
-export interface SortState {
-  orderBy: string
-  reverse: boolean
-}
-
-const SORT_KEY_PREFIX = "dir_sort_"
-
-export function saveSortState(dir: string, state: SortState) {
-  try {
-    localStorage.setItem(`${SORT_KEY_PREFIX}${dir}`, JSON.stringify(state))
-  } catch (err) {
-    console.warn("failed to save sort config:", err)
-  }
-}
-
-export function loadSortState(dir: string): SortState | null {
-  try {
-    const item = localStorage.getItem(`${SORT_KEY_PREFIX}${dir}`)
-    if (!item) return null
-    return JSON.parse(item) as SortState
-  } catch (err) {
-    console.warn("failed to read sort config:", err)
-    return null
-  }
-}
-
 export const ListTitle = (props: {
-  sortCallback: (orderBy: OrderBy, reverse?: boolean) => void
+  sortCallback: (orderBy: OrderBy, reverse: boolean) => void
   disableCheckbox?: boolean
-  initialOrder?: OrderBy
-  initialReverse?: boolean
+  initialOrder: OrderBy
+  initialReverse: boolean
 }) => {
   const t = useT()
   const { pathname } = useRouter()
 
-  const [orderBy, setOrderBy] = createSignal<OrderBy | undefined>(
-    props.initialOrder,
-  )
-  const [reverse, setReverse] = createSignal(props.initialReverse ?? false)
-
-  createEffect(() => {
-    if (props.initialOrder !== undefined) {
-      setOrderBy(props.initialOrder)
-      setReverse(props.initialReverse ?? false)
-    }
-  })
-
-  createEffect(() => {
-    if (orderBy()) {
-      saveSortState(pathname(), { orderBy: orderBy()!, reverse: reverse() })
-      props.sortCallback(orderBy()!, reverse())
-    }
-  })
+  const updateSort = (nextOrder: OrderBy, nextReverse: boolean) => {
+    saveSortState(pathname(), { orderBy: nextOrder, reverse: nextReverse })
+    props.sortCallback(nextOrder, nextReverse)
+  }
 
   const itemProps = (col: Col) => {
     return {
@@ -78,13 +39,10 @@ export const ListTitle = (props: {
       textAlign: col.textAlign as any,
       cursor: "pointer",
       onClick: () => {
-        if (col.name === orderBy()) {
-          setReverse(!reverse())
+        if (col.name === props.initialOrder) {
+          updateSort(col.name, !props.initialReverse)
         } else {
-          batch(() => {
-            setOrderBy(col.name as OrderBy)
-            setReverse(false)
-          })
+          updateSort(col.name, false)
         }
       },
     }
@@ -123,21 +81,10 @@ export const ListTitle = (props: {
 
 const ListLayout = () => {
   const { pathname } = useRouter()
-
-  const [initialOrder, setInitialOrder] = createSignal<OrderBy>()
-  const [initialReverse, setInitialReverse] = createSignal(false)
+  const { handleFolder } = usePath()
 
   const { registerSelectContainer, captureContentMenu } = useSelectWithMouse()
   registerSelectContainer()
-
-  onMount(() => {
-    const saved = loadSortState(pathname())
-    if (saved) {
-      setInitialOrder(saved.orderBy as OrderBy)
-      setInitialReverse(saved.reverse)
-      sortObjs(saved.orderBy as OrderBy, saved.reverse)
-    }
-  })
 
   const onDragOver = (e: DragEvent) => {
     const items = Array.from(e.dataTransfer?.items ?? [])
@@ -160,9 +107,12 @@ const ListLayout = () => {
       spacing="$1"
     >
       <ListTitle
-        sortCallback={sortObjs}
-        initialOrder={initialOrder()}
-        initialReverse={initialReverse()}
+        sortCallback={(orderBy, reverse) => {
+          ObjStore.setSort(orderBy, reverse)
+          void handleFolder(pathname(), false, 1, orderBy, reverse)
+        }}
+        initialOrder={objStore.orderBy}
+        initialReverse={objStore.reverse}
       />
       <For each={objStore.objs}>
         {(obj, i) => {

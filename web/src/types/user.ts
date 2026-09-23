@@ -12,6 +12,7 @@ export interface User {
   role: UserRole
   permission: number
   disabled: boolean
+  password_unset: boolean
   // otp: boolean;
 }
 

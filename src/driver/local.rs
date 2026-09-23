@@ -154,37 +154,48 @@ impl LocalDriver {
     /// List directory contents
     pub async fn list(&self, subpath: &str) -> Result<Vec<FileObj>> {
         let full_path = self.safe_resolve(subpath)?;
-        let mut read_dir = fs::read_dir(&full_path)
-            .await
-            .with_context(|| format!("failed to read directory: {:?}", full_path))?;
+        let show_hidden = self.show_hidden;
+        let full_path_clone = full_path.clone();
 
-        let mut items = Vec::new();
+        tokio::task::spawn_blocking(move || -> Result<Vec<FileObj>> {
+            let read_dir = std::fs::read_dir(&full_path_clone)
+                .with_context(|| format!("failed to read directory: {:?}", full_path_clone))?;
 
-        while let Some(entry) = read_dir.next_entry().await? {
-            let file_name = entry.file_name().to_string_lossy().to_string();
+            let mut items = Vec::new();
 
-            // Skip hidden files if show_hidden is false
-            if !self.show_hidden && file_name.starts_with('.') {
-                continue;
+            for entry in read_dir {
+                let entry = match entry {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+
+                let file_name = entry.file_name().to_string_lossy().to_string();
+
+                // Skip hidden files if show_hidden is false
+                if !show_hidden && file_name.starts_with('.') {
+                    continue;
+                }
+
+                let meta = match std::fs::metadata(entry.path()) {
+                    Ok(m) => m,
+                    Err(_) => continue, // Skip unreadable entries or broken symlinks
+                };
+
+                let is_dir = meta.is_dir();
+                let size = if is_dir { 0 } else { meta.len() as i64 };
+                let modified = meta
+                    .modified()
+                    .ok()
+                    .map(|t| DateTime::<Utc>::from(t).to_rfc3339())
+                    .unwrap_or_default();
+
+                items.push(FileObj::new(file_name, size, is_dir, modified));
             }
 
-            let meta = match entry.metadata().await {
-                Ok(m) => m,
-                Err(_) => continue, // Skip unreadable entries
-            };
-
-            let is_dir = meta.is_dir();
-            let size = if is_dir { 0 } else { meta.len() as i64 };
-            let modified = meta
-                .modified()
-                .ok()
-                .map(|t| DateTime::<Utc>::from(t).to_rfc3339())
-                .unwrap_or_default();
-
-            items.push(FileObj::new(file_name, size, is_dir, modified));
-        }
-
-        Ok(items)
+            Ok(items)
+        })
+        .await
+        .context("directory scan task panicked or failed")?
     }
 
     /// Get metadata for a single file or directory
@@ -1571,5 +1582,67 @@ mod tests {
         // Source file is intact and destination does not exist
         assert!(src_file.exists());
         assert!(!dst_file.exists());
+    }
+
+    #[tokio::test]
+    async fn test_local_driver_list_correctness_and_edge_cases() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+
+        // 1. Create a regular file
+        let regular_file = root.join("hello.txt");
+        tokio::fs::write(&regular_file, b"12345").await.unwrap();
+
+        // 2. Create a subdirectory
+        let sub_dir = root.join("sub_directory");
+        tokio::fs::create_dir(&sub_dir).await.unwrap();
+
+        // 3. Create a hidden file
+        let hidden_file = root.join(".hidden_file");
+        tokio::fs::write(&hidden_file, b"secret").await.unwrap();
+
+        // 4. Create a broken symlink (unreadable / invalid target)
+        let broken_link = root.join("broken_link.txt");
+        let non_existent_target = root.join("does_not_exist.txt");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&non_existent_target, &broken_link).unwrap();
+
+        // Test with show_hidden = false
+        let driver_no_hidden = LocalDriver {
+            root_path: root.to_path_buf(),
+            show_hidden: false,
+        };
+        let items = driver_no_hidden.list("").await.unwrap();
+        let names: Vec<String> = items.iter().map(|i| i.name.clone()).collect();
+
+        // .hidden_file must NOT be included
+        assert!(!names.contains(&".hidden_file".to_string()));
+        // broken_link is unreadable/broken, metadata() fails, so it must be safely skipped
+        #[cfg(unix)]
+        assert!(!names.contains(&"broken_link.txt".to_string()));
+
+        // hello.txt must have size 5, not a dir, and valid modified date
+        let file_obj = items.iter().find(|i| i.name == "hello.txt").unwrap();
+        assert_eq!(file_obj.size, 5);
+        assert!(!file_obj.is_dir);
+        assert!(!file_obj.modified.is_empty());
+
+        // sub_directory must have size 0, is_dir = true
+        let dir_obj = items.iter().find(|i| i.name == "sub_directory").unwrap();
+        assert_eq!(dir_obj.size, 0);
+        assert!(dir_obj.is_dir);
+        assert!(!dir_obj.modified.is_empty());
+
+        // Test with show_hidden = true
+        let driver_show_hidden = LocalDriver {
+            root_path: root.to_path_buf(),
+            show_hidden: true,
+        };
+        let items_hidden = driver_show_hidden.list("").await.unwrap();
+        let names_hidden: Vec<String> = items_hidden.iter().map(|i| i.name.clone()).collect();
+        assert!(names_hidden.contains(&".hidden_file".to_string()));
+
+        // Test non-existent path returns error
+        assert!(driver_no_hidden.list("non_existent_subpath").await.is_err());
     }
 }

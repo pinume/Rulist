@@ -48,6 +48,8 @@ pub struct User {
     pub role: i32,
     pub disabled: bool,
     pub permission: i32,
+    #[serde(default)]
+    pub password_unset: bool,
     #[serde(skip_serializing)]
     pub otp_secret: Option<String>,
     pub sso_id: Option<String>,
@@ -116,6 +118,10 @@ pub struct FsListReq {
     pub page: Option<usize>,
     #[serde(default)]
     pub per_page: Option<usize>,
+    #[serde(default)]
+    pub order_by: Option<String>,
+    #[serde(default)]
+    pub reverse: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -380,18 +386,57 @@ pub fn natural_cmp(a: &str, b: &str) -> Ordering {
     }
 }
 
+fn compare_files(a: &FileObj, b: &FileObj, order_by: Option<&str>, reverse: bool) -> Ordering {
+    // Directories always come first
+    if a.is_dir != b.is_dir {
+        return if a.is_dir {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        };
+    }
+
+    let order = match order_by.unwrap_or("name") {
+        "size" => a
+            .size
+            .cmp(&b.size)
+            .then_with(|| natural_cmp(&a.name, &b.name))
+            .then_with(|| a.name.cmp(&b.name)),
+        "modified" => natural_cmp(&a.modified, &b.modified)
+            .then_with(|| natural_cmp(&a.name, &b.name))
+            .then_with(|| a.name.cmp(&b.name)),
+        _ => natural_cmp(&a.name, &b.name).then_with(|| a.name.cmp(&b.name)),
+    };
+
+    if reverse { order.reverse() } else { order }
+}
+
+pub fn sort_files_by(files: &mut [FileObj], order_by: Option<&str>, reverse: bool) {
+    files.sort_by(|a, b| compare_files(a, b, order_by, reverse));
+}
+
+pub fn sorted_file_page(
+    files: &mut [FileObj],
+    order_by: Option<&str>,
+    reverse: bool,
+    page: usize,
+    per_page: usize,
+) -> Vec<FileObj> {
+    let start = page.saturating_sub(1).saturating_mul(per_page);
+    if start >= files.len() {
+        return Vec::new();
+    }
+    let end = (start + per_page).min(files.len());
+
+    if end < files.len() {
+        files.select_nth_unstable_by(end, |a, b| compare_files(a, b, order_by, reverse));
+    }
+    files[..end].sort_unstable_by(|a, b| compare_files(a, b, order_by, reverse));
+    files[start..end].to_vec()
+}
+
 pub fn sort_files(files: &mut [FileObj]) {
-    files.sort_by(|a, b| {
-        // Directories always come first
-        if a.is_dir != b.is_dir {
-            return if a.is_dir {
-                Ordering::Less
-            } else {
-                Ordering::Greater
-            };
-        }
-        natural_cmp(&a.name, &b.name)
-    });
+    sort_files_by(files, None, false);
 }
 
 #[cfg(test)]
@@ -406,6 +451,24 @@ mod tests {
             list,
             vec!["file1.txt", "file2.txt", "file10.txt", "file20.txt"]
         );
+    }
+
+    #[test]
+    fn paginated_sort_matches_full_sort() {
+        let files: Vec<FileObj> = (0..300)
+            .map(|i| FileObj::new(format!("file{i}.txt"), i, false, ""))
+            .collect();
+        let mut sorted = files.clone();
+        sort_files_by(&mut sorted, Some("name"), true);
+
+        let mut paged = files;
+        let page = sorted_file_page(&mut paged, Some("name"), true, 3, 50);
+        let names: Vec<&str> = page.iter().map(|file| file.name.as_str()).collect();
+        let expected: Vec<&str> = sorted[100..150]
+            .iter()
+            .map(|file| file.name.as_str())
+            .collect();
+        assert_eq!(names, expected);
     }
 
     #[test]

@@ -75,6 +75,7 @@ const AddOrEdit = () => {
     role: 0,
     permission: 0,
     disabled: false,
+    password_unset: false,
   })
   const [userLoading, loadUser] = useFetch(
     (): PResp<User> => r.get(`/admin/user/get?id=${id}`),
@@ -134,6 +135,7 @@ const AddOrEdit = () => {
               id="username"
               w="$full"
               value={user.username}
+              disabled={user.role === UserRole.ADMIN}
               onInput={(e) => setUser("username", e.currentTarget.value)}
             />
           </FormControl>
@@ -194,6 +196,7 @@ const AddOrEdit = () => {
               </For>
             </SimpleGrid>
           </FormControl>
+          <Show when={user.role !== UserRole.ADMIN}>
           <Box
             display="inline-flex"
             alignItems="center"
@@ -207,6 +210,7 @@ const AddOrEdit = () => {
               {t(`users.disabled`)}
             </Text>
           </Box>
+          </Show>
           <HStack spacing="$3" w="$full" pt="$2">
             <Button
               flex={{ "@initial": 1, "@sm": "initial" }}

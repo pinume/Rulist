@@ -103,6 +103,10 @@ pub fn build_app(state: SharedState) -> Router {
             "/api/auth/2fa/verify",
             post(auth::two_factor_verify_handler),
         )
+        .route(
+            "/api/auth/2fa/disable",
+            post(auth::two_factor_disable_handler),
+        )
         // File system read
         .route(
             "/api/fs/list",
@@ -197,6 +201,14 @@ pub(crate) fn permission_denied() -> Response {
 }
 
 pub(crate) async fn authenticate_user(headers: &HeaderMap, state: &AppState) -> Option<User> {
+    authenticate_user_with_setup(headers, state, false).await
+}
+
+pub(crate) async fn authenticate_user_with_setup(
+    headers: &HeaderMap,
+    state: &AppState,
+    allow_unset: bool,
+) -> Option<User> {
     let auth_header = headers.get(AUTHORIZATION)?.to_str().ok()?;
     let token = auth_header.strip_prefix("Bearer ").unwrap_or(auth_header);
 
@@ -215,7 +227,7 @@ pub(crate) async fn authenticate_user(headers: &HeaderMap, state: &AppState) -> 
         .ok()
         .flatten()?;
 
-    if user.disabled || user.pwd_ts != claims.pwd_ts {
+    if user.disabled || user.pwd_ts != claims.pwd_ts || (user.password_unset && !allow_unset) {
         return None;
     }
 
@@ -310,6 +322,7 @@ mod tests {
             role: 0,
             disabled: false,
             permission: 0,
+            password_unset: false,
             otp_secret: None,
             sso_id: None,
             otp: false,
@@ -513,12 +526,18 @@ mod tests {
         assert_eq!(json["code"], 200);
         assert!(json["data"]["token"].is_string());
 
-        // 10. Admin cancel 2FA
-        let cancel_query = users::IdQuery { id: Some(admin.id) };
-        let resp = users::admin_user_cancel_2fa_handler(
+        // 10. The owner cancels 2FA with a current code
+        let current_step = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            / 30;
+        let resp = auth::two_factor_disable_handler(
             headers.clone(),
-            axum::extract::Query(cancel_query),
             State(state.clone()),
+            Json(TwoFaVerifyReq {
+                code: crate::auth::compute_totp(&secret, current_step).unwrap(),
+            }),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::OK);
@@ -635,6 +654,15 @@ mod tests {
         crate::db::set_admin_password(&pool, "OldPassword123!")
             .await
             .unwrap();
+        let salt = crate::auth::rand_string(16);
+        let pwd_hash =
+            crate::auth::encode_argon2_hash(&crate::auth::static_hash("OldPassword123!"), &salt);
+        sqlx::query("INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `salt`) VALUES ('account', ?, 0, ?)")
+            .bind(pwd_hash)
+            .bind(salt)
+            .execute(&pool)
+            .await
+            .unwrap();
         let config = Config::default();
 
         let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
@@ -646,7 +674,7 @@ mod tests {
 
         // Login to get valid JWT token
         let login_req = LoginReq {
-            username: "admin".to_string(),
+            username: "account".to_string(),
             password: "OldPassword123!".to_string(),
             otp_code: None,
         };
@@ -666,7 +694,7 @@ mod tests {
 
         // 1. JWT + 无 current_password 修改用户名 → 失败 (400)
         let req1 = UpdateCurrentReq {
-            username: Some("newadmin".to_string()),
+            username: Some("updated_account".to_string()),
             password: None,
             current_password: None,
         };
@@ -680,7 +708,7 @@ mod tests {
 
         // 2. JWT + 错 current_password 修改用户名 → 失败 (403)
         let req2 = UpdateCurrentReq {
-            username: Some("newadmin".to_string()),
+            username: Some("updated_account".to_string()),
             password: None,
             current_password: Some("WrongPass123!".to_string()),
         };
@@ -694,7 +722,7 @@ mod tests {
 
         // 3. JWT + 正确 current_password 修改用户名 → 成功 (200)
         let req3 = UpdateCurrentReq {
-            username: Some("newadmin".to_string()),
+            username: Some("updated_account".to_string()),
             password: None,
             current_password: Some("OldPassword123!".to_string()),
         };
@@ -707,12 +735,15 @@ mod tests {
         assert_eq!(json["code"], 200);
 
         // Verify username updated in DB
-        let admin = crate::db::get_admin(&pool).await.unwrap().unwrap();
-        assert_eq!(admin.username, "newadmin");
+        let user = crate::db::get_user_by_name(&pool, "updated_account")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(user.username, "updated_account");
 
-        // Obtain new token for newadmin
+        // Obtain new token for the renamed user
         let login_req = LoginReq {
-            username: "newadmin".to_string(),
+            username: "updated_account".to_string(),
             password: "OldPassword123!".to_string(),
             otp_code: None,
         };
@@ -749,7 +780,7 @@ mod tests {
 
         // Login with new password succeeds
         let login_req = LoginReq {
-            username: "newadmin".to_string(),
+            username: "updated_account".to_string(),
             password: "NewPassword123!".to_string(),
             otp_code: None,
         };
@@ -1055,7 +1086,7 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(json["code"], 400);
 
-        // Create a second admin user
+        // API cannot create a second admin user.
         let second_admin_req = AdminUserSaveReq {
             id: None,
             username: "second_admin".to_string(),
@@ -1075,64 +1106,7 @@ mod tests {
             .await
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-        assert_eq!(json["code"], 200);
-
-        let second_admin = crate::db::get_user_by_name(&pool, "second_admin")
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(second_admin.is_admin());
-
-        // Verify admin base_path restoration on update
-        sqlx::query("UPDATE x_users SET base_path = '/non_root' WHERE id = ?")
-            .bind(second_admin.id)
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let update_admin_req = AdminUserSaveReq {
-            id: Some(second_admin.id),
-            username: "second_admin".to_string(),
-            password: None,
-            role: Some(crate::model::ROLE_ADMIN),
-            permission: Some(0),
-            disabled: Some(false),
-            local_path: None,
-        };
-        let resp = users::admin_user_update_handler(
-            headers.clone(),
-            State(state.clone()),
-            Json(update_admin_req),
-        )
-        .await;
-        assert_eq!(resp.status(), StatusCode::OK);
-
-        let rechecked_admin = crate::db::get_user_by_id(&pool, second_admin.id)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(rechecked_admin.base_path, "/");
-
-        // Deleting second admin succeeds because admin (id=1) still exists
-        let resp = users::admin_user_delete_handler(
-            headers.clone(),
-            axum::extract::Query(users::IdQuery {
-                id: Some(second_admin.id),
-            }),
-            State(state.clone()),
-        )
-        .await;
-        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-        assert_eq!(json["code"], 200);
-        assert!(
-            crate::db::get_user_by_id(&pool, second_admin.id)
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert_eq!(json["code"], 400);
 
         // Now delete regular_user and verify user + storage cleanup
         let resp = users::admin_user_delete_handler(
@@ -2139,19 +2113,7 @@ mod tests {
         .unwrap()
         .last_insert_rowid();
 
-        // 5. Verify admin base_path restoration if it had an abnormal /.users/% path
-        let admin_abnormal_id = sqlx::query(
-            "INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `salt`, `base_path`, `role`, `disabled`, `permission`) VALUES (?, ?, 0, ?, '/.users/99', 2, 0, 0)",
-        )
-        .bind("abnormal_admin")
-        .bind(&encoded_pwd)
-        .bind(&salt)
-        .execute(&pool)
-        .await
-        .unwrap()
-        .last_insert_rowid();
-
-        // Run db init again on this db_path to simulate restart / migration
+        // Run db init again on this db_path to simulate restart / migration.
         let re_pool = crate::db::init_db(&db_path).await.unwrap();
         let migrated_user = crate::db::get_user_by_id(&re_pool, legacy_id)
             .await
@@ -2160,13 +2122,7 @@ mod tests {
         assert_eq!(migrated_user.base_path, format!("/.users/{}", legacy_id));
         assert!(migrated_user.disabled);
 
-        let restored_admin = crate::db::get_user_by_id(&re_pool, admin_abnormal_id)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(restored_admin.base_path, "/");
-
-        // 6. Verify updating admin does NOT change base_path to /.users/{id}
+        // 5. Verify updating admin does NOT change base_path to /.users/{id}
         let admin_user = crate::db::get_user_by_name(&pool, "admin")
             .await
             .unwrap()
@@ -2674,6 +2630,7 @@ mod tests {
             path: "/local".to_string(),
             page: Some(1),
             per_page: Some(2),
+            ..Default::default()
         };
         let resp =
             fs::fs_list_handler(admin_headers.clone(), State(state.clone()), Json(req_p1)).await;
@@ -2695,6 +2652,7 @@ mod tests {
             path: "/local".to_string(),
             page: Some(2),
             per_page: Some(2),
+            ..Default::default()
         };
         let resp =
             fs::fs_list_handler(admin_headers.clone(), State(state.clone()), Json(req_p2)).await;
@@ -2716,6 +2674,7 @@ mod tests {
             path: "/local".to_string(),
             page: Some(3),
             per_page: Some(2),
+            ..Default::default()
         };
         let resp =
             fs::fs_list_handler(admin_headers.clone(), State(state.clone()), Json(req_p3)).await;
@@ -2737,6 +2696,7 @@ mod tests {
             path: "/local".to_string(),
             page: Some(4),
             per_page: Some(2),
+            ..Default::default()
         };
         let resp =
             fs::fs_list_handler(admin_headers.clone(), State(state.clone()), Json(req_p4)).await;
@@ -2752,6 +2712,7 @@ mod tests {
             path: "/local".to_string(),
             page: Some(1),
             per_page: Some(0),
+            ..Default::default()
         };
         let resp =
             fs::fs_list_handler(admin_headers.clone(), State(state.clone()), Json(req_all)).await;
@@ -2761,6 +2722,33 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(json["data"]["total"], 5);
         assert_eq!(json["data"]["content"].as_array().unwrap().len(), 5);
+
+        // 6. Pagination with reverse sorting: Page 1, per_page 2, reverse true -> [e.txt, d.txt]
+        let req_rev_p1 = FsListReq {
+            path: "/local".to_string(),
+            page: Some(1),
+            per_page: Some(2),
+            order_by: Some("name".to_string()),
+            reverse: Some(true),
+        };
+        let resp = fs::fs_list_handler(
+            admin_headers.clone(),
+            State(state.clone()),
+            Json(req_rev_p1),
+        )
+        .await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["data"]["total"], 5);
+        let items: Vec<String> = json["data"]["content"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["name"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(items, vec!["e.txt", "d.txt"]);
     }
 
     #[tokio::test]

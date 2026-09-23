@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 use tracing::info;
@@ -17,7 +17,7 @@ mod static_files;
 #[command(
     name = "rulist",
     author,
-    version = "0.1.0",
+    version = env!("CARGO_PKG_VERSION"),
     about = "A lightweight, high-performance file listing tool written in Rust (Rulist)"
 )]
 struct Cli {
@@ -48,6 +48,9 @@ enum Commands {
     /// Manage admin user credentials
     Admin(AdminArgs),
 
+    /// Manage user passwords
+    User(UserArgs),
+
     /// Display version and build information
     Version,
 }
@@ -71,18 +74,22 @@ struct AdminArgs {
 
 #[derive(Subcommand, Debug)]
 enum AdminSubcommand {
-    /// Reset admin password to a random string
-    Random,
-    /// Set admin password
-    Set { password: String },
     /// Show admin token
     Token,
-    /// Cancel/disable 2FA for a user (defaults to admin)
-    #[command(alias = "cancel_2fa")]
-    Cancel2fa {
-        /// Username to cancel 2FA for (defaults to admin)
-        username: Option<String>,
-    },
+}
+
+#[derive(Args, Debug)]
+struct UserArgs {
+    #[command(subcommand)]
+    action: UserSubcommand,
+}
+
+#[derive(Subcommand, Debug)]
+enum UserSubcommand {
+    /// Set a user's password using a hidden terminal prompt
+    SetPassword { username: String },
+    /// Reset a user's password to empty and disable 2FA
+    ResetPassword { username: String },
 }
 
 #[tokio::main]
@@ -119,40 +126,20 @@ async fn main() -> Result<()> {
             );
         }
         Commands::Admin(admin_args) => {
+            if admin_args.action.is_none() {
+                use clap::CommandFactory;
+                Cli::command()
+                    .find_subcommand_mut("admin")
+                    .unwrap()
+                    .print_help()?;
+                println!();
+                return Ok(());
+            }
             let (config, _) = config::Config::load_or_create(&cli.data_dir)?;
             let db_path = config.resolved_db_path(&cli.data_dir);
             let pool = db::init_db(&db_path).await?;
 
             match admin_args.action {
-                None => {
-                    if let Some(admin) = db::get_admin(&pool).await? {
-                        println!("Admin user's username: {}", admin.username);
-                        println!(
-                            "The password can only be output at the first startup, and then stored as a hash value, which cannot be reversed"
-                        );
-                        println!(
-                            "You can reset the password with a random string by running [rulist admin random]"
-                        );
-                        println!(
-                            "You can also set a new password by running [rulist admin set NEW_PASSWORD]"
-                        );
-                    } else {
-                        eprintln!("Admin user not found in database");
-                    }
-                }
-                Some(AdminSubcommand::Random) => {
-                    let new_pwd = auth::rand_string(16);
-                    db::set_admin_password(&pool, &new_pwd).await?;
-                    println!("admin user has been updated:");
-                    println!("username: admin");
-                    println!("password: {}", new_pwd);
-                }
-                Some(AdminSubcommand::Set { password }) => {
-                    db::set_admin_password(&pool, &password).await?;
-                    println!("admin user has been updated:");
-                    println!("username: admin");
-                    println!("password: {}", password);
-                }
                 Some(AdminSubcommand::Token) => {
                     if let Some(token) = db::get_setting(&pool, "token").await? {
                         println!("Admin token: {}", token);
@@ -160,20 +147,27 @@ async fn main() -> Result<()> {
                         eprintln!("Admin token not found");
                     }
                 }
-                Some(AdminSubcommand::Cancel2fa { username }) => {
-                    let target_name = username.as_deref().unwrap_or("admin");
-                    if let Some(user) = db::get_user_by_name(&pool, target_name).await? {
-                        sqlx::query("UPDATE `x_users` SET `otp_secret` = '' WHERE `id` = ?")
-                            .bind(user.id)
-                            .execute(&pool)
-                            .await?;
-                        println!(
-                            "2FA has been successfully cancelled for user '{}'",
-                            target_name
-                        );
-                    } else {
-                        eprintln!("User '{}' not found in database", target_name);
+                None => unreachable!(),
+            }
+        }
+        Commands::User(args) => {
+            let (config, _) = config::Config::load_or_create(&cli.data_dir)?;
+            let pool = db::init_db(&config.resolved_db_path(&cli.data_dir)).await?;
+            match args.action {
+                UserSubcommand::SetPassword { username } => {
+                    let password = rpassword::prompt_password("New password: ")?;
+                    if !auth::valid_password(&password) {
+                        bail!("password length must be between 8 and 128 characters");
                     }
+                    if password != rpassword::prompt_password("Confirm password: ")? {
+                        bail!("passwords do not match");
+                    }
+                    db::set_user_password(&pool, &username, &password, false).await?;
+                    println!("Password set for {username}");
+                }
+                UserSubcommand::ResetPassword { username } => {
+                    db::set_user_password(&pool, &username, "", true).await?;
+                    println!("Password reset and 2FA disabled for {username}");
                 }
             }
         }

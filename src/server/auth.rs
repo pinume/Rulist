@@ -7,7 +7,9 @@ use crate::auth::{
 };
 use crate::db::{get_setting, get_user_by_name};
 use crate::model::{LoginReq, TwoFaGenerateReq, TwoFaVerifyReq, UpdateCurrentReq};
-use crate::server::{SharedState, api_error, api_success, authenticate_user};
+use crate::server::{
+    SharedState, api_error, api_success, authenticate_user, authenticate_user_with_setup,
+};
 
 pub async fn login_handler(
     State(state): State<SharedState>,
@@ -90,7 +92,7 @@ pub async fn current_user_handler(
     State(state): State<SharedState>,
     headers: HeaderMap,
 ) -> Response {
-    if let Some(user) = authenticate_user(&headers, &state).await {
+    if let Some(user) = authenticate_user_with_setup(&headers, &state, true).await {
         api_success(user)
     } else {
         api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required")
@@ -102,7 +104,7 @@ pub async fn update_current_handler(
     State(state): State<SharedState>,
     Json(req): Json<UpdateCurrentReq>,
 ) -> Response {
-    let user = match authenticate_user(&headers, &state).await {
+    let user = match authenticate_user_with_setup(&headers, &state, true).await {
         Some(u) => u,
         None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
     };
@@ -118,11 +120,21 @@ pub async fn update_current_handler(
         .map(|pwd| !pwd.is_empty())
         .unwrap_or(false);
 
-    if username_changed || password_changed {
-        let current_password = req.current_password.as_deref().unwrap_or("");
-        if current_password.is_empty() {
+    if user.is_admin() && username_changed {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            400,
+            "admin username cannot be changed",
+        );
+    }
+    if user.password_unset && !password_changed {
+        return api_error(StatusCode::BAD_REQUEST, 400, "set a new password first");
+    }
+
+    if (username_changed || password_changed) && !user.password_unset {
+        let Some(current_password) = req.current_password.as_deref() else {
             return api_error(StatusCode::BAD_REQUEST, 400, "Current password is required");
-        }
+        };
         if !verify_password(current_password, &user.pwd_hash, &user.salt) {
             return api_error(StatusCode::FORBIDDEN, 403, "Current password is incorrect");
         }
@@ -200,7 +212,7 @@ pub async fn update_current_handler(
             .as_secs() as i64;
 
         if let Err(e) = sqlx::query(
-            "UPDATE `x_users` SET `pwd_hash` = ?, `salt` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?) WHERE `id` = ?",
+            "UPDATE `x_users` SET `pwd_hash` = ?, `salt` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?), `password_unset` = 0 WHERE `id` = ?",
         )
         .bind(&encoded_pwd)
         .bind(&salt)
@@ -434,5 +446,70 @@ pub async fn two_factor_verify_handler(
         );
     }
 
+    api_success(())
+}
+
+pub async fn two_factor_disable_handler(
+    headers: HeaderMap,
+    State(state): State<SharedState>,
+    Json(req): Json<TwoFaVerifyReq>,
+) -> Response {
+    let user = match authenticate_user(&headers, &state).await {
+        Some(u) => u,
+        None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
+    };
+    let Some(secret) = user
+        .otp_secret
+        .as_deref()
+        .filter(|secret| !secret.trim().is_empty())
+    else {
+        return api_error(StatusCode::BAD_REQUEST, 400, "2FA is not enabled");
+    };
+    if !verify_totp(secret, req.code.trim()) {
+        return api_error(StatusCode::BAD_REQUEST, 400, "Invalid verification code");
+    }
+    let mut tx = match state.pool.begin().await {
+        Ok(tx) => tx,
+        Err(err) => {
+            tracing::error!(error = %err, "failed to start 2fa disable transaction");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Failed to disable 2FA",
+            );
+        }
+    };
+    if let Err(err) = sqlx::query("UPDATE `x_users` SET `otp_secret` = '' WHERE `id` = ?")
+        .bind(user.id)
+        .execute(&mut *tx)
+        .await
+    {
+        tracing::error!(error = %err, "failed to disable 2fa");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Failed to disable 2FA",
+        );
+    }
+    if let Err(err) = sqlx::query("DELETE FROM `x_otp_pending` WHERE `user_id` = ?")
+        .bind(user.id)
+        .execute(&mut *tx)
+        .await
+    {
+        tracing::error!(error = %err, "failed to delete pending 2fa session");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Failed to disable 2FA",
+        );
+    }
+    if let Err(err) = tx.commit().await {
+        tracing::error!(error = %err, "failed to commit 2fa disable transaction");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Failed to disable 2FA",
+        );
+    }
     api_success(())
 }

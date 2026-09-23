@@ -1,20 +1,39 @@
 import { createStorageSignal } from "@solid-primitives/storage"
 import { createMemo, createSignal } from "solid-js"
-import { createStore, produce } from "solid-js/store"
+import { createStore } from "solid-js/store"
 import { Obj, ObjType, StoreObj } from "~/types"
-import { bus, log } from "~/utils"
+import { bus } from "~/utils"
 import { keyPressed } from "./key-event"
 import { useT } from "~/hooks"
 
-const collator = new Intl.Collator(undefined, {
-  numeric: true,
-  sensitivity: "base",
-})
-const naturalCompare = (a: any, b: any) => {
-  if (typeof a === "number" && typeof b === "number") {
-    return a - b
+export type OrderBy = "name" | "size" | "modified"
+export const LIST_PAGE_SIZE = 100
+type SortState = { orderBy: OrderBy; reverse: boolean }
+const defaultSort: SortState = { orderBy: "name", reverse: false }
+
+export const saveSortState = (dir: string, state: SortState) => {
+  try {
+    localStorage.setItem(`dir_sort_${dir}`, JSON.stringify(state))
+  } catch (err) {
+    console.warn("failed to save sort config:", err)
   }
-  return collator.compare(String(a ?? ""), String(b ?? ""))
+}
+
+export const loadSortState = (dir: string): SortState => {
+  try {
+    const item = localStorage.getItem(`dir_sort_${dir}`)
+    if (!item) return defaultSort
+    const state = JSON.parse(item) as SortState
+    if (
+      ["name", "size", "modified"].includes(state.orderBy) &&
+      typeof state.reverse === "boolean"
+    ) {
+      return state
+    }
+  } catch (err) {
+    console.warn("failed to read sort config:", err)
+  }
+  return defaultSort
 }
 
 export enum State {
@@ -35,6 +54,10 @@ const initialObjStore = {
   readme: "",
   header: "",
   provider: "",
+  total: 0,
+  page: 1,
+  orderBy: "name" as OrderBy,
+  reverse: false,
   state: State.Initial,
   err: "",
 }
@@ -45,10 +68,10 @@ const [objStore, setObjStore] = createStore<
   }
 >(initialObjStore)
 
-const setObjs = (objs: Obj[]) => {
+const setListing = (objs: Obj[], total: number, page: number) => {
   lastChecked.start = -1
   lastChecked.end = -1
-  setObjStore("objs", objs)
+  setObjStore({ objs, total, page })
   setObjStore("obj", "is_dir", true)
 }
 
@@ -65,7 +88,9 @@ export const ObjStore = {
   setProvider: (provider: string) => {
     setObjStore("provider", provider)
   },
-  setObjs: setObjs,
+  setListing: setListing,
+  setSort: (orderBy: OrderBy, reverse: boolean) =>
+    setObjStore({ orderBy, reverse }),
   setReadme: (readme: string) => setObjStore("readme", readme),
   setHeader: (header: string) => setObjStore("header", header),
   setRelated: (related: Obj[]) => setObjStore("related", related),
@@ -74,20 +99,6 @@ export const ObjStore = {
     setObjStore("write_content_bypass", write_content_bypass),
   setState: (state: State) => setObjStore("state", state),
   setErr: (err: string) => setObjStore("err", err),
-}
-
-export type OrderBy = "name" | "size" | "modified"
-
-export const sortObjs = (orderBy: OrderBy, reverse?: boolean) => {
-  log("sort:", orderBy, reverse)
-  setObjStore(
-    "objs",
-    produce((objs) =>
-      objs.sort((a, b) => {
-        return (reverse ? -1 : 1) * naturalCompare(a[orderBy], b[orderBy])
-      }),
-    ),
-  )
 }
 
 const lastChecked = {

@@ -1,6 +1,6 @@
 [package]
 name = "rulist"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.85"
 authors = ["ubuntu <mhy2253@qq.com>"]
@@ -19,6 +19,7 @@ serde_json = "1.0"
 
 # CLI
 clap = { version = "4.5", features = ["derive", "env"] }
+rpassword = "7.5"
 
 # Database
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }

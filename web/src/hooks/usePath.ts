@@ -1,13 +1,17 @@
 import axios, { Canceler } from "axios"
 import {
   ObjStore,
+  LIST_PAGE_SIZE,
+  OrderBy,
   State,
+  loadSortState,
   getHistoryKey,
   hasHistory,
   recoverHistory,
   clearHistory,
   me,
   shouldKeepState,
+  objStore,
 } from "~/store"
 import {
   fsGet,
@@ -36,16 +40,26 @@ export const usePath = () => {
       }),
     ),
   )
-  const [, getObjs] = useFetch((arg?: { path: string; force?: boolean }) => {
-    return fsList(
-      arg?.path,
-      undefined,
-      undefined,
-      new axios.CancelToken((c) => {
-        cancelList = c
-      }),
-    )
-  })
+  const [, getObjs] = useFetch(
+    (arg?: {
+      path: string
+      force?: boolean
+      page?: number
+      orderBy?: OrderBy
+      reverse?: boolean
+    }) => {
+      return fsList(
+        arg?.path,
+        arg?.page ?? 1,
+        LIST_PAGE_SIZE,
+        new axios.CancelToken((c) => {
+          cancelList = c
+        }),
+        arg?.orderBy ?? objStore.orderBy,
+        arg?.reverse ?? objStore.reverse,
+      )
+    },
+  )
   // set a path must be a dir
   const setPathAs = (path: string, dir = true, push = false) => {
     if (push) {
@@ -63,17 +77,24 @@ export const usePath = () => {
   // handle pathname change
   // if confirm current path is dir, fetch List directly
   // if not, fetch get then determine if it is dir or file
-  const handlePathChange = (path: string, rp?: boolean, force?: boolean) => {
+  const handlePathChange = (
+    path: string,
+    rp?: boolean,
+    force?: boolean,
+    page = 1,
+  ) => {
     cancelObj?.()
     cancelList?.()
     retry_pass = rp ?? false
     ObjStore.setErr("")
+    const { orderBy, reverse } = loadSortState(path)
+    ObjStore.setSort(orderBy, reverse)
     if (hasHistory(path)) {
       log(`handle [${getHistoryKey(path)}] from history`)
       return recoverHistory(path)
     } else if (IsDirRecord[path]) {
       log(`handle [${getHistoryKey(path)}] as folder`)
-      return handleFolder(path, force)
+      return handleFolder(path, force, page)
     } else {
       log(`handle [${getHistoryKey(path)}] as obj`)
       return handleObj(path)
@@ -105,13 +126,24 @@ export const usePath = () => {
   }
 
   // enter a folder
-  const handleFolder = async (path: string, force?: boolean) => {
+  const handleFolder = async (
+    path: string,
+    force?: boolean,
+    page = 1,
+    orderBy = objStore.orderBy,
+    reverse = objStore.reverse,
+  ) => {
     shouldKeepState() || ObjStore.setState(State.FetchingObjs)
-    const resp = await getObjs({ path, force })
+    const resp = await getObjs({ path, force, page, orderBy, reverse })
     handleRespWithoutNotify(
       resp,
       (data) => {
-        ObjStore.setObjs(data.content ?? [])
+        const lastPage = Math.max(1, Math.ceil(data.total / LIST_PAGE_SIZE))
+        if (page > lastPage) {
+          void handleFolder(path, force, lastPage, orderBy, reverse)
+          return
+        }
+        ObjStore.setListing(data.content ?? [], data.total, page)
         ObjStore.setReadme(data.readme)
         ObjStore.setHeader(data.header)
         ObjStore.setWrite(data.write)
@@ -154,7 +186,7 @@ export const usePath = () => {
       const path = pathname()
       const scroll = window.scrollY
       clearHistory(path)
-      await handlePathChange(path, retry_pass, force)
+      await handlePathChange(path, retry_pass, force, objStore.page)
       window.scroll({ top: scroll, behavior: "smooth" })
     },
   }

@@ -8,6 +8,7 @@
   },
   "username": "用户名",
   "password": "密码",
+  "password_required": "请先设置新密码",
   "base_path": "基本路径",
   "local_path": "服务器目录",
   "role": "角色",

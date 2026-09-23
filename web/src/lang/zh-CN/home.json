@@ -4,9 +4,9 @@
     "size": "大小",
     "modified": "修改时间",
     "count": {
-      "count": "共有 {{folders}} 个文件夹，{{files}} 个文件",
-      "count_folders": "共有 {{folders}} 个文件夹",
-      "count_files": "共有 {{files}} 个文件",
+      "count": "本页 {{folders}} 个文件夹，{{files}} 个文件",
+      "count_folders": "本页 {{folders}} 个文件夹",
+      "count_files": "本页 {{files}} 个文件",
       "selected": "已选中 {{folders}} 个文件夹，{{files}} 个文件",
       "selected_folders": "已选中 {{folders}} 个文件夹",
       "selected_files": "已选中 {{files}} 个文件"
@@ -24,6 +24,11 @@
   "no_images": "当前文件夹中没有图片",
   "load_more": "加载更多",
   "no_more": "没有更多内容",
+  "pagination": {
+    "previous": "上一页",
+    "next": "下一页",
+    "page": "第 {{page}} / {{pages}} 页（共 {{total}} 项）"
+  },
   "input_password": "请输入密码",
   "toolbar": {
     "more": "更多",

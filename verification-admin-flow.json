@@ -1,0 +1,24 @@
+{
+  "timestamp": "2026-09-23T16:11:35Z",
+  "checks": [
+    "admin CLI help contains only the token command",
+    "CLI set-password reads and confirms a hidden password",
+    "empty-password login is restricted to profile endpoints",
+    "password update invalidates prior JWT",
+    "admin create/rename/disable/delete are rejected",
+    "user reset invalidates JWT and clears 2FA state",
+    "administrator password set clears reset restriction",
+    "admin reset rotates the admin token",
+    "browser: empty-password login redirects to profile and cannot navigate away",
+    "browser: password set then re-login",
+    "browser: 2FA enable/disable updates profile state and clears pending state"
+  ],
+  "browser": {
+    "empty_password_redirect": true,
+    "empty_password_navigation_guard": true,
+    "password_set_then_relogin": true,
+    "two_factor_enabled": true,
+    "two_factor_disabled": true,
+    "page_errors": 0
+  }
+}

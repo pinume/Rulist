@@ -28,6 +28,8 @@ export const fsList = (
   page = 1,
   per_page = 0,
   cancelToken?: CancelToken,
+  order_by?: "name" | "size" | "modified",
+  reverse?: boolean,
 ): Promise<FsListResp> => {
   return r.post(
     "/fs/list",
@@ -35,6 +37,8 @@ export const fsList = (
       path,
       page,
       per_page,
+      order_by,
+      reverse,
     },
     {
       cancelToken: cancelToken,
@@ -42,10 +46,7 @@ export const fsList = (
   )
 }
 
-export const fsDirs = (
-  path = "/",
-  forceRoot = false,
-): PResp<Obj[]> => {
+export const fsDirs = (path = "/", forceRoot = false): PResp<Obj[]> => {
   return r.post("/fs/dirs", { path, force_root: forceRoot })
 }
 
@@ -118,10 +119,7 @@ export const fsRemoveEmptyDirectory = (src_dir: string): PEmptyResp => {
   return r.post("/fs/remove_empty_directory", { src_dir })
 }
 
-export const fsNewFile = (
-  path: string,
-  overwrite: boolean,
-): PEmptyResp => {
+export const fsNewFile = (path: string, overwrite: boolean): PEmptyResp => {
   return r.put("/fs/put", undefined, {
     headers: {
       "File-Path": encodeURIComponent(path),

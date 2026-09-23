@@ -41,6 +41,7 @@
     "vite-plugin-solid": "^2.11.12"
   },
   "dependencies": {
+    "@stitches/core": "1.2.8",
     "@hope-ui/solid": "github:OpenListTeam/hope-ui#31b436e36ae5d266016814ba71a442ffa9d91181",
     "@solid-primitives/i18n": "^2.2.1",
     "@solid-primitives/storage": "^1.3.11",

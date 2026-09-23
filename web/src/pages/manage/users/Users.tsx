@@ -236,6 +236,7 @@ const Users = () => {
                   borderTop="1px solid"
                   borderColor={dividerColor()}
                 >
+                  <Show when={!UserMethods.is_admin(user)}>
                   <Button
                     flex={1}
                     size="sm"
@@ -276,6 +277,7 @@ const Users = () => {
                       })
                     }}
                   />
+                  </Show>
                 </HStack>
               </Box>
             )}
@@ -332,6 +334,7 @@ const Users = () => {
                   </Td>
                   <Td>
                     <HStack spacing="$2">
+                      <Show when={!UserMethods.is_admin(user)}>
                       <Button
                         size="sm"
                         onClick={() => {
@@ -366,6 +369,7 @@ const Users = () => {
                       >
                         {t("users.cancel_2fa")}
                       </Button>
+                      </Show>
                     </HStack>
                   </Td>
                 </Tr>

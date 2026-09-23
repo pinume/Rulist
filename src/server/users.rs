@@ -149,9 +149,12 @@ pub async fn admin_user_create_handler(
     }
 
     let role = req.role.unwrap_or(0);
+    if role == ROLE_ADMIN {
+        return api_error(StatusCode::BAD_REQUEST, 400, "admin user cannot be created");
+    }
     let local_path = req.local_path.as_deref().map(str::trim).unwrap_or("");
 
-    if role != ROLE_ADMIN && local_path.is_empty() {
+    if local_path.is_empty() {
         return api_error(
             StatusCode::BAD_REQUEST,
             400,
@@ -159,9 +162,7 @@ pub async fn admin_user_create_handler(
         );
     }
 
-    if !local_path.is_empty()
-        && let Err(err) = validate_local_path(local_path)
-    {
+    if let Err(err) = validate_local_path(local_path) {
         tracing::warn!(error = %err, "invalid user local path");
         return api_error(StatusCode::BAD_REQUEST, 400, "Invalid local directory");
     }
@@ -212,33 +213,31 @@ pub async fn admin_user_create_handler(
         }
     };
 
-    let is_admin = role == ROLE_ADMIN;
-    if !is_admin {
-        let mount_path = format!("/.users/{new_id}");
-        if let Err(e) = sqlx::query(
-            "UPDATE `x_users`
+    let mount_path = format!("/.users/{new_id}");
+    if let Err(e) = sqlx::query(
+        "UPDATE `x_users`
              SET `base_path` = ?
              WHERE `id` = ?",
-        )
-        .bind(&mount_path)
-        .bind(new_id)
-        .execute(&mut *tx)
-        .await
-        {
-            tracing::error!(error = %e, "failed to update user base path");
-            return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Internal server error",
-            );
-        }
+    )
+    .bind(&mount_path)
+    .bind(new_id)
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!(error = %e, "failed to update user base path");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Internal server error",
+        );
+    }
 
-        let addition = serde_json::json!({
-            "root_folder_path": local_path
-        })
-        .to_string();
+    let addition = serde_json::json!({
+        "root_folder_path": local_path
+    })
+    .to_string();
 
-        if let Err(e) = sqlx::query(
+    if let Err(e) = sqlx::query(
             "INSERT INTO `x_storages` (`mount_path`, `order`, `driver`, `addition`, `status`, `disabled`) VALUES (?, 0, 'Local', ?, 'work', 0)",
         )
         .bind(&mount_path)
@@ -253,8 +252,6 @@ pub async fn admin_user_create_handler(
                 "Internal server error",
             );
         }
-    }
-
     if let Err(e) = tx.commit().await {
         tracing::error!(error = %e, "failed to commit user creation transaction");
         return api_error(
@@ -298,12 +295,21 @@ pub async fn admin_user_update_handler(
         _ => return api_error(StatusCode::NOT_FOUND, 404, "user not found"),
     };
 
-    if target_user.is_admin() && req.disabled.unwrap_or(false) {
-        return api_error(
-            StatusCode::BAD_REQUEST,
-            400,
-            "admin user can not be disabled",
-        );
+    if target_user.is_admin() {
+        if req.username != "admin" {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                400,
+                "admin username cannot be changed",
+            );
+        }
+        if req.disabled == Some(true) {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                400,
+                "admin user cannot be disabled",
+            );
+        }
     }
 
     if let Some(pwd) = req.password
@@ -327,6 +333,7 @@ pub async fn admin_user_update_handler(
         target_user.pwd_hash = encoded_pwd;
         target_user.salt = salt;
         target_user.pwd_ts = now_ts.max(target_user.pwd_ts + 1);
+        target_user.password_unset = false;
     }
 
     target_user.username = req.username;
@@ -370,12 +377,13 @@ pub async fn admin_user_update_handler(
     };
 
     if let Err(e) = sqlx::query(
-        "UPDATE `x_users` SET `username` = ?, `pwd_hash` = ?, `salt` = ?, `pwd_ts` = ?, `disabled` = ?, `permission` = ? WHERE `id` = ?"
+        "UPDATE `x_users` SET `username` = ?, `pwd_hash` = ?, `salt` = ?, `pwd_ts` = ?, `password_unset` = ?, `disabled` = ?, `permission` = ? WHERE `id` = ?"
     )
     .bind(&target_user.username)
     .bind(&target_user.pwd_hash)
     .bind(&target_user.salt)
     .bind(target_user.pwd_ts)
+    .bind(target_user.password_unset)
     .bind(if target_user.disabled { 1 } else { 0 })
     .bind(target_user.permission)
     .bind(target_id)
@@ -526,10 +534,6 @@ pub async fn admin_user_delete_handler(
         None => return api_error(StatusCode::BAD_REQUEST, 400, "missing id"),
     };
 
-    if id == 1 {
-        return api_error(StatusCode::BAD_REQUEST, 400, "cannot delete initial admin");
-    }
-
     let mut tx = match state.pool.begin().await {
         Ok(t) => t,
         Err(e) => {
@@ -560,29 +564,7 @@ pub async fn admin_user_delete_handler(
     };
 
     if target_user.is_admin() {
-        let admin_count: i64 =
-            match sqlx::query_scalar("SELECT count(*) FROM `x_users` WHERE `role` = ?")
-                .bind(ROLE_ADMIN)
-                .fetch_one(&mut *tx)
-                .await
-            {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::error!(error = %e, "failed to count admin users");
-                    return api_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        500,
-                        "Internal server error",
-                    );
-                }
-            };
-        if admin_count <= 1 {
-            return api_error(
-                StatusCode::BAD_REQUEST,
-                400,
-                "cannot delete last admin user",
-            );
-        }
+        return api_error(StatusCode::BAD_REQUEST, 400, "admin user cannot be deleted");
     }
 
     if let Err(e) = sqlx::query("DELETE FROM `x_otp_pending` WHERE `user_id` = ?")
@@ -658,11 +640,32 @@ pub async fn admin_user_cancel_2fa_handler(
         return *res;
     }
 
-    if let Some(id) = query.id
-        && let Err(err) = sqlx::query("UPDATE `x_users` SET `otp_secret` = '' WHERE `id` = ?")
-            .bind(id)
-            .execute(&state.pool)
-            .await
+    let Some(id) = query.id else {
+        return api_error(StatusCode::BAD_REQUEST, 400, "missing id");
+    };
+    let target = match get_user_by_id(&state.pool, id).await {
+        Ok(Some(user)) => user,
+        Ok(None) => return api_error(StatusCode::NOT_FOUND, 404, "user not found"),
+        Err(err) => {
+            tracing::error!(error = %err, "failed to get user for 2fa cancellation");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Failed to cancel 2FA",
+            );
+        }
+    };
+    if target.is_admin() {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            400,
+            "admin 2FA must be cancelled by its owner",
+        );
+    }
+    if let Err(err) = sqlx::query("UPDATE `x_users` SET `otp_secret` = '' WHERE `id` = ?")
+        .bind(id)
+        .execute(&state.pool)
+        .await
     {
         tracing::error!(error = %err, "failed to cancel 2fa");
         return api_error(

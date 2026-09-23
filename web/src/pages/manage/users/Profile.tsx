@@ -2,6 +2,7 @@ import {
   Badge,
   Box,
   Button,
+  createDisclosure,
   Flex,
   FormControl,
   FormHelperText,
@@ -9,6 +10,12 @@ import {
   Heading,
   HStack,
   Input,
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+  ModalOverlay,
   SimpleGrid,
   Text,
   useColorModeValue,
@@ -33,6 +40,7 @@ const Profile = () => {
   const [currentPassword, setCurrentPassword] = createSignal("")
   const [password, setPassword] = createSignal("")
   const [confirmPassword, setConfirmPassword] = createSignal("")
+  const [otpCode, setOtpCode] = createSignal("")
   const [loading, save] = useFetch((): PEmptyResp =>
     r.post("/me/update", {
       username: username(),
@@ -43,15 +51,40 @@ const Profile = () => {
   const [logoutLoading, logout] = useFetch((): PEmptyResp =>
     r.get("/auth/logout"),
   )
+  const [disable2faLoading, disable2fa] = useFetch((): PEmptyResp =>
+    r.post("/auth/2fa/disable", { code: otpCode() }),
+  )
+  const {
+    isOpen: isDisable2faOpen,
+    onOpen: onOpenDisable2fa,
+    onClose: onCloseDisable2fa,
+  } = createDisclosure()
+
+  const handleDisable2fa = async () => {
+    if (!otpCode().trim()) {
+      notify.warning(t("users.input_code"))
+      return
+    }
+    handleResp(await disable2fa(), () => {
+      setMe({ ...me(), otp: false })
+      setOtpCode("")
+      onCloseDisable2fa()
+      notify.success(t("users.cancel_2fa_success"))
+    })
+  }
 
   const saveMe = async () => {
-    if (password() || username() !== me().username) {
+    if (password() && password() !== confirmPassword()) {
+      notify.warning(t("users.confirm_password_not_same"))
+      return
+    }
+    if (me().password_unset && !password()) {
+      notify.warning(t("users.password_required"))
+      return
+    }
+    if (!me().password_unset && (password() || username() !== me().username)) {
       if (!currentPassword()) {
         notify.warning(t("users.current_password_empty"))
-        return
-      }
-      if (password() && password() !== confirmPassword()) {
-        notify.warning(t("users.confirm_password_not_same"))
         return
       }
     }
@@ -128,22 +161,25 @@ const Profile = () => {
                 id="username"
                 w="$full"
                 value={username()}
+                disabled={UserMethods.is_admin(me())}
                 onInput={(e) => setUsername(e.currentTarget.value)}
               />
             </FormControl>
 
-            <FormControl w="$full">
-              <FormLabel for="current-password">{t("users.current_password")}</FormLabel>
-              <Input
-                id="current-password"
-                w="$full"
-                type="password"
-                placeholder="********"
-                value={currentPassword()}
-                onInput={(e) => setCurrentPassword(e.currentTarget.value)}
-              />
-              <FormHelperText>{t("users.current_password-tips")}</FormHelperText>
-            </FormControl>
+            <Show when={!me().password_unset}>
+              <FormControl w="$full">
+                <FormLabel for="current-password">{t("users.current_password")}</FormLabel>
+                <Input
+                  id="current-password"
+                  w="$full"
+                  type="password"
+                  placeholder="********"
+                  value={currentPassword()}
+                  onInput={(e) => setCurrentPassword(e.currentTarget.value)}
+                />
+                <FormHelperText>{t("users.current_password-tips")}</FormHelperText>
+              </FormControl>
+            </Show>
 
             <SimpleGrid gap="$3" columns={{ "@initial": 1, "@sm": 2 }} w="$full">
               <FormControl w="$full">
@@ -183,7 +219,7 @@ const Profile = () => {
               >
                 {t("global.save")}
               </Button>
-              <Show when={!me().otp}>
+              <Show when={!me().otp && !me().password_unset}>
                 <Button
                   variant="subtle"
                   onClick={() => {
@@ -191,6 +227,15 @@ const Profile = () => {
                   }}
                 >
                   {t("users.enable_2fa")}
+                </Button>
+              </Show>
+              <Show when={me().otp}>
+                <Button
+                  variant="subtle"
+                  colorScheme="danger"
+                  onClick={onOpenDisable2fa}
+                >
+                  {t("users.cancel_2fa")}
                 </Button>
               </Show>
               <Button
@@ -249,6 +294,56 @@ const Profile = () => {
           </Flex>
         </VStack>
       </Box>
+
+      <Modal
+        blockScrollOnMount={false}
+        opened={isDisable2faOpen()}
+        onClose={() => {
+          onCloseDisable2fa()
+          setOtpCode("")
+        }}
+        initialFocus="#disable-2fa-code"
+      >
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>{t("users.cancel_2fa")}</ModalHeader>
+          <ModalBody>
+            <FormControl w="$full">
+              <FormLabel for="disable-2fa-code">{t("users.input_code")}</FormLabel>
+              <Input
+                id="disable-2fa-code"
+                inputMode="numeric"
+                placeholder={t("users.input_code")}
+                value={otpCode()}
+                onInput={(e) => setOtpCode(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleDisable2fa()
+                  }
+                }}
+              />
+            </FormControl>
+          </ModalBody>
+          <ModalFooter display="flex" gap="$2">
+            <Button
+              onClick={() => {
+                onCloseDisable2fa()
+                setOtpCode("")
+              }}
+              colorScheme="neutral"
+            >
+              {t("global.cancel")}
+            </Button>
+            <Button
+              colorScheme="danger"
+              loading={disable2faLoading()}
+              onClick={handleDisable2fa}
+            >
+              {t("global.confirm")}
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </VStack>
   )
 }
