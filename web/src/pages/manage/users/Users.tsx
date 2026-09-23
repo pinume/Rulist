@@ -33,6 +33,7 @@ import {
   UserMethods,
   PPageResp,
   PEmptyResp,
+} from "~/types"
 import { DeletePopover } from "../common/DeletePopover"
 
 const mobileOnlyClass = css({
