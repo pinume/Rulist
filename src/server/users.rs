@@ -12,16 +12,23 @@ pub struct IdQuery {
     pub id: Option<i64>,
 }
 
-async fn require_admin(headers: &HeaderMap, state: &crate::server::AppState) -> Result<User, Response> {
+async fn require_admin(
+    headers: &HeaderMap,
+    state: &crate::server::AppState,
+) -> Result<User, Box<Response>> {
     let Some(user) = authenticate_user(headers, state).await else {
-        return Err(api_error(
+        return Err(Box::new(api_error(
             StatusCode::UNAUTHORIZED,
             401,
             "Authentication required",
-        ));
+        )));
     };
     if !user.is_admin() {
-        return Err(api_error(StatusCode::FORBIDDEN, 403, "Permission denied"));
+        return Err(Box::new(api_error(
+            StatusCode::FORBIDDEN,
+            403,
+            "Permission denied",
+        )));
     }
     Ok(user)
 }
@@ -50,7 +57,7 @@ pub async fn admin_user_list_handler(
     State(state): State<SharedState>,
 ) -> Response {
     if let Err(res) = require_admin(&headers, &state).await {
-        return res;
+        return *res;
     }
 
     let users = match get_all_users(&state.pool).await {
@@ -84,7 +91,7 @@ pub async fn admin_user_get_handler(
     State(state): State<SharedState>,
 ) -> Response {
     if let Err(res) = require_admin(&headers, &state).await {
-        return res;
+        return *res;
     }
 
     let id = match query.id {
@@ -126,7 +133,7 @@ pub async fn admin_user_create_handler(
     Json(req): Json<AdminUserSaveReq>,
 ) -> Response {
     if let Err(res) = require_admin(&headers, &state).await {
-        return res;
+        return *res;
     }
 
     let raw_pwd = req.password.as_deref().unwrap_or("").trim();
@@ -278,7 +285,7 @@ pub async fn admin_user_update_handler(
     Json(req): Json<AdminUserSaveReq>,
 ) -> Response {
     if let Err(res) = require_admin(&headers, &state).await {
-        return res;
+        return *res;
     }
 
     let target_id = match req.id {
@@ -511,7 +518,7 @@ pub async fn admin_user_delete_handler(
     State(state): State<SharedState>,
 ) -> Response {
     if let Err(res) = require_admin(&headers, &state).await {
-        return res;
+        return *res;
     }
 
     let id = match query.id {
@@ -648,7 +655,7 @@ pub async fn admin_user_cancel_2fa_handler(
     State(state): State<SharedState>,
 ) -> Response {
     if let Err(res) = require_admin(&headers, &state).await {
-        return res;
+        return *res;
     }
 
     if let Some(id) = query.id

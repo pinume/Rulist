@@ -153,7 +153,14 @@ async fn stream_file(
             let stream = ReaderStream::new(file.take(part_len));
             let mut resp = (StatusCode::PARTIAL_CONTENT, Body::from_stream(stream)).into_response();
             let range_str = format!("bytes {start}-{end}/{file_size}");
-            apply_stream_headers(&mut resp, &content_type, part_len, disposition, as_attachment, Some(&range_str));
+            apply_stream_headers(
+                &mut resp,
+                &content_type,
+                part_len,
+                disposition,
+                as_attachment,
+                Some(&range_str),
+            );
             return resp;
         } else {
             return range_not_satisfiable(file_size);
@@ -163,7 +170,14 @@ async fn stream_file(
     // Full response
     let stream = ReaderStream::new(file);
     let mut resp = (StatusCode::OK, Body::from_stream(stream)).into_response();
-    apply_stream_headers(&mut resp, &content_type, file_size, disposition, as_attachment, None);
+    apply_stream_headers(
+        &mut resp,
+        &content_type,
+        file_size,
+        disposition,
+        as_attachment,
+        None,
+    );
     resp
 }
 

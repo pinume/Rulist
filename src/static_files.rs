@@ -13,7 +13,6 @@ use crate::server::AppState;
 #[folder = "public/dist/"]
 pub struct DistAssets;
 
-
 pub fn serve_dist_asset(path: &str) -> Option<Response<Body>> {
     let clean_path = path.trim_start_matches('/');
     let file = DistAssets::get(clean_path)?;
