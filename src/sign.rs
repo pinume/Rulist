@@ -12,12 +12,7 @@ const SIGN_SALT: &str = ":rulist-link-signer";
 const DEFAULT_LIFETIME_SECS: i64 = 300; // 5 minutes
 
 fn derive_key(token: &str) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(format!("{}{}", token, SIGN_SALT).as_bytes());
-    let res = hasher.finalize();
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&res);
-    key
+    Sha256::digest(format!("{}{}", token, SIGN_SALT).as_bytes()).into()
 }
 
 /// Sign a path with expiration (5 minutes by default)

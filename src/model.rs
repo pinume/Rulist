@@ -439,10 +439,6 @@ pub fn sorted_file_page(
     files[start..end].to_vec()
 }
 
-pub fn sort_files(files: &mut [FileObj]) {
-    sort_files_by(files, None, false);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
