@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 use tracing::info;
@@ -186,8 +186,36 @@ async fn main() -> Result<()> {
             info!("loaded configuration from {:?}", config_path);
 
             let db_path = config.resolved_db_path(&cli.data_dir);
+            let is_new_database = !db_path.exists();
+            let home_path = if is_new_database {
+                let home_path = std::env::var_os("HOME")
+                    .map(PathBuf::from)
+                    .context("HOME is not configured for the server process")?
+                    .canonicalize()
+                    .context("failed to resolve the server process HOME directory")?;
+                if !home_path.is_dir() {
+                    bail!("the server process HOME directory is not a directory: {home_path:?}");
+                }
+                Some(home_path)
+            } else {
+                None
+            };
             info!("initializing database at {:?}", db_path);
             let pool = db::init_db(&db_path).await?;
+
+            if let Some(home_path) = home_path {
+                let addition = serde_json::to_string(&driver::local::LocalAddition {
+                    root_folder_path: home_path.to_string_lossy().into_owned(),
+                    show_hidden: false,
+                })?;
+                sqlx::query(
+                    "INSERT OR IGNORE INTO `x_storages` (`mount_path`, `driver`, `addition`) VALUES ('/', 'Local', ?)",
+                )
+                .bind(addition)
+                .execute(&pool)
+                .await?;
+                info!("mounted server process HOME directory at /");
+            }
 
             info!("loading storage manager...");
             let storage = driver::StorageManager::load_from_db(&pool).await?;
