@@ -162,6 +162,20 @@ const AddOrEdit = () => {
                 setUser("password", e.currentTarget.value)
               }}
             />
+            <Show when={Boolean(id) && user.role !== UserRole.ADMIN}>
+              <Button
+                mt="$2"
+                size="sm"
+                variant="subtle"
+                alignSelf="start"
+                onClick={() => {
+                  setPasswordTouched(true)
+                  setUser("password", "")
+                }}
+              >
+                {t("users.set_empty_password")}
+              </Button>
+            </Show>
           </FormControl>
 
           <Show when={user.role !== UserRole.ADMIN}>

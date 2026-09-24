@@ -279,11 +279,8 @@ pub async fn update_current_handler(
         .as_deref()
         .map(|name| !name.trim().is_empty() && name.trim() != user.username)
         .unwrap_or(false);
-    let password_changed = req
-        .password
-        .as_deref()
-        .map(|pwd| !pwd.is_empty())
-        .unwrap_or(false);
+    let password_changed = req.password.is_some()
+        && (!user.is_admin() || req.password.as_deref().is_some_and(|pwd| !pwd.is_empty()));
 
     if user.is_admin() && username_changed {
         return api_error(
@@ -305,7 +302,8 @@ pub async fn update_current_handler(
         }
     }
 
-    if let Some(new_pwd) = &req.password
+    if user.is_admin()
+        && let Some(new_pwd) = &req.password
         && !new_pwd.is_empty()
         && !crate::auth::valid_password(new_pwd)
     {
@@ -366,7 +364,7 @@ pub async fn update_current_handler(
     };
 
     if let Some(new_pwd) = &req.password
-        && !new_pwd.is_empty()
+        && password_changed
     {
         let salt = crate::auth::rand_string(16);
         let s_hash = crate::auth::static_hash(new_pwd);
@@ -436,8 +434,12 @@ pub async fn two_factor_generate_handler(
         None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
     };
 
-    let current_password = req.current_password.trim();
-    if current_password.is_empty() {
+    let current_password = if user.is_admin() {
+        req.current_password.trim()
+    } else {
+        &req.current_password
+    };
+    if user.is_admin() && current_password.is_empty() {
         return api_error(StatusCode::BAD_REQUEST, 400, "Current password is required");
     }
 

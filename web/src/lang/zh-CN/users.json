@@ -28,6 +28,7 @@
   "current_password_empty": "更改密码时必须输入当前密码",
   "change_password": "更改密码",
   "change_password-tips": "如果您不想更改密码，请保持为空",
+  "set_empty_password": "设置为空密码",
   "confirm_password": "确认密码",
   "confirm_password-tips": "重复您刚输入的密码",
   "confirm_password_not_same": "您输入的密码不匹配",

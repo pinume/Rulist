@@ -1606,7 +1606,7 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(json["code"], 400);
 
-        // Explicit normal-user passwords must meet the common policy.
+        // Normal-user passwords may be short.
         let short_pwd_req = AdminUserSaveReq {
             id: None,
             username: "short_pwd_user".to_string(),
@@ -1627,12 +1627,12 @@ mod tests {
             .await
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-        assert_eq!(json["code"], 400);
+        assert_eq!(json["code"], 200);
         assert!(
             crate::db::get_user_by_name(&pool, "short_pwd_user")
                 .await
                 .unwrap()
-                .is_none()
+                .is_some()
         );
 
         // Verify user was NOT persisted to DB

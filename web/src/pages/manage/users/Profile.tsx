@@ -40,12 +40,20 @@ const Profile = () => {
   const [currentPassword, setCurrentPassword] = createSignal("")
   const [password, setPassword] = createSignal("")
   const [confirmPassword, setConfirmPassword] = createSignal("")
+  const [passwordTouched, setPasswordTouched] = createSignal(false)
   const [otpCode, setOtpCode] = createSignal("")
   const [loading, save] = useFetch((): PEmptyResp =>
     r.post("/me/update", {
       username: username(),
-      password: password(),
-      current_password: currentPassword(),
+      password:
+        passwordTouched() && (!UserMethods.is_admin(me()) || password())
+          ? password()
+          : undefined,
+      current_password:
+        (passwordTouched() && (!UserMethods.is_admin(me()) || password())) ||
+        username() !== me().username
+          ? currentPassword()
+          : undefined,
     }),
   )
   const [logoutLoading, logout] = useFetch((): PEmptyResp =>
@@ -74,15 +82,22 @@ const Profile = () => {
   }
 
   const saveMe = async () => {
-    if (password() && password() !== confirmPassword()) {
+    if (passwordTouched() && password() !== confirmPassword()) {
       notify.warning(t("users.confirm_password_not_same"))
       return
     }
-    if (me().password_unset && !password()) {
+    if (
+      me().password_unset &&
+      (UserMethods.is_admin(me()) ? !passwordTouched() || !password() : !passwordTouched())
+    ) {
       notify.warning(t("users.password_required"))
       return
     }
-    if (!me().password_unset && (password() || username() !== me().username)) {
+    if (
+      UserMethods.is_admin(me()) &&
+      !me().password_unset &&
+      ((passwordTouched() && password()) || username() !== me().username)
+    ) {
       if (!currentPassword()) {
         notify.warning(t("users.current_password_empty"))
         return
@@ -190,9 +205,26 @@ const Profile = () => {
                   type="password"
                   placeholder="********"
                   value={password()}
-                  onInput={(e) => setPassword(e.currentTarget.value)}
+                  onInput={(e) => {
+                    setPasswordTouched(true)
+                    setPassword(e.currentTarget.value)
+                  }}
                 />
                 <FormHelperText>{t("users.change_password-tips")}</FormHelperText>
+                <Show when={!UserMethods.is_admin(me())}>
+                  <Button
+                    mt="$2"
+                    size="sm"
+                    variant="subtle"
+                    onClick={() => {
+                      setPasswordTouched(true)
+                      setPassword("")
+                      setConfirmPassword("")
+                    }}
+                  >
+                    {t("users.set_empty_password")}
+                  </Button>
+                </Show>
               </FormControl>
               <FormControl w="$full">
                 <FormLabel for="confirm-password">

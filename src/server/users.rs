@@ -266,14 +266,6 @@ pub async fn admin_user_create_handler(
 
     let raw_pwd = req.password.as_deref().unwrap_or("");
 
-    if !crate::auth::valid_password(raw_pwd) {
-        return api_error(
-            StatusCode::BAD_REQUEST,
-            400,
-            "Password length must be between 8 and 128 characters",
-        );
-    }
-
     let role = req.role.unwrap_or(0);
     if role == ROLE_ADMIN {
         return api_error(StatusCode::BAD_REQUEST, 400, "admin user cannot be created");
@@ -453,7 +445,7 @@ pub async fn admin_user_update_handler(
     if let Some(pwd) = req.password.as_deref()
         && (!target_user.is_admin() || !pwd.is_empty())
     {
-        if !crate::auth::valid_password(pwd) {
+        if target_user.is_admin() && !crate::auth::valid_password(pwd) {
             return api_error(
                 StatusCode::BAD_REQUEST,
                 400,
