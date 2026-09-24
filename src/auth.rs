@@ -237,23 +237,28 @@ pub fn compute_totp(secret: &str, time_step: u64) -> Option<String> {
 
 /// Verify 6-digit TOTP code with ±1 step (±30 seconds) tolerance
 pub fn verify_totp(secret: &str, code: &str) -> bool {
+    matching_totp_step(secret, code).is_some()
+}
+
+/// Return the accepted TOTP step using the existing ±1 step tolerance.
+pub fn matching_totp_step(secret: &str, code: &str) -> Option<i64> {
     let clean_code = code.trim();
     if clean_code.len() != 6 || !clean_code.chars().all(|c| c.is_ascii_digit()) {
-        return false;
+        return None;
     }
     let now = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
         Ok(d) => d.as_secs(),
-        Err(_) => return false,
+        Err(_) => return None,
     };
     let step = now / 30;
     for s in [step.saturating_sub(1), step, step + 1] {
         if let Some(expected) = compute_totp(secret, s)
             && expected.as_bytes().ct_eq(clean_code.as_bytes()).into()
         {
-            return true;
+            return i64::try_from(s).ok();
         }
     }
-    false
+    None
 }
 
 fn url_encode_component(s: &str) -> String {

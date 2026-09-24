@@ -51,6 +51,7 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
             `permission` INTEGER NOT NULL DEFAULT 0,
             `password_unset` NUMERIC NOT NULL DEFAULT 0,
             `otp_secret` TEXT,
+            `last_otp_step` INTEGER NOT NULL DEFAULT -1,
             `sso_id` TEXT
         );
 
@@ -85,11 +86,31 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
             `secret` TEXT NOT NULL,
             `expires_at` INTEGER NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS `x_login_attempts` (
+            `username_hash` TEXT PRIMARY KEY,
+            `failed_count` INTEGER NOT NULL,
+            `window_started` INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS `x_revoked_tokens` (
+            `jti` TEXT PRIMARY KEY,
+            `expires_at` INTEGER NOT NULL
+        );
         "#,
     )
     .execute(&pool)
     .await
     .context("failed to initialize SQLite schema")?;
+
+    let now_ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    sqlx::query("DELETE FROM `x_revoked_tokens` WHERE `expires_at` < ?")
+        .bind(now_ts)
+        .execute(&pool)
+        .await?;
 
     let has_password_unset: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM pragma_table_info('x_users') WHERE name = 'password_unset'",
@@ -112,6 +133,17 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
                     .await?;
             }
         }
+    }
+
+    let has_last_otp_step: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_table_info('x_users') WHERE name = 'last_otp_step'",
+    )
+    .fetch_one(&pool)
+    .await?;
+    if has_last_otp_step == 0 {
+        sqlx::query("ALTER TABLE `x_users` ADD COLUMN `last_otp_step` INTEGER NOT NULL DEFAULT -1")
+            .execute(&pool)
+            .await?;
     }
 
     let invalid_admins: i64 = sqlx::query_scalar(
@@ -299,10 +331,11 @@ pub async fn set_user_password(
         .unwrap_or_default()
         .as_secs() as i64;
     let mut tx = pool.begin().await?;
-    sqlx::query("UPDATE `x_users` SET `pwd_hash` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?), `salt` = ?, `password_unset` = ?, `otp_secret` = CASE WHEN ? THEN '' ELSE `otp_secret` END WHERE `id` = ?")
+    sqlx::query("UPDATE `x_users` SET `pwd_hash` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?), `salt` = ?, `password_unset` = ?, `otp_secret` = CASE WHEN ? THEN '' ELSE `otp_secret` END, `last_otp_step` = CASE WHEN ? THEN -1 ELSE `last_otp_step` END WHERE `id` = ?")
         .bind(encoded_pwd)
         .bind(now_ts)
         .bind(salt)
+        .bind(reset)
         .bind(reset)
         .bind(reset)
         .bind(user.id)

@@ -72,19 +72,26 @@ async fn stream_file(
     }
 
     // Check signature if sign_all is enabled or sign is provided
-    let sign_all = get_setting(&state.pool, "sign_all")
-        .await
-        .ok()
-        .flatten()
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(false);
+    let sign_all = match get_setting(&state.pool, "sign_all").await {
+        Ok(Some(value)) if value == "true" || value == "1" => true,
+        Ok(Some(value)) if value == "false" || value == "0" => false,
+        Ok(Some(_)) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        Ok(None) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        Err(err) => {
+            tracing::error!(error = %err, "failed to load signing settings");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
 
     if sign_all || sign.is_some() {
-        let token = get_setting(&state.pool, "token")
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_default();
+        let token = match get_setting(&state.pool, "token").await {
+            Ok(Some(token)) if !token.trim().is_empty() => token,
+            Ok(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            Err(err) => {
+                tracing::error!(error = %err, "failed to load signing token");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        };
 
         let s = sign.unwrap_or_default();
         if verify_sign(&token, &clean_path, &s).is_err() {

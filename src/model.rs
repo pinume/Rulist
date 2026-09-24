@@ -52,6 +52,8 @@ pub struct User {
     pub password_unset: bool,
     #[serde(skip_serializing)]
     pub otp_secret: Option<String>,
+    #[serde(skip_serializing)]
+    pub last_otp_step: i64,
     pub sso_id: Option<String>,
     #[sqlx(default)]
     #[serde(default)]

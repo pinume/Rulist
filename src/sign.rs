@@ -16,13 +16,16 @@ fn derive_key(token: &str) -> [u8; 32] {
 }
 
 /// Sign a path with expiration (5 minutes by default)
-pub fn sign_path(token: &str, path: &str) -> String {
+pub fn sign_path(token: &str, path: &str) -> Result<String> {
+    if token.trim().is_empty() {
+        return Err(anyhow!("signing token is missing"));
+    }
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64;
     let expires = now + DEFAULT_LIFETIME_SECS;
-    sign_path_with_expire(token, path, expires)
+    Ok(sign_path_with_expire(token, path, expires))
 }
 
 /// Sign path with explicit expiration timestamp
@@ -38,6 +41,9 @@ pub fn sign_path_with_expire(token: &str, path: &str, expires: i64) -> String {
 
 /// Verify signature for a given path
 pub fn verify_sign(token: &str, path: &str, sign: &str) -> Result<()> {
+    if token.trim().is_empty() {
+        return Err(anyhow!("signing token is missing"));
+    }
     let sep = sign
         .rfind(':')
         .ok_or_else(|| anyhow!("expire parameter missing from sign"))?;
@@ -72,7 +78,7 @@ mod tests {
     fn test_sign_and_verify() {
         let token = "rulist-abcdef123456";
         let path = "/Local/test.mp4";
-        let s = sign_path(token, path);
+        let s = sign_path(token, path).unwrap();
 
         assert!(verify_sign(token, path, &s).is_ok());
         assert!(verify_sign(token, "/Local/other.mp4", &s).is_err());

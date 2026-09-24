@@ -222,6 +222,21 @@ pub(crate) async fn authenticate_user_with_setup(
 
     // Parse JWT
     let claims = parse_jwt(token, &state.config.jwt_secret).ok()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs() as i64;
+    let revoked: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM `x_revoked_tokens` WHERE `jti` = ? AND `expires_at` >= ?",
+    )
+    .bind(&claims.jti)
+    .bind(now)
+    .fetch_optional(&state.pool)
+    .await
+    .ok()?;
+    if revoked.is_some() {
+        return None;
+    }
     let user = get_user_by_name(&state.pool, &claims.username)
         .await
         .ok()
@@ -324,6 +339,7 @@ mod tests {
             permission: 0,
             password_unset: false,
             otp_secret: None,
+            last_otp_step: -1,
             sso_id: None,
             otp: false,
         };
@@ -1590,7 +1606,7 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(json["code"], 400);
 
-        // Ordinary users may use passwords of any length.
+        // Explicit normal-user passwords must meet the common policy.
         let short_pwd_req = AdminUserSaveReq {
             id: None,
             username: "short_pwd_user".to_string(),
@@ -1611,17 +1627,13 @@ mod tests {
             .await
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-        assert_eq!(json["code"], 200);
-
-        let short_password_user = crate::db::get_user_by_name(&pool, "short_pwd_user")
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(crate::auth::verify_password(
-            "short",
-            &short_password_user.pwd_hash,
-            &short_password_user.salt
-        ));
+        assert_eq!(json["code"], 400);
+        assert!(
+            crate::db::get_user_by_name(&pool, "short_pwd_user")
+                .await
+                .unwrap()
+                .is_none()
+        );
 
         // Verify user was NOT persisted to DB
         assert!(

@@ -3,7 +3,8 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 
 use crate::auth::{
-    generate_jwt, generate_otp_secret, generate_totp_qr, verify_password, verify_totp,
+    generate_jwt, generate_otp_secret, generate_totp_qr, matching_totp_step, parse_jwt,
+    static_hash, verify_password, verify_totp,
 };
 use crate::db::{get_setting, get_user_by_name};
 use crate::model::{LoginReq, TwoFaGenerateReq, TwoFaVerifyReq, UpdateCurrentReq};
@@ -11,10 +12,79 @@ use crate::server::{
     SharedState, api_error, api_success, authenticate_user, authenticate_user_with_setup,
 };
 
+const LOGIN_FAILURE_LIMIT: i64 = 5; // per username in the window below
+const LOGIN_FAILURE_WINDOW_SECS: i64 = 15 * 60;
+// ponytail: 10k active usernames; use a bounded external rate-limit store if this ceiling is abused.
+const LOGIN_ATTEMPT_CAP: i64 = 10_000;
+
+fn login_attempt_key(username: &str) -> String {
+    static_hash(username.trim())
+}
+
+fn now_ts() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
+
+async fn reserve_login_attempt(
+    pool: &crate::db::DbPool,
+    key: &str,
+) -> Result<Option<i64>, sqlx::Error> {
+    let cutoff = now_ts() - LOGIN_FAILURE_WINDOW_SECS;
+    sqlx::query("DELETE FROM `x_login_attempts` WHERE `window_started` < ?")
+        .bind(cutoff)
+        .execute(pool)
+        .await?;
+    let now = now_ts();
+    let count: Option<i64> = sqlx::query_scalar(
+        "INSERT INTO `x_login_attempts` (`username_hash`, `failed_count`, `window_started`) \
+         SELECT ?, 1, ? WHERE EXISTS (SELECT 1 FROM `x_login_attempts` WHERE `username_hash` = ?) \
+             OR (SELECT COUNT(*) FROM `x_login_attempts`) < ? \
+         ON CONFLICT(`username_hash`) DO UPDATE SET \
+             `failed_count` = `failed_count` + 1 \
+         RETURNING `failed_count`",
+    )
+    .bind(key)
+    .bind(now)
+    .bind(key)
+    .bind(LOGIN_ATTEMPT_CAP)
+    .fetch_optional(pool)
+    .await?;
+    Ok(count)
+}
+
 pub async fn login_handler(
     State(state): State<SharedState>,
     Json(req): Json<LoginReq>,
 ) -> Response {
+    let attempt_key = login_attempt_key(&req.username);
+    match reserve_login_attempt(&state.pool, &attempt_key).await {
+        Ok(Some(count)) if count > LOGIN_FAILURE_LIMIT => {
+            return api_error(
+                StatusCode::TOO_MANY_REQUESTS,
+                429,
+                "Too many login attempts",
+            );
+        }
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            return api_error(
+                StatusCode::TOO_MANY_REQUESTS,
+                429,
+                "Too many login attempts",
+            );
+        }
+        Err(err) => {
+            tracing::error!(error = %err, "failed to reserve login attempt");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
+    }
     let user = match get_user_by_name(&state.pool, &req.username).await {
         Ok(Some(u)) => u,
         Ok(None) => {
@@ -61,7 +131,29 @@ pub async fn login_handler(
         if otp_code.is_empty() {
             return api_error(StatusCode::UNAUTHORIZED, 402, "OTP code is required");
         }
-        if !verify_totp(secret, otp_code) {
+        let Some(step) = matching_totp_step(secret, otp_code) else {
+            return api_error(StatusCode::UNAUTHORIZED, 400, "invalid otp code");
+        };
+        let accepted = match sqlx::query(
+            "UPDATE `x_users` SET `last_otp_step` = ? WHERE `id` = ? AND `last_otp_step` < ?",
+        )
+        .bind(step)
+        .bind(user.id)
+        .bind(step)
+        .execute(&state.pool)
+        .await
+        {
+            Ok(result) => result.rows_affected() == 1,
+            Err(err) => {
+                tracing::error!(error = %err, "failed to record accepted otp step");
+                return api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    500,
+                    "Internal server error",
+                );
+            }
+        };
+        if !accepted {
             return api_error(StatusCode::UNAUTHORIZED, 400, "invalid otp code");
         }
     }
@@ -72,7 +164,22 @@ pub async fn login_handler(
         &state.config.jwt_secret,
         state.config.token_expires_in,
     ) {
-        Ok(token) => api_success(serde_json::json!({ "token": token })),
+        Ok(token) => {
+            if let Err(err) =
+                sqlx::query("DELETE FROM `x_login_attempts` WHERE `username_hash` = ?")
+                    .bind(&attempt_key)
+                    .execute(&state.pool)
+                    .await
+            {
+                tracing::error!(error = %err, "failed to clear login failures");
+                return api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    500,
+                    "Internal server error",
+                );
+            }
+            api_success(serde_json::json!({ "token": token }))
+        }
         Err(err) => {
             tracing::error!(error = %err, "failed to generate jwt");
             api_error(
@@ -84,7 +191,65 @@ pub async fn login_handler(
     }
 }
 
-pub async fn logout_handler() -> Response {
+pub async fn logout_handler(State(state): State<SharedState>, headers: HeaderMap) -> Response {
+    let Some(auth_header) = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return api_success(());
+    };
+    let token = auth_header.strip_prefix("Bearer ").unwrap_or(auth_header);
+    match get_setting(&state.pool, "token").await {
+        Ok(Some(master))
+            if !master.is_empty()
+                && subtle::ConstantTimeEq::ct_eq(master.as_bytes(), token.as_bytes()).into() =>
+        {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                400,
+                "Master token cannot be revoked",
+            );
+        }
+        Ok(_) => {}
+        Err(err) => {
+            tracing::error!(error = %err, "failed to load master token during logout");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
+    }
+    if let Ok(claims) = parse_jwt(token, &state.config.jwt_secret) {
+        let now = now_ts();
+        if let Err(err) = sqlx::query("DELETE FROM `x_revoked_tokens` WHERE `expires_at` < ?")
+            .bind(now)
+            .execute(&state.pool)
+            .await
+        {
+            tracing::error!(error = %err, "failed to prune revoked tokens");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
+        if let Err(err) = sqlx::query(
+            "INSERT OR REPLACE INTO `x_revoked_tokens` (`jti`, `expires_at`) VALUES (?, ?)",
+        )
+        .bind(claims.jti)
+        .bind(claims.exp as i64)
+        .execute(&state.pool)
+        .await
+        {
+            tracing::error!(error = %err, "failed to revoke jwt");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
+    }
     api_success(())
 }
 
@@ -142,7 +307,6 @@ pub async fn update_current_handler(
 
     if let Some(new_pwd) = &req.password
         && !new_pwd.is_empty()
-        && user.is_admin()
         && !crate::auth::valid_password(new_pwd)
     {
         return api_error(
@@ -411,11 +575,12 @@ pub async fn two_factor_verify_handler(
         }
     };
 
-    if let Err(err) = sqlx::query("UPDATE `x_users` SET `otp_secret` = ? WHERE `id` = ?")
-        .bind(&secret)
-        .bind(user.id)
-        .execute(&mut *tx)
-        .await
+    if let Err(err) =
+        sqlx::query("UPDATE `x_users` SET `otp_secret` = ?, `last_otp_step` = -1 WHERE `id` = ?")
+            .bind(&secret)
+            .bind(user.id)
+            .execute(&mut *tx)
+            .await
     {
         tracing::error!(error = %err, "failed to update user otp secret");
         return api_error(
@@ -480,10 +645,11 @@ pub async fn two_factor_disable_handler(
             );
         }
     };
-    if let Err(err) = sqlx::query("UPDATE `x_users` SET `otp_secret` = '' WHERE `id` = ?")
-        .bind(user.id)
-        .execute(&mut *tx)
-        .await
+    if let Err(err) =
+        sqlx::query("UPDATE `x_users` SET `otp_secret` = '', `last_otp_step` = -1 WHERE `id` = ?")
+            .bind(user.id)
+            .execute(&mut *tx)
+            .await
     {
         tracing::error!(error = %err, "failed to disable 2fa");
         return api_error(

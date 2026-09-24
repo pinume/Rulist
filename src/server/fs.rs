@@ -18,6 +18,25 @@ use crate::server::{
 };
 use crate::sign::sign_path;
 
+async fn signing_token(state: &SharedState) -> Result<String, Response> {
+    match get_setting(&state.pool, "token").await {
+        Ok(Some(token)) if !token.trim().is_empty() => Ok(token),
+        Ok(_) => Err(api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Signing token is unavailable",
+        )),
+        Err(err) => {
+            tracing::error!(error = %err, "failed to load signing token");
+            Err(api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Signing token is unavailable",
+            ))
+        }
+    }
+}
+
 pub async fn fs_list_handler(
     headers: HeaderMap,
     State(state): State<SharedState>,
@@ -53,16 +72,25 @@ pub async fn fs_list_handler(
             }
 
             // Attach signs and raw_urls to files
-            let token = get_setting(&state.pool, "token")
-                .await
-                .ok()
-                .flatten()
-                .unwrap_or_default();
+            let token = match signing_token(&state).await {
+                Ok(token) => token,
+                Err(response) => return response,
+            };
 
             for item in &mut content {
                 if !item.is_dir {
                     let item_path = format!("{}/{}", path.trim_end_matches('/'), item.name);
-                    let sign = sign_path(&token, &item_path);
+                    let sign = match sign_path(&token, &item_path) {
+                        Ok(sign) => sign,
+                        Err(err) => {
+                            tracing::error!(error = %err, "failed to sign file path");
+                            return api_error(
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                500,
+                                "Signing token is unavailable",
+                            );
+                        }
+                    };
                     item.sign = sign.clone();
                     item.raw_url = format!("/p{}?sign={}", encode_url_path(&item_path), sign);
                 }
@@ -104,14 +132,23 @@ pub async fn fs_get_handler(
 
     match state.storage.get(&path).await {
         Ok(mut file) => {
-            let token = get_setting(&state.pool, "token")
-                .await
-                .ok()
-                .flatten()
-                .unwrap_or_default();
+            let token = match signing_token(&state).await {
+                Ok(token) => token,
+                Err(response) => return response,
+            };
 
             if !file.is_dir {
-                let s = sign_path(&token, &path);
+                let s = match sign_path(&token, &path) {
+                    Ok(sign) => sign,
+                    Err(err) => {
+                        tracing::error!(error = %err, "failed to sign file path");
+                        return api_error(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            500,
+                            "Signing token is unavailable",
+                        );
+                    }
+                };
                 file.sign = s.clone();
                 file.raw_url = format!("/p{}?sign={}", encode_url_path(&path), s);
             }
@@ -817,17 +854,26 @@ pub async fn fs_link_handler(
         return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
     };
 
-    let token = get_setting(&state.pool, "token")
-        .await
-        .ok()
-        .flatten()
-        .unwrap_or_default();
+    let token = match signing_token(&state).await {
+        Ok(token) => token,
+        Err(response) => return response,
+    };
 
     let clean_path = match user_path(&user, &req.path) {
         Ok(path) => path,
         Err(_) => return permission_denied(),
     };
-    let sign = sign_path(&token, &clean_path);
+    let sign = match sign_path(&token, &clean_path) {
+        Ok(sign) => sign,
+        Err(err) => {
+            tracing::error!(error = %err, "failed to sign file path");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Signing token is unavailable",
+            );
+        }
+    };
     let url = format!("/d{}?sign={}", encode_url_path(&clean_path), sign);
     api_success(FsLinkResp { url })
 }
