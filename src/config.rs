@@ -1,6 +1,7 @@
 use crate::auth::rand_string;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,16 +82,39 @@ impl Config {
     /// Load existing config.json from data directory or generate a new one
     pub fn load_or_create(data_dir: &Path) -> Result<(Self, PathBuf), anyhow::Error> {
         fs::create_dir_all(data_dir)?;
+        #[cfg(unix)]
+        fs::set_permissions(data_dir, {
+            use std::os::unix::fs::PermissionsExt;
+            fs::Permissions::from_mode(0o700)
+        })?;
         let config_path = data_dir.join("config.json");
 
         if config_path.exists() {
+            #[cfg(unix)]
+            fs::set_permissions(&config_path, {
+                use std::os::unix::fs::PermissionsExt;
+                fs::Permissions::from_mode(0o600)
+            })?;
             let content = fs::read_to_string(&config_path)?;
             let config: Config = serde_json::from_str(&content)?;
             Ok((config, config_path))
         } else {
             let config = Config::default();
             let json_str = serde_json::to_string_pretty(&config)?;
-            fs::write(&config_path, json_str)?;
+            let mut options = fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let mut file = options.open(&config_path)?;
+            file.write_all(json_str.as_bytes())?;
+            #[cfg(unix)]
+            fs::set_permissions(&config_path, {
+                use std::os::unix::fs::PermissionsExt;
+                fs::Permissions::from_mode(0o600)
+            })?;
             Ok((config, config_path))
         }
     }

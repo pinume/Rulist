@@ -99,8 +99,8 @@ export const RecursiveMove = () => {
         }
         onSubmit={async (dst) => {
           const resp = await ok(pathname(), dst, conflictPolicy())
+          refresh()
           handleRespWithNotifySuccess(resp, () => {
-            refresh()
             onClose()
           })
         }}

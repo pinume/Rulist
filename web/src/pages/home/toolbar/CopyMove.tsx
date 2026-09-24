@@ -95,8 +95,8 @@ const CopyMoveModal = (props: { action: "copy" | "move" }) => {
           selectedObjs().map((obj) => obj.name),
           policy,
         )
+        refresh()
         handleRespWithNotifySuccess(resp, () => {
-          refresh()
           onClose()
         })
       }}

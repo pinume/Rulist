@@ -1,0 +1,34 @@
+{
+  "result": "pass",
+  "timestamp_utc": "2026-09-24T04:00:31.146818+00:00",
+  "service": {
+    "name": "rulist.service",
+    "state": "active",
+    "substate": "running",
+    "pid": 43534
+  },
+  "binary": {
+    "release_sha256": "2d4ad578a8394fe74198f43458ff8d74393c04705795721b8761aa85be4b3a46",
+    "deployed_sha256": "2d4ad578a8394fe74198f43458ff8d74393c04705795721b8761aa85be4b3a46",
+    "running_sha256": "2d4ad578a8394fe74198f43458ff8d74393c04705795721b8761aa85be4b3a46"
+  },
+  "http": {
+    "ping_status": 200,
+    "home_status": 200,
+    "embedded_assets_checked": 7
+  },
+  "permissions_octal": {
+    "data": "0o700",
+    "config.json": "0o600",
+    "data.db": "0o600"
+  },
+  "database_integrity": "ok",
+  "backup_directory": "/home/ubuntu/.rulist/deploy-backups/20260924T040000Z-quality-fixes",
+  "isolated_e2e": "verification-quality-fixes.json",
+  "reproduce": [
+    "sha256sum target/release/rulist /home/ubuntu/.local/bin/rulist",
+    "systemctl show rulist.service -p MainPID -p ActiveState -p SubState",
+    "curl -fsS http://127.0.0.1:5244/ping",
+    "sqlite3 /home/ubuntu/.rulist/data/data.db \"PRAGMA integrity_check\""
+  ]
+}

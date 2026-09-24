@@ -56,8 +56,8 @@ export const Delete = () => {
                 pathname(),
                 selectedObjs().map((obj) => obj.name),
               )
+              refresh()
               handleRespWithNotifySuccess(resp, () => {
-                refresh()
                 onClose()
               })
             }}

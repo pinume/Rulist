@@ -232,6 +232,8 @@ pub struct UserWithMount {
     #[serde(default)]
     pub local_path: String,
     #[serde(default)]
+    pub directory_path: String,
+    #[serde(default)]
     pub otp: bool,
 }
 

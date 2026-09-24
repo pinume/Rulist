@@ -29,6 +29,11 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
         .connect_with(opts)
         .await
         .context("failed to connect to SQLite database")?;
+    #[cfg(unix)]
+    if db_path.exists() {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(db_path, fs::Permissions::from_mode(0o600))?;
+    }
 
     // Create tables
     sqlx::query(

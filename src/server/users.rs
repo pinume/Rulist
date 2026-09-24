@@ -2,6 +2,7 @@ use axum::extract::{Json, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use serde::Deserialize;
+use std::path::Path;
 
 use crate::db::{compute_local_path, get_all_users, get_storages, get_user_by_id};
 use crate::model::{AdminUserSaveReq, ROLE_ADMIN, User, UserWithMount};
@@ -33,12 +34,78 @@ async fn require_admin(
     Ok(user)
 }
 
-fn to_user_with_mount(u: User, storages: &[crate::model::Storage]) -> UserWithMount {
+fn directory_path_for_local_path(
+    state: &crate::server::AppState,
+    local_path: &str,
+    storages: &[crate::model::Storage],
+) -> String {
+    if local_path.is_empty() {
+        return String::new();
+    }
+    let Ok(local_path) = Path::new(local_path).canonicalize() else {
+        return String::new();
+    };
+    let mut best: Option<(usize, String)> = None;
+
+    for storage in storages {
+        if storage.driver != "Local"
+            || storage.mount_path == "/.users"
+            || storage.mount_path.starts_with("/.users/")
+        {
+            continue;
+        }
+        let Ok(driver) =
+            crate::driver::local::LocalDriver::new(storage.addition.as_deref().unwrap_or_default())
+        else {
+            continue;
+        };
+        let Ok(root) = driver.safe_resolve("") else {
+            continue;
+        };
+        let Ok(relative) = local_path.strip_prefix(&root) else {
+            continue;
+        };
+        let candidate = if storage.mount_path == "/" {
+            format!("/{}", relative.to_string_lossy())
+        } else if relative.as_os_str().is_empty() {
+            storage.mount_path.clone()
+        } else {
+            format!(
+                "{}/{}",
+                storage.mount_path.trim_end_matches('/'),
+                relative.to_string_lossy()
+            )
+        };
+        let Some((mounted, subpath)) = state.storage.find_storage(&candidate) else {
+            continue;
+        };
+        if mounted.storage.id != storage.id
+            || mounted.driver.safe_resolve(&subpath).ok().as_deref() != Some(local_path.as_path())
+        {
+            continue;
+        }
+        if best
+            .as_ref()
+            .is_none_or(|(root_len, _)| root.as_os_str().len() > *root_len)
+        {
+            best = Some((root.as_os_str().len(), candidate));
+        }
+    }
+
+    best.map_or_else(String::new, |(_, path)| path)
+}
+
+fn to_user_with_mount(
+    state: &crate::server::AppState,
+    u: User,
+    storages: &[crate::model::Storage],
+) -> UserWithMount {
     let local_path = if u.is_admin() {
         String::new()
     } else {
         compute_local_path(&u.base_path, storages)
     };
+    let directory_path = directory_path_for_local_path(state, &local_path, storages);
     UserWithMount {
         id: u.id,
         username: u.username,
@@ -48,6 +115,7 @@ fn to_user_with_mount(u: User, storages: &[crate::model::Storage]) -> UserWithMo
         permission: u.permission,
         sso_id: u.sso_id,
         local_path,
+        directory_path,
         otp: u.otp,
     }
 }
@@ -75,7 +143,7 @@ pub async fn admin_user_list_handler(
 
     let content: Vec<UserWithMount> = users
         .into_iter()
-        .map(|u| to_user_with_mount(u, &storages))
+        .map(|u| to_user_with_mount(&state, u, &storages))
         .collect();
 
     let total = content.len() as i64;
@@ -113,7 +181,7 @@ pub async fn admin_user_get_handler(
     };
 
     let storages = get_storages(&state.pool).await.unwrap_or_default();
-    api_success(to_user_with_mount(target_user, &storages))
+    api_success(to_user_with_mount(&state, target_user, &storages))
 }
 
 fn validate_local_path(path: &str) -> Result<(), anyhow::Error> {
@@ -191,6 +259,10 @@ pub async fn admin_user_create_handler(
         Ok(user) => user,
         Err(res) => return *res,
     };
+
+    if req.username.trim().is_empty() {
+        return api_error(StatusCode::BAD_REQUEST, 400, "Username cannot be empty");
+    }
 
     let raw_pwd = req.password.as_deref().unwrap_or("");
 
@@ -338,6 +410,10 @@ pub async fn admin_user_update_handler(
         Ok(user) => user,
         Err(res) => return *res,
     };
+
+    if req.username.trim().is_empty() {
+        return api_error(StatusCode::BAD_REQUEST, 400, "Username cannot be empty");
+    }
 
     let target_id = match req.id {
         Some(id) => id,

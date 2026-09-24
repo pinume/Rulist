@@ -300,14 +300,14 @@ pub async fn fs_move_handler(
         moves.push((src, dst));
     }
 
-    for (src, dst) in moves {
+    for (completed, (src, dst)) in moves.into_iter().enumerate() {
         let overwrite = policy == ConflictPolicy::Overwrite;
         if let Err(err) = state.storage.move_to_safe(&src, &dst, overwrite).await {
             tracing::error!(error = %err, src = %src, dst = %dst, "failed to move file");
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 500,
-                "Failed to move file",
+                format!("Move failed for {src}; {completed} item(s) already moved"),
             );
         }
     }
@@ -405,6 +405,7 @@ pub async fn fs_recursive_move_handler(
     }
 
     // Create destination directories if needed
+    let mut created_dirs = 0;
     for rel_dir in &dirs_to_create {
         let target_dir = format!("{}/{}", dst_prefix, rel_dir);
         if let Err(err) = state.storage.mkdir(&target_dir).await {
@@ -417,12 +418,15 @@ pub async fn fs_recursive_move_handler(
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 500,
-                "Internal server error",
+                format!(
+                    "Recursive move failed creating {target_dir}; {created_dirs} destination director(ies) may already exist"
+                ),
             );
         }
+        created_dirs += 1;
     }
 
-    for (src, dst) in moves {
+    for (completed, (src, dst)) in moves.into_iter().enumerate() {
         let overwrite = policy == ConflictPolicy::Overwrite;
         if let Err(err) = state.storage.move_to_safe(&src, &dst, overwrite).await {
             tracing::error!(
@@ -434,7 +438,9 @@ pub async fn fs_recursive_move_handler(
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 500,
-                "Failed to move file in recursive move",
+                format!(
+                    "Recursive move failed for {src}; {created_dirs} destination director(ies) and {completed} file(s) were completed"
+                ),
             );
         }
     }
@@ -487,14 +493,14 @@ pub async fn fs_copy_handler(
         copies.push((src, dst));
     }
 
-    for (src, dst) in copies {
+    for (completed, (src, dst)) in copies.into_iter().enumerate() {
         let overwrite = policy == ConflictPolicy::Overwrite;
         if let Err(err) = state.storage.copy_to_safe(&src, &dst, overwrite).await {
             tracing::error!(error = %err, src = %src, dst = %dst, "failed to copy file");
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 500,
-                "Failed to copy file",
+                format!("Copy failed for {src}; {completed} item(s) already copied"),
             );
         }
     }
@@ -517,14 +523,14 @@ pub async fn fs_remove_handler(
         Ok(path) => path,
         Err(_) => return permission_denied(),
     };
-    for name in req.names {
+    for (completed, name) in req.names.into_iter().enumerate() {
         let target = format!("{}/{}", dir.trim_end_matches('/'), name);
         if let Err(err) = state.storage.remove(&target).await {
             tracing::error!(error = %err, target = %target, "failed to remove target");
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 500,
-                "Internal server error",
+                format!("Delete failed for {target}; {completed} item(s) already deleted"),
             );
         }
     }
