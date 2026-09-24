@@ -156,7 +156,10 @@ async fn main() -> Result<()> {
             match args.action {
                 UserSubcommand::SetPassword { username } => {
                     let password = rpassword::prompt_password("New password: ")?;
-                    if !auth::valid_password(&password) {
+                    let Some(user) = db::get_user_by_name(&pool, &username).await? else {
+                        bail!("user not found: {username}");
+                    };
+                    if user.is_admin() && !auth::valid_password(&password) {
                         bail!("password length must be between 8 and 128 characters");
                     }
                     if password != rpassword::prompt_password("Confirm password: ")? {

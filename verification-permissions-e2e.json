@@ -1,0 +1,14 @@
+{
+  "result": "pass",
+  "checks": [
+    "new-file upload allowed; overwrite via upload, rename, move, copy and recursive move denied without bit 8, originals intact",
+    "granting bit 8 enables overwrite across upload, rename, copy and move",
+    "legacy permissions migrated once and marker hidden",
+    "restart does not restore explicitly revoked overwrite permission"
+  ],
+  "permission_bits": {
+    "existing": 248,
+    "overwrite": 256
+  },
+  "reproduce": "run with temporary SQLite and Local mount using built rulist binary; invoke real HTTP endpoints; restart for migration/revocation"
+}

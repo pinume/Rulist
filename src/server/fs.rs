@@ -212,7 +212,7 @@ pub async fn fs_rename_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "unauthorized");
     };
-    if !permitted(&user, 4) || !valid_name(&req.name) {
+    if !permitted(&user, 4) || (req.overwrite && !permitted(&user, 8)) || !valid_name(&req.name) {
         return permission_denied();
     }
     let path = match user_path(&user, &req.path) {
@@ -263,7 +263,10 @@ pub async fn fs_move_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "unauthorized");
     };
-    if !permitted(&user, 5) || req.names.iter().any(|name| !valid_name(name)) {
+    if !permitted(&user, 5)
+        || (req.conflict_policy == ConflictPolicy::Overwrite && !permitted(&user, 8))
+        || req.names.iter().any(|name| !valid_name(name))
+    {
         return permission_denied();
     }
     let (src_dir, dst_dir) = match (
@@ -320,7 +323,9 @@ pub async fn fs_recursive_move_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
     };
-    if !permitted(&user, 5) {
+    if !permitted(&user, 5)
+        || (req.conflict_policy == ConflictPolicy::Overwrite && !permitted(&user, 8))
+    {
         return permission_denied();
     }
     let (src_dir, dst_dir) = match (
@@ -445,7 +450,10 @@ pub async fn fs_copy_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "unauthorized");
     };
-    if !permitted(&user, 6) || req.names.iter().any(|name| !valid_name(name)) {
+    if !permitted(&user, 6)
+        || (req.conflict_policy == ConflictPolicy::Overwrite && !permitted(&user, 8))
+        || req.names.iter().any(|name| !valid_name(name))
+    {
         return permission_denied();
     }
     let (src_dir, dst_dir) = match (
@@ -628,6 +636,9 @@ pub async fn fs_put_handler(
         Err(_) => return permission_denied(),
     };
     let overwrite = headers.get("Overwrite").and_then(|h| h.to_str().ok()) == Some("true");
+    if overwrite && !permitted(&user, 8) {
+        return permission_denied();
+    }
 
     let body = request.into_body();
     // Stream body to file

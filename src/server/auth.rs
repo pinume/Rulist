@@ -142,6 +142,7 @@ pub async fn update_current_handler(
 
     if let Some(new_pwd) = &req.password
         && !new_pwd.is_empty()
+        && user.is_admin()
         && !crate::auth::valid_password(new_pwd)
     {
         return api_error(

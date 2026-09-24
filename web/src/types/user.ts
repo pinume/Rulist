@@ -9,6 +9,7 @@ export interface User {
   password: string
   base_path: string
   local_path: string
+  directory_path?: string
   role: UserRole
   permission: number
   disabled: boolean
@@ -22,6 +23,7 @@ export const UserPermissionBits = {
   move: 5,
   copy: 6,
   delete: 7,
+  overwrite: 8,
 } as const
 
 export const UserPermissions = Object.keys(UserPermissionBits) as Array<

@@ -1,0 +1,17 @@
+{
+  "result": "pass",
+  "checks": [
+    "browser selected nested admin-visible directory",
+    "reserved user mount hidden",
+    "create request sends virtual path and empty password",
+    "new member logs in with empty password and reads selected directory",
+    "stored local root matches selected directory"
+  ],
+  "browser": {
+    "picker": true,
+    "hidden_user_mount": true,
+    "create_request": true,
+    "page_errors": 0
+  },
+  "reproduce": "build frontend and Rust binary, start temporary SQLite/Local mount and repeat API plus Playwright flow"
+}

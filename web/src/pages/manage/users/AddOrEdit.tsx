@@ -24,8 +24,9 @@ import {
   UserPermissions,
   UserRole,
 } from "~/types"
+import { ModalFolderChoose } from "~/components"
 import { createStore } from "solid-js/store"
-import { For, Show } from "solid-js"
+import { createSignal, For, Show } from "solid-js"
 import { Me, me, setMe } from "~/store"
 
 const Permission = (props: {
@@ -72,6 +73,7 @@ const AddOrEdit = () => {
     password: "",
     base_path: "",
     local_path: "",
+    directory_path: "",
     role: 0,
     permission: 0,
     disabled: false,
@@ -89,8 +91,14 @@ const AddOrEdit = () => {
   if (id) {
     initEdit()
   }
+  const [passwordTouched, setPasswordTouched] = createSignal(false)
+  const [directoryOpen, setDirectoryOpen] = createSignal(false)
   const [okLoading, ok] = useFetch((): PEmptyResp => {
-    return r.post(`/admin/user/${id ? "update" : "create"}`, user)
+    return r.post(`/admin/user/${id ? "update" : "create"}`, {
+      ...user,
+      local_path: undefined,
+      password: id && !passwordTouched() ? undefined : user.password,
+    })
   })
 
   const cardBorder = useColorModeValue("$neutral4", "$neutral6")
@@ -139,7 +147,7 @@ const AddOrEdit = () => {
               onInput={(e) => setUser("username", e.currentTarget.value)}
             />
           </FormControl>
-          <FormControl w="$full" display="flex" flexDirection="column" required>
+          <FormControl w="$full" display="flex" flexDirection="column">
             <FormLabel for="password" display="flex" alignItems="center">
               {t(`users.password`)}
             </FormLabel>
@@ -149,28 +157,41 @@ const AddOrEdit = () => {
               type="password"
               placeholder="********"
               value={user.password}
-              onInput={(e) => setUser("password", e.currentTarget.value)}
+              onInput={(e) => {
+                setPasswordTouched(true)
+                setUser("password", e.currentTarget.value)
+              }}
             />
           </FormControl>
 
           <Show when={user.role !== UserRole.ADMIN}>
             <FormControl w="$full" display="flex" flexDirection="column" required>
-              <FormLabel for="local_path" display="flex" alignItems="center">
-                {t(`users.local_path`)}
+              <FormLabel for="directory_path" display="flex" alignItems="center">
+                {t(`users.directory`)}
               </FormLabel>
-              <Input
-                id="local_path"
-                w="$full"
-                value={user.local_path}
-                placeholder="/home/ubuntu"
-                onInput={(e) => setUser("local_path", e.currentTarget.value)}
-              />
+              <HStack w="$full">
+                <Input
+                  id="directory_path"
+                  w="$full"
+                  readOnly
+                  value={user.directory_path || (id ? user.local_path : "")}
+                  placeholder={t("users.directory_required")}
+                />
+                <Button onClick={() => setDirectoryOpen(true)}>
+                  {t("global.choose")}
+                </Button>
+              </HStack>
             </FormControl>
           </Show>
           <FormControl w="$full" required>
             <FormLabel display="flex" alignItems="center">
               {t(`users.permission`)}
             </FormLabel>
+            <Show when={user.role !== UserRole.ADMIN}>
+              <Text fontSize="$sm" color="$neutral11">
+                {t("users.permission_tips")}
+              </Text>
+            </Show>
             <SimpleGrid
               columns={{ "@initial": 1, "@sm": 2, "@md": 3 }}
               gap="$2"
@@ -237,6 +258,18 @@ const AddOrEdit = () => {
           </HStack>
         </VStack>
       </Show>
+      <ModalFolderChoose
+        header={t("users.choose_directory")}
+        opened={directoryOpen()}
+        onClose={() => setDirectoryOpen(false)}
+        defaultValue={() => user.directory_path || "/"}
+        showHiddenFolder={false}
+        hidePath={(path) => path === "/.users" || path.startsWith("/.users/")}
+        onSubmit={(path) => {
+          setUser("directory_path", path)
+          setDirectoryOpen(false)
+        }}
+      />
     </Box>
   )
 }

@@ -255,6 +255,8 @@ pub struct AdminUserSaveReq {
     #[serde(default)]
     pub local_path: Option<String>,
     #[serde(default)]
+    pub directory_path: Option<String>,
+    #[serde(default)]
     pub role: Option<i32>,
     #[serde(default)]
     pub permission: Option<i32>,

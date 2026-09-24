@@ -1,18 +1,23 @@
 {
   "permissions": {
-    "write_content": "写入内容（创建/上传/修改）",
+    "write_content": "新建/上传",
     "rename": "重命名",
     "move": "移动",
     "copy": "复制",
-    "delete": "删除"
+    "delete": "删除",
+    "overwrite": "覆盖已有文件"
   },
   "username": "用户名",
   "password": "密码",
   "password_required": "请先设置新密码",
   "base_path": "基本路径",
   "local_path": "服务器目录",
+  "directory": "管理目录",
+  "directory_required": "请选择目录",
+  "choose_directory": "选择管理目录",
   "role": "角色",
   "permission": "权限",
+  "permission_tips": "浏览、预览和下载所选目录中的文件默认可用；覆盖已有文件需同时拥有对应操作权限。",
   "disabled": "停用",
   "available": "已启用",
   "update_profile": "更新个人资料",

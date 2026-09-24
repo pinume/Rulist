@@ -57,6 +57,7 @@ export interface FolderTreeProps {
   handle?: (handler: FolderTreeHandler) => void
   showEmptyIcon?: boolean
   showHiddenFolder?: boolean
+  hidePath?: (path: string) => boolean
 }
 interface FolderTreeContext extends Omit<FolderTreeProps, "handle"> {
   value: Accessor<string>
@@ -92,6 +93,7 @@ export const FolderTree = (props: FolderTreeProps) => {
           forceRoot: props.forceRoot ?? false,
           showEmptyIcon: props.showEmptyIcon ?? false,
           showHiddenFolder: props.showHiddenFolder ?? true,
+          hidePath: props.hidePath,
           creatingFolderPath,
           setCreatingFolderPath,
         }}
@@ -112,6 +114,7 @@ const FolderTreeNode = (props: { path: string }) => {
     autoOpen,
     showEmptyIcon,
     showHiddenFolder,
+    hidePath,
     creatingFolderPath,
     setCreatingFolderPath,
   } = useContext(context)!
@@ -155,7 +158,7 @@ const FolderTreeNode = (props: { path: string }) => {
   })
 
   const isHiddenFolder = () =>
-    isHidePath(props.path) && !isMatchedFolder(value())
+    (hidePath?.(props.path) || isHidePath(props.path)) && !isMatchedFolder(value())
   return (
     <Show when={showHiddenFolder || !isHiddenFolder()}>
       <Box>
@@ -175,6 +178,7 @@ const FolderTreeNode = (props: { path: string }) => {
                 transition="transform 0.2s"
                 cursor="pointer"
                 onClick={() => {
+                  onChange(props.path)
                   onToggle()
                   if (isOpen()) {
                     load()
@@ -197,9 +201,7 @@ const FolderTreeNode = (props: { path: string }) => {
             _hover={{
               bgColor: active() ? "$info8" : hoverColor(),
             }}
-            onClick={() => {
-              onChange(props.path)
-            }}
+            onClick={() => onChange(props.path)}
           >
             {props.path === "/" ? "root" : pathBase(props.path)}
           </Text>
@@ -345,6 +347,8 @@ export type ModalFolderChooseProps = {
   headerSlot?: (handler: FolderTreeHandler | undefined) => JSXElement
   children?: JSXElement
   header: string
+  showHiddenFolder?: boolean
+  hidePath?: (path: string) => boolean
 }
 export const ModalFolderChoose = (props: ModalFolderChooseProps) => {
   const t = useT()
@@ -385,6 +389,8 @@ export const ModalFolderChoose = (props: ModalFolderChooseProps) => {
             onChange={setValue}
             handle={(h) => setHandler(h)}
             autoOpen
+            showHiddenFolder={props.showHiddenFolder}
+            hidePath={props.hidePath}
           />
         </ModalBody>
         <ModalFooter

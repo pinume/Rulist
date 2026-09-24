@@ -127,42 +127,95 @@ fn validate_local_path(path: &str) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+fn resolve_directory_path(
+    state: &crate::server::AppState,
+    admin: &User,
+    path: &str,
+) -> Result<String, anyhow::Error> {
+    if path.trim() != path || !path.starts_with('/') || path.contains('\\') {
+        anyhow::bail!("directory path must be absolute and canonical");
+    }
+    let path = if path == "/" {
+        path
+    } else {
+        path.strip_suffix('/').unwrap_or(path)
+    };
+    if path != "/"
+        && path[1..]
+            .split('/')
+            .any(|part| part.is_empty() || matches!(part, "." | ".."))
+    {
+        anyhow::bail!("directory path must be canonical");
+    }
+    if path == "/.users" || path.starts_with("/.users/") {
+        anyhow::bail!("user storage paths cannot be assigned");
+    }
+    let path = crate::server::user_path(admin, path).map_err(anyhow::Error::msg)?;
+    if path == "/.users" || path.starts_with("/.users/") {
+        anyhow::bail!("user storage paths cannot be assigned");
+    }
+    let (storage, subpath) = state
+        .storage
+        .find_storage(&path)
+        .ok_or_else(|| anyhow::anyhow!("directory is not in a mounted storage"))?;
+    let local_path = storage.driver.safe_resolve(&subpath)?;
+    if !local_path.is_dir() {
+        anyhow::bail!("selected path is not a directory");
+    }
+    Ok(local_path.to_string_lossy().into_owned())
+}
+
+fn requested_local_path(
+    state: &crate::server::AppState,
+    admin: &User,
+    req: &AdminUserSaveReq,
+) -> Result<Option<String>, anyhow::Error> {
+    match req.directory_path.as_deref() {
+        Some(path) if !path.is_empty() => resolve_directory_path(state, admin, path).map(Some),
+        Some(_) => Ok(None),
+        None => Ok(req
+            .local_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .map(str::to_owned)),
+    }
+}
+
 pub async fn admin_user_create_handler(
     headers: HeaderMap,
     State(state): State<SharedState>,
     Json(req): Json<AdminUserSaveReq>,
 ) -> Response {
-    if let Err(res) = require_admin(&headers, &state).await {
-        return *res;
-    }
+    let admin = match require_admin(&headers, &state).await {
+        Ok(user) => user,
+        Err(res) => return *res,
+    };
 
-    let raw_pwd = req.password.as_deref().unwrap_or("").trim();
-    if raw_pwd.is_empty() {
-        return api_error(StatusCode::BAD_REQUEST, 400, "password is required");
-    }
-    if !crate::auth::valid_password(raw_pwd) {
-        return api_error(
-            StatusCode::BAD_REQUEST,
-            400,
-            "Password length must be between 8 and 128 characters",
-        );
-    }
+    let raw_pwd = req.password.as_deref().unwrap_or("");
 
     let role = req.role.unwrap_or(0);
     if role == ROLE_ADMIN {
         return api_error(StatusCode::BAD_REQUEST, 400, "admin user cannot be created");
     }
-    let local_path = req.local_path.as_deref().map(str::trim).unwrap_or("");
+    let local_path = match requested_local_path(&state, &admin, &req) {
+        Ok(Some(path)) => path,
+        Ok(None) => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                400,
+                "Local directory is required for non-admin users",
+            );
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "invalid user local path");
+            return api_error(StatusCode::BAD_REQUEST, 400, "Invalid local directory");
+        }
+    };
 
-    if local_path.is_empty() {
-        return api_error(
-            StatusCode::BAD_REQUEST,
-            400,
-            "Local directory is required for non-admin users",
-        );
-    }
-
-    if let Err(err) = validate_local_path(local_path) {
+    if req.directory_path.is_none()
+        && let Err(err) = validate_local_path(&local_path)
+    {
         tracing::warn!(error = %err, "invalid user local path");
         return api_error(StatusCode::BAD_REQUEST, 400, "Invalid local directory");
     }
@@ -281,9 +334,10 @@ pub async fn admin_user_update_handler(
     State(state): State<SharedState>,
     Json(req): Json<AdminUserSaveReq>,
 ) -> Response {
-    if let Err(res) = require_admin(&headers, &state).await {
-        return *res;
-    }
+    let admin = match require_admin(&headers, &state).await {
+        Ok(user) => user,
+        Err(res) => return *res,
+    };
 
     let target_id = match req.id {
         Some(id) => id,
@@ -312,11 +366,10 @@ pub async fn admin_user_update_handler(
         }
     }
 
-    if let Some(pwd) = req.password
-        && !pwd.trim().is_empty()
+    if let Some(pwd) = req.password.as_deref()
+        && (!target_user.is_admin() || !pwd.is_empty())
     {
-        let pwd = pwd.trim();
-        if !crate::auth::valid_password(pwd) {
+        if target_user.is_admin() && !crate::auth::valid_password(pwd) {
             return api_error(
                 StatusCode::BAD_REQUEST,
                 400,
@@ -336,7 +389,7 @@ pub async fn admin_user_update_handler(
         target_user.password_unset = false;
     }
 
-    target_user.username = req.username;
+    target_user.username = req.username.clone();
     if let Some(dis) = req.disabled {
         target_user.disabled = dis;
     }
@@ -344,21 +397,16 @@ pub async fn admin_user_update_handler(
         target_user.permission = perm;
     }
 
-    if !target_user.is_admin() {
-        let local_path = req.local_path.as_deref().map(str::trim).unwrap_or("");
-
-        if local_path.is_empty() {
-            return api_error(
-                StatusCode::BAD_REQUEST,
-                400,
-                "Local directory is required for non-admin users",
-            );
+    let local_path = match requested_local_path(&state, &admin, &req) {
+        Ok(path) => path,
+        Err(err) => {
+            tracing::warn!(error = %err, "invalid user local path");
+            return api_error(StatusCode::BAD_REQUEST, 400, "Invalid local directory");
         }
-    }
-
-    if let Some(local_path) = req.local_path.as_deref()
-        && !local_path.trim().is_empty()
-        && let Err(err) = validate_local_path(local_path)
+    };
+    if req.directory_path.is_none()
+        && let Some(path) = local_path.as_deref()
+        && let Err(err) = validate_local_path(path)
     {
         tracing::warn!(error = %err, "invalid user local path");
         return api_error(StatusCode::BAD_REQUEST, 400, "Invalid local directory");
@@ -399,12 +447,11 @@ pub async fn admin_user_update_handler(
     }
 
     if !target_user.is_admin()
-        && let Some(local_path) = req.local_path
-        && !local_path.trim().is_empty()
+        && let Some(local_path) = local_path
     {
         let user_mount = format!("/.users/{}", target_id);
         let addition = serde_json::json!({
-            "root_folder_path": local_path.trim()
+            "root_folder_path": local_path
         })
         .to_string();
 

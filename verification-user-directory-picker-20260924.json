@@ -1,0 +1,37 @@
+{
+  "result": "pass",
+  "timestamp_utc": "2026-09-24T00:25:51.518553+00:00",
+  "fix": "folder expander selects its directory; virtual root is rejected with a mounted-directory hint; reserved user mounts are hidden",
+  "isolated_e2e": {
+    "result": "pass",
+    "browser_root_warning": true,
+    "browser_expander_selected_path": "/Local",
+    "browser_page_errors": 0,
+    "real_create_api": 200,
+    "stored_directory_matched_selected_mount": true,
+    "data": "temporary SQLite and Local mount"
+  },
+  "deployed": {
+    "service": "rulist.service",
+    "state": "active",
+    "pid": 23717,
+    "sha256": "a71e14851b8699b6c8078e3f82e1e6d4ed7b12ce833e9f4c3dc2be6b03860319",
+    "ping_status": 200,
+    "ping_body": "pong",
+    "home_status": 200,
+    "embedded_assets_checked": 7,
+    "database_integrity": "ok"
+  },
+  "backup": {
+    "directory": "/home/ubuntu/.rulist/deploy-backups/20260924T002508Z-picker-fix",
+    "previous_binary_sha256": "97036f77c52f7ae6f6a7162d77da09c52895eb2c5b739603a2785625631724de",
+    "database_backup_present": true,
+    "config_backup_present": true
+  },
+  "verification_commands": [
+    "sha256sum /home/ubuntu/.local/bin/rulist /proc/$(systemctl show --value -p MainPID rulist.service)/exe",
+    "systemctl is-active rulist.service",
+    "curl -fsS http://127.0.0.1:5244/ping",
+    "python3 -c \"import sqlite3; print(sqlite3.connect('file:/home/ubuntu/.rulist/data/data.db?mode=ro',uri=True).execute('PRAGMA integrity_check').fetchone()[0])\""
+  ]
+}

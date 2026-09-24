@@ -1016,6 +1016,7 @@ mod tests {
             id: None,
             username: "regular_user".to_string(),
             password: Some("UserPass123!".to_string()),
+            directory_path: None,
             role: Some(0),
             permission: Some(255),
             disabled: Some(false),
@@ -1057,6 +1058,7 @@ mod tests {
             id: None,
             username: "regular_user".to_string(),
             password: Some("AnotherPass123!".to_string()),
+            directory_path: None,
             role: Some(0),
             permission: Some(10),
             disabled: Some(false),
@@ -1091,6 +1093,7 @@ mod tests {
             id: None,
             username: "second_admin".to_string(),
             password: Some("Admin2Pass123!".to_string()),
+            directory_path: None,
             role: Some(crate::model::ROLE_ADMIN),
             permission: Some(0),
             disabled: Some(false),
@@ -1430,6 +1433,7 @@ mod tests {
             id: None,
             username: "alice".to_string(),
             password: Some("AlicePassword123!".to_string()),
+            directory_path: None,
             role: Some(0),
             permission: Some(15),
             disabled: Some(false),
@@ -1446,6 +1450,7 @@ mod tests {
             id: None,
             username: "bob".to_string(),
             password: Some("BobPassword123!".to_string()),
+            directory_path: None,
             role: Some(0),
             permission: Some(15),
             disabled: Some(false),
@@ -1567,6 +1572,7 @@ mod tests {
             id: None,
             username: "bad_user".to_string(),
             password: Some("BadPassword123!".to_string()),
+            directory_path: None,
             role: Some(0),
             permission: Some(15),
             disabled: Some(false),
@@ -1584,11 +1590,12 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(json["code"], 400);
 
-        // Attempt to create user with short password (< 8 chars)
+        // Ordinary users may use passwords of any length.
         let short_pwd_req = AdminUserSaveReq {
             id: None,
             username: "short_pwd_user".to_string(),
             password: Some("short".to_string()),
+            directory_path: None,
             role: Some(0),
             permission: Some(15),
             disabled: Some(false),
@@ -1604,11 +1611,17 @@ mod tests {
             .await
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-        assert_eq!(json["code"], 400);
-        assert_eq!(
-            json["message"],
-            "Password length must be between 8 and 128 characters"
-        );
+        assert_eq!(json["code"], 200);
+
+        let short_password_user = crate::db::get_user_by_name(&pool, "short_pwd_user")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(crate::auth::verify_password(
+            "short",
+            &short_password_user.pwd_hash,
+            &short_password_user.salt
+        ));
 
         // Verify user was NOT persisted to DB
         assert!(
@@ -1964,6 +1977,7 @@ mod tests {
             id: None,
             username: "user_no_dir".to_string(),
             password: Some("UserPass123!".to_string()),
+            directory_path: None,
             role: Some(0),
             permission: Some(255),
             disabled: Some(false),
@@ -2004,6 +2018,7 @@ mod tests {
             id: None,
             username: "user1".to_string(),
             password: Some("UserPass123!".to_string()),
+            directory_path: None,
             role: Some(0),
             permission: Some(255),
             disabled: Some(false),
@@ -2021,6 +2036,7 @@ mod tests {
             id: None,
             username: "user2".to_string(),
             password: Some("UserPass123!".to_string()),
+            directory_path: None,
             role: Some(0),
             permission: Some(255),
             disabled: Some(false),
@@ -2131,6 +2147,7 @@ mod tests {
             id: Some(admin_user.id),
             username: "admin".to_string(),
             password: None,
+            directory_path: None,
             role: Some(2),
             permission: Some(0),
             disabled: Some(false),
@@ -3017,6 +3034,7 @@ mod tests {
             username: "testuser".to_string(),
             password: Some("UserPass123!".to_string()),
             local_path: Some(storage_root.to_str().unwrap().to_string()),
+            directory_path: None,
             role: Some(0),
             permission: Some(0),
             disabled: Some(false),
@@ -3060,6 +3078,7 @@ mod tests {
             username: "testuser".to_string(),
             password: Some("UserPassNew1!".to_string()),
             local_path: Some(storage_root.to_str().unwrap().to_string()),
+            directory_path: None,
             role: Some(0),
             permission: Some(0),
             disabled: Some(false),
@@ -3101,6 +3120,7 @@ mod tests {
             username: "testuser".to_string(),
             password: Some("UserPassNew2!".to_string()),
             local_path: Some(storage_root.to_str().unwrap().to_string()),
+            directory_path: None,
             role: Some(0),
             permission: Some(0),
             disabled: Some(false),

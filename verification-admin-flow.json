@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-09-23T16:11:35Z",
+  "timestamp": "2026-09-23T23:37:17Z",
   "checks": [
     "admin CLI help contains only the token command",
     "CLI set-password reads and confirms a hidden password",

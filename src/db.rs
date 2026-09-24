@@ -130,6 +130,7 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
 
     seed_settings(&pool).await?;
     seed_admin(&pool).await?;
+    migrate_overwrite_permission(&pool).await?;
     sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS `x_users_single_admin` ON `x_users` (`role`) WHERE `role` = 2")
         .execute(&pool)
         .await?;
@@ -170,6 +171,25 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
     }
 
     Ok(pool)
+}
+
+async fn migrate_overwrite_permission(pool: &DbPool) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    let marker = sqlx::query(
+        "INSERT OR IGNORE INTO `x_setting_items` (`key`, `value`, `type`, `group`, `flag`) VALUES ('permission_overwrite_v1_migrated', 'true', 'bool', 0, 1)",
+    )
+    .execute(&mut *tx)
+    .await?;
+    if marker.rows_affected() > 0 {
+        sqlx::query(
+            "UPDATE `x_users` SET `permission` = `permission` | (1 << 8) WHERE `role` != ? AND (`permission` & 120) != 0",
+        )
+        .bind(ROLE_ADMIN)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
 }
 
 async fn seed_settings(pool: &DbPool) -> Result<()> {
