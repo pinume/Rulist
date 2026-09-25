@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod fs;
+pub mod preview;
 pub mod stream;
 pub mod users;
 
@@ -138,6 +139,10 @@ pub fn build_app(state: SharedState) -> Router {
         // File system batch & link
         .route("/api/fs/batch_rename", post(fs::fs_batch_rename_handler))
         .route("/api/fs/link", post(fs::fs_link_handler))
+        .route(
+            "/api/fs/preview",
+            post(preview::preview_handler).get(preview::preview_handler),
+        )
         // Admin User Management
         .route("/api/admin/user/list", get(users::admin_user_list_handler))
         .route("/api/admin/user/get", get(users::admin_user_get_handler))

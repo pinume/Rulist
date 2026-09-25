@@ -1,11 +1,9 @@
 import { Button, HStack, Text } from "@hope-ui/solid"
-import { lazy, Match, Show, Switch } from "solid-js"
+import { lazy, Show } from "solid-js"
 import { usePath, useRouter, useT } from "~/hooks"
-import { LIST_PAGE_SIZE, layout, objStore, selectAll } from "~/store"
-import { ContextMenu } from "./context-menu"
+import { LIST_PAGE_SIZE, objStore, selectAll } from "~/store"
 
 const ListLayout = lazy(() => import("./List"))
-const GridLayout = lazy(() => import("./Grid"))
 
 const Pager = () => {
   const t = useT()
@@ -19,7 +17,7 @@ const Pager = () => {
 
   return (
     <Show when={pageCount() > 1}>
-      <HStack justifyContent="center" spacing="$3">
+      <HStack justifyContent="center" spacing="$3" py="$2" borderTop="1px solid" borderColor="$neutral4">
         <Button
           size="sm"
           disabled={objStore.page <= 1}
@@ -49,16 +47,8 @@ const Pager = () => {
 const Folder = () => {
   return (
     <>
-      <Switch>
-        <Match when={layout() === "list"}>
-          <ListLayout />
-        </Match>
-        <Match when={layout() === "grid"}>
-          <GridLayout />
-        </Match>
-      </Switch>
+      <ListLayout />
       <Pager />
-      <ContextMenu />
     </>
   )
 }

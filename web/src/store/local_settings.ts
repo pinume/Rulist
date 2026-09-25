@@ -17,21 +17,16 @@ export const initialLocalSettings = [
     options: ["static", "sticky", "only_navbar_sticky"],
   },
   {
-    key: "grid_item_size",
-    default: "90",
-    type: "number",
-  },
-  {
     key: "list_item_filename_overflow",
     default: "ellipsis",
     type: "select",
     options: ["ellipsis", "scrollable", "multi_line"],
   },
   {
-    key: "open_item_on_checkbox",
-    default: "direct",
+    key: "folder_sort_position",
+    default: "top",
     type: "select",
-    options: ["direct", "dblclick", "disable_while_checked"],
+    options: ["top", "mixed"],
   },
 ]
 export type LocalSetting = (typeof initialLocalSettings)[number]

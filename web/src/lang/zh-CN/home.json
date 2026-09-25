@@ -12,10 +12,11 @@
       "selected_files": "已选中 {{files}} 个文件"
     }
   },
-  "layouts": {
-    "list": "列表视图",
-    "grid": "网格视图",
-    "image": "图片视图"
+  "search": {
+    "aria_label": "搜索当前页文件",
+    "placeholder": "搜索本页…",
+    "results": "本页匹配到 {{count}} 项",
+    "empty": "本页没有匹配的文件"
   },
   "sidebar": {
     "open": "打开文件夹导航",
@@ -35,7 +36,6 @@
     "refresh": "刷新",
     "switch_lang": "切换语言",
     "toggle_markdown_toc": "是否显示大纲",
-    "toggle_checkbox": "开关复选框",
     "rename": "重命名",
     "input_new_name": "输入新名称",
     "move": "移动",
@@ -57,8 +57,6 @@
     "package_download-tips": "正在下载，请稍候不要关闭页面",
     "upload": "上传",
     "settings": "设置",
-    "recursive_move": "聚合移动",
-    "recursive_move_directory-tips": "您确定要将当前文件夹及其子文件夹中的所有文件移动到指定的文件夹吗？",
     "remove_empty_directory": "移除空文件夹",
     "remove_empty_directory-tips": "您确定要删除所有空子文件夹吗？",
     "batch_rename": "批量重命名",
@@ -103,7 +101,6 @@
       "sticky": "吸附到页面顶部",
       "only_navbar_sticky": "仅吸附导航栏"
     },
-    "grid_item_size": "网格视图项目尺寸",
     "show_sidebar": "显示侧边栏",
     "show_sidebar_options": {
       "none": "隐藏",
@@ -115,13 +112,22 @@
       "scrollable": "可滚动",
       "multi_line": "多行显示"
     },
-    "open_item_on_checkbox": "在复选框上打开选项",
-    "open_item_on_checkbox_options": {
-      "direct": "直接打开",
-      "dblclick": "双击",
-      "disable_while_checked": "选中时禁用"
+    "folder_sort_position": "文件夹排序位置",
+    "folder_sort_position_options": {
+      "top": "顶部",
+      "mixed": "与文件混合"
     }
   },
+  "sort": "排序",
+  "sort_by": "排序依据",
+  "sort_order": "排序方向",
+  "sort_folder": "文件夹",
+  "sort_name": "文件名称",
+  "sort_modified": "修改时间",
+  "sort_asc": "A 至 Z",
+  "sort_desc": "Z 至 A",
+  "sort_folder_top": "顶部",
+  "sort_folder_mixed": "与文件混合",
   "package_download": {
     "current_status": "当前状态",
     "initializing": "正在初始化",

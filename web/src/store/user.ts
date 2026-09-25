@@ -15,4 +15,4 @@ export const userCan = (p: Permission) => {
   return UserMethods.can(u, UserPermissionBits[p])
 }
 
-export { me, setMe }
+export { me, setMe, UserMethods }

@@ -144,8 +144,12 @@ impl LocalDriver {
         let mut read_dir = fs::read_dir(&full_path).await?;
         let mut entries = Vec::new();
         while let Some(entry) = read_dir.next_entry().await? {
+            let file_type = entry.file_type().await?;
+            if file_type.is_symlink() {
+                continue;
+            }
             let name = entry.file_name().to_string_lossy().to_string();
-            let is_dir = entry.file_type().await?.is_dir();
+            let is_dir = file_type.is_dir();
             entries.push((name, is_dir));
         }
         Ok(entries)
@@ -176,6 +180,15 @@ impl LocalDriver {
                     continue;
                 }
 
+                let file_type = match entry.file_type() {
+                    Ok(ft) => ft,
+                    Err(_) => continue,
+                };
+
+                if file_type.is_symlink() {
+                    continue;
+                }
+
                 let meta = match std::fs::metadata(entry.path()) {
                     Ok(m) => m,
                     Err(_) => continue, // Skip unreadable entries or broken symlinks
@@ -189,7 +202,17 @@ impl LocalDriver {
                     .map(|t| DateTime::<Utc>::from(t).to_rfc3339())
                     .unwrap_or_default();
 
-                items.push(FileObj::new(file_name, size, is_dir, modified));
+                #[cfg(unix)]
+                let permissions = {
+                    use std::os::unix::fs::PermissionsExt;
+                    crate::model::format_mode(meta.permissions().mode(), is_dir)
+                };
+                #[cfg(not(unix))]
+                let permissions = crate::model::format_mode(0, is_dir);
+
+                let mut obj = FileObj::new(file_name, size, is_dir, modified);
+                obj.permissions = Some(permissions);
+                items.push(obj);
             }
 
             Ok(items)
@@ -218,7 +241,17 @@ impl LocalDriver {
             .map(|t| DateTime::<Utc>::from(t).to_rfc3339())
             .unwrap_or_default();
 
-        Ok(FileObj::new(file_name, size, is_dir, modified))
+        #[cfg(unix)]
+        let permissions = {
+            use std::os::unix::fs::PermissionsExt;
+            crate::model::format_mode(meta.permissions().mode(), is_dir)
+        };
+        #[cfg(not(unix))]
+        let permissions = crate::model::format_mode(0, is_dir);
+
+        let mut obj = FileObj::new(file_name, size, is_dir, modified);
+        obj.permissions = Some(permissions);
+        Ok(obj)
     }
 
     /// Open file for reading

@@ -120,11 +120,11 @@ const Profile = () => {
       {/* 个人资料与修改密码卡片 */}
       <Box
         w="$full"
-        rounded="$lg"
+        rounded="$xl"
+        shadow="$sm"
         border="1px solid"
         borderColor={cardBorder()}
         bg={cardBg()}
-        shadow="$xs"
         overflow="hidden"
       >
         {/* 卡片头部：用户信息摘要 */}
@@ -132,6 +132,7 @@ const Profile = () => {
           p={{ "@initial": "$4", "@sm": "$5" }}
           borderBottom="1px solid"
           borderColor={dividerColor()}
+          bg={useColorModeValue("$neutral2", "$neutral4")()}
         >
           <HStack justifyContent="space-between" alignItems="center">
             <HStack spacing="$3" alignItems="center">
@@ -292,11 +293,11 @@ const Profile = () => {
       {/* 权限卡片 */}
       <Box
         w="$full"
-        rounded="$lg"
+        rounded="$xl"
         border="1px solid"
         borderColor={cardBorder()}
         bg={cardBg()}
-        shadow="$xs"
+        shadow="$sm"
         p={{ "@initial": "$4", "@sm": "$5" }}
       >
         <VStack w="$full" alignItems="stretch" spacing="$3">

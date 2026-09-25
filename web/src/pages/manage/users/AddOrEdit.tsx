@@ -108,11 +108,12 @@ const AddOrEdit = () => {
     <Box
       w="$full"
       p={{ "@initial": "$4", "@sm": "$6" }}
-      rounded="$lg"
+      rounded="$xl"
+      shadow="$sm"
       border="1px solid"
       borderColor={cardBorder()}
       bg={cardBg()}
-      shadow="$xs"
+      overflow="hidden"
     >
       <Show
         when={!userLoading()}

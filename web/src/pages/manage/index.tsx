@@ -1,7 +1,7 @@
 import { Box, Button, Heading, HStack, useColorModeValue } from "@hope-ui/solid"
 import { Navigate, Route, Routes } from "@solidjs/router"
 import { JSXElement, Show } from "solid-js"
-import { FiHome } from "solid-icons/fi"
+import { FiArrowLeft, FiSliders, FiUser, FiUsers } from "solid-icons/fi"
 import { useRouter, useT, useTitle } from "~/hooks"
 import { me } from "~/store"
 import { UserMethods } from "~/types"
@@ -26,9 +26,9 @@ const Settings = () => {
   const { pathname, to } = useRouter()
   useTitle(() => t("manage.title"))
   const tabs = [
-    { path: "/@settings", title: "manage.appearance" },
-    { path: "/@settings/profile", title: "manage.sidemenu.profile" },
-    { path: "/@settings/users", title: "manage.sidemenu.users", admin: true },
+    { path: "/@settings", title: "manage.appearance", icon: FiSliders },
+    { path: "/@settings/profile", title: "manage.sidemenu.profile", icon: FiUser },
+    { path: "/@settings/users", title: "manage.sidemenu.users", admin: true, icon: FiUsers },
   ]
 
   return (
@@ -36,50 +36,71 @@ const Settings = () => {
       minH="100vh"
       w="$full"
       bgColor={useColorModeValue("$background", "$neutral2")()}
-      p={{ "@initial": "$3", "@sm": "$4" }}
+      p={{ "@initial": "$3", "@sm": "$6" }}
     >
-      <Box w="$full" maxW="1200px" mx="auto">
+      <Box w="$full" maxW="1000px" mx="auto">
         <HStack
           justifyContent="space-between"
           alignItems="center"
-          mb={{ "@initial": "$3", "@sm": "$4" }}
+          mb="$6"
+          pb="$4"
+          borderBottom="1px solid"
+          borderColor={useColorModeValue("$neutral4", "$neutral6")()}
         >
-          <Heading size={{ "@initial": "lg", "@sm": "xl" }}>
-            {t("manage.title")}
-          </Heading>
-          <Button
-            leftIcon={<FiHome />}
-            variant="subtle"
-            size={{ "@initial": "sm", "@sm": "md" }}
-            onClick={() => to("/")}
-          >
-            {t("manage.sidemenu.home")}
-          </Button>
+          <HStack spacing="$3">
+            <Button
+              leftIcon={<FiArrowLeft />}
+              variant="outline"
+              size="sm"
+              onClick={() => to("/")}
+            >
+              {t("manage.sidemenu.home")}
+            </Button>
+            <Heading size="lg">
+              {t("manage.title")}
+            </Heading>
+          </HStack>
         </HStack>
+
         <HStack
-          spacing="$2"
-          wrap="wrap"
-          mb={{ "@initial": "$4", "@sm": "$6" }}
+          spacing="$1"
+          p="$1"
+          bg={useColorModeValue("$neutral3", "$neutral5")()}
+          rounded="$xl"
+          w="fit-content"
+          maxW="$full"
+          overflowX="auto"
+          mb="$6"
         >
           {tabs
             .filter((tab) => !tab.admin || UserMethods.is_admin(me()))
-            .map((tab) => (
-              <Button
-                size={{ "@initial": "sm", "@sm": "md" }}
-                variant={
-                  pathname() === tab.path ||
-                  (tab.path !== "/@settings" &&
-                    pathname().startsWith(tab.path + "/")) ||
-                  (tab.path.endsWith("/profile") &&
-                    pathname() === "/@settings/2fa")
-                    ? "solid"
-                    : "ghost"
-                }
-                onClick={() => to(tab.path)}
-              >
-                {t(tab.title)}
-              </Button>
-            ))}
+            .map((tab) => {
+              const isActive = () =>
+                pathname() === tab.path ||
+                (tab.path !== "/@settings" && pathname().startsWith(tab.path + "/")) ||
+                (tab.path.endsWith("/profile") && pathname() === "/@settings/2fa")
+
+              return (
+                <Button
+                  size="sm"
+                  leftIcon={<tab.icon />}
+                  variant={isActive() ? "solid" : "ghost"}
+                  colorScheme={isActive() ? "accent" : "neutral"}
+                  bg={isActive() ? useColorModeValue("white", "$neutral7")() : "transparent"}
+                  color={isActive() ? useColorModeValue("$neutral12", "white")() : useColorModeValue("$neutral10", "$neutral9")()}
+                  shadow={isActive() ? "$xs" : "none"}
+                  rounded="$lg"
+                  fontWeight={isActive() ? "$semibold" : "$medium"}
+                  _hover={isActive() ? undefined : {
+                    bg: useColorModeValue("$neutral4", "$neutral6")(),
+                    color: useColorModeValue("$neutral12", "white")(),
+                  }}
+                  onClick={() => to(tab.path)}
+                >
+                  {t(tab.title)}
+                </Button>
+              )
+            })}
         </HStack>
         <Routes>
           <Route path="" component={Appearance} />

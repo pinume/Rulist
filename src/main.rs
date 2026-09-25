@@ -9,6 +9,7 @@ mod config;
 mod db;
 mod driver;
 mod model;
+pub mod preview;
 mod server;
 mod sign;
 mod static_files;

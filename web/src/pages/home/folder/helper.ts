@@ -1,13 +1,8 @@
-import { Checkbox, hope } from "@hope-ui/solid"
 import { createEffect, onCleanup } from "solid-js"
-import { useContextMenu } from "solid-contextmenu"
 import SelectionArea from "@viselect/vanilla"
 import {
-  checkboxOpen,
-  haveSelected,
   local,
   objStore,
-  oneChecked,
   selectAll,
   selectedObjs,
   selectIndex,
@@ -18,13 +13,9 @@ import { StoreObj } from "~/types"
 let selectedCache: StoreObj[] | null = null
 
 export function useSelectWithMouse() {
-  const isMouseSupported = () => !isMobile && checkboxOpen()
-  const openWithDoubleClick = () =>
-    isMouseSupported() && local["open_item_on_checkbox"] === "dblclick"
-  const toggleWithClick = () =>
-    isMouseSupported() &&
-    local["open_item_on_checkbox"] === "disable_while_checked" &&
-    haveSelected()
+  const isMouseSupported = () => false
+  const openWithDoubleClick = () => false
+  const toggleWithClick = () => false
 
   const saveSelectionCache = () => {
     selectedCache = selectedObjs()
@@ -92,45 +83,11 @@ export function useSelectWithMouse() {
     })
   }
 
-  const { show } = useContextMenu({ id: 1 })
-
-  const captureContentMenu = (e: MouseEvent) => {
-    e.preventDefault()
-
-    if (haveSelected() && !oneChecked()) {
-      const $target = e.target as Element
-      const $selectedItem = $target.closest(".viselect-item")
-      const index = Number($selectedItem?.getAttribute("data-index"))
-
-      const isClickOnContainer = Number.isNaN(index)
-      const isClickOnSelectedItems = () => !!objStore.objs[index].selected
-      if (isClickOnContainer || !isClickOnSelectedItems()) return
-
-      e.stopPropagation()
-      show(e, { props: objStore.obj })
-    }
-  }
-
   return {
     isMouseSupported,
     openWithDoubleClick,
     toggleWithClick,
     restoreSelectionCache,
     registerSelectContainer,
-    captureContentMenu,
   }
 }
-
-export const ItemCheckbox = hope(Checkbox, {
-  baseStyle: {
-    // expand the range of click
-    _before: {
-      content: "",
-      pos: "absolute",
-      top: -10,
-      right: -2,
-      bottom: -10,
-      left: -10,
-    },
-  },
-})

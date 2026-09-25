@@ -71,9 +71,12 @@ export const Obj = () => {
       w="$full"
       rounded="$xl"
       bgColor={cardBg()}
-      p="$2"
-      shadow="$lg"
-      spacing="$2"
+      p="$0"
+      border="1px solid"
+      borderColor="$neutral4"
+      shadow="$sm"
+      overflow="visible"
+      spacing="$0"
     >
       <Suspense fallback={<FullLoading />}>
         <Switch>

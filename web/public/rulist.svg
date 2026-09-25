@@ -1,17 +1,37 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-labelledby="title">
   <title id="title">Rulist</title>
   <defs>
-    <linearGradient id="folder" x1="104" y1="112" x2="392" y2="400" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#18baf4"/>
-      <stop offset="1" stop-color="#0797ee"/>
-    </linearGradient>
-    <linearGradient id="list" x1="248" y1="184" x2="408" y2="408" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#20d9b0"/>
-      <stop offset="1" stop-color="#10cfa4"/>
+    <linearGradient id="rulist-blue" x1="35" y1="126" x2="120" y2="208" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#129BFF"/>
+      <stop offset="1" stop-color="#0878F5"/>
     </linearGradient>
   </defs>
-  <path d="M96 160c0-30.9 25.1-56 56-56h99.2c16.7 0 32.5 7.5 43.1 20.4L324 160h68c30.9 0 56 25.1 56 56v136c0 30.9-25.1 56-56 56H152c-30.9 0-56-25.1-56-56V160Z" fill="url(#folder)"/>
-  <path d="M160 224c0-17.7 14.3-32 32-32h104v216h-40V272h-64c-17.7 0-32-14.3-32-32v-16Z" fill="#fff"/>
-  <rect x="248" y="192" width="200" height="216" rx="48" fill="url(#list)"/>
-  <path d="M304 256h88M304 304h88M304 352h88" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="20"/>
+  <path d="M 52 42
+H 151
+C 184 42 208 67 208 101
+C 208 124 198 143 180 155
+L 174 159
+L 207 197
+C 213 204 208 209 199 209
+H 170
+C 164 209 160 207 156 202
+L 121 161
+C 112 151 113 139 124 132
+L 145 119
+C 153 114 158 108 158 100
+C 158 92 153 88 145 88
+H 75
+C 67 88 61 85 56 80
+L 40 59
+C 33 50 39 42 52 42
+Z" fill="#1B222C"/>
+  <path d="M 54 126
+C 46 126 35 136 35 147
+V 184
+C 35 198 45 208 59 208
+H 104
+C 118 208 124 196 115 186
+L 67 132
+C 63 128 59 126 54 126
+Z" fill="url(#rulist-blue)"/>
 </svg>

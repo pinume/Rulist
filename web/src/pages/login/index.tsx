@@ -24,11 +24,19 @@ import {
 import { Resp } from "~/types"
 import LoginBg from "./LoginBg"
 import { createStorageSignal } from "@solid-primitives/storage"
-import { getSetting, getSettingBool } from "~/store"
+import { getLogo, getSetting, getSettingBool } from "~/store"
+import { joinBase } from "~/utils"
 
 const Login = () => {
-  const logos = getSetting("logo").split("\n")
-  const logo = useColorModeValue(logos[0], logos.pop())
+  const [lightLogo, darkLogo] = getLogo()
+  const logo = useColorModeValue(lightLogo, darkLogo)
+  const logoSrc = createMemo(() => {
+    const value = logo()
+    if (/^(?:https?:)?\/\//.test(value) || /^(?:data|blob):/.test(value)) {
+      return value
+    }
+    return joinBase(value)
+  })
   const t = useT()
   const title = createMemo(() => {
     return `${t("login.login_to")} ${getSetting("site_title")}`
@@ -88,7 +96,7 @@ const Login = () => {
         spacing="$4"
       >
         <Flex alignItems="center" justifyContent="space-around">
-          <Image mr="$2" boxSize="$12" src={logo()} />
+          <Image mr="$2" boxSize="$12" src={logoSrc()} />
           <Heading color="$info9" fontSize="$2xl">
             {title()}
           </Heading>

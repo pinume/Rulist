@@ -237,7 +237,7 @@ async fn seed_settings(pool: &DbPool) -> Result<()> {
             ('version', 'v0.1.1-rust', 'string', 0, 2),
             ('announcement', '', 'text', 0, 0),
             ('robots_txt', 'User-agent: *\nAllow: /', 'text', 0, 0),
-            ('logo', 'favicon.ico', 'text', 1, 0),
+            ('logo', 'rulist.svg'||char(10)||'rulist-dark.svg', 'text', 1, 0),
             ('favicon', '', 'string', 1, 0),
             ('main_color', '#1890ff', 'string', 1, 0),
             ('hide_files', '/\/README.md/i', 'text', 0, 0),

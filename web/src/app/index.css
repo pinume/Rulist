@@ -1,3 +1,23 @@
+@font-face {
+  font-family: "Maple Mono NF CN";
+  src:
+    local("Maple Mono NF CN"),
+    url("./fonts/MapleMono-NF-CN-Regular.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Maple Mono NF CN";
+  src:
+    local("Maple Mono NF CN"),
+    url("./fonts/MapleMono-NF-CN-Bold.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 700;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -53,3 +73,134 @@
 .hope-notification__list {
   width: unset;
 }
+
+/* Markdown preview typography & layout */
+.markdown-body {
+  font-size: 15px;
+  line-height: 1.7;
+  word-wrap: break-word;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  font-weight: 600;
+  line-height: 1.35;
+  margin-top: 1.5em;
+  margin-bottom: 0.6em;
+}
+
+.markdown-body h1 {
+  font-size: 1.8em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--hope-colors-neutral4);
+}
+
+.markdown-body h2 {
+  font-size: 1.4em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--hope-colors-neutral4);
+}
+
+.markdown-body h3 {
+  font-size: 1.2em;
+}
+
+.markdown-body p {
+  margin-top: 0;
+  margin-bottom: 1em;
+}
+
+.markdown-body blockquote {
+  margin: 1em 0;
+  padding: 0.6em 1em;
+  color: var(--hope-colors-neutral10);
+  background-color: var(--hope-colors-neutral2);
+  border-left: 4px solid var(--hope-colors-accent7);
+  border-radius: 0 4px 4px 0;
+}
+
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  overflow: auto;
+  display: block;
+}
+
+.markdown-body th,
+.markdown-body td {
+  padding: 8px 12px;
+  border: 1px solid var(--hope-colors-neutral4);
+}
+
+.markdown-body th {
+  background-color: var(--hope-colors-neutral3);
+  font-weight: 600;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 2em;
+  margin-top: 0;
+  margin-bottom: 1em;
+}
+
+.markdown-body li + li {
+  margin-top: 0.25em;
+}
+
+.markdown-body hr {
+  height: 1px;
+  padding: 0;
+  margin: 1.5em 0;
+  background-color: var(--hope-colors-neutral4);
+  border: 0;
+}
+
+.markdown-body a {
+  color: var(--hope-colors-accent9);
+  text-decoration: none;
+}
+
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+
+.markdown-body code {
+  font-family: "Maple Mono NF CN", monospace;
+  font-size: 0.9em;
+  padding: 0.2em 0.4em;
+  margin: 0;
+  border-radius: 4px;
+  background-color: var(--hope-colors-neutral3);
+}
+
+.markdown-body pre {
+  margin: 1em 0;
+  padding: 12px 16px;
+  overflow: auto;
+  font-size: 0.9em;
+  line-height: 1.5;
+  background-color: var(--hope-colors-neutral2);
+  border: 1px solid var(--hope-colors-neutral4);
+  border-radius: 6px;
+}
+
+.markdown-body pre code {
+  padding: 0;
+  margin: 0;
+  background-color: transparent;
+  border: 0;
+  font-family: "Maple Mono NF CN", monospace;
+}
+
+.markdown-body img {
+  max-width: 100%;
+  box-sizing: content-box;
+  border-radius: 6px;
+}
+

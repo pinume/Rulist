@@ -18,7 +18,7 @@ use crate::server::{
 };
 use crate::sign::sign_path;
 
-async fn signing_token(state: &SharedState) -> Result<String, Response> {
+pub(crate) async fn signing_token(state: &SharedState) -> Result<String, Response> {
     match get_setting(&state.pool, "token").await {
         Ok(Some(token)) if !token.trim().is_empty() => Ok(token),
         Ok(_) => Err(api_error(
@@ -598,12 +598,25 @@ pub async fn fs_remove_empty_dirs_handler(
         let entries = match state.storage.list(&dir).await {
             Ok(entries) => entries,
             Err(err) => {
-                tracing::error!(error = %err, path = %dir, "failed to list directory during empty dir removal");
-                return api_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    500,
-                    "Internal server error",
-                );
+                if dir == root {
+                    tracing::error!(
+                        error = %err,
+                        path = %dir,
+                        "failed to list directory during empty dir removal"
+                    );
+                    return api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        500,
+                        "Internal server error",
+                    );
+                } else {
+                    tracing::warn!(
+                        error = %err,
+                        path = %dir,
+                        "failed to list child directory during empty dir removal, skipping"
+                    );
+                    continue;
+                }
             }
         };
 
@@ -623,16 +636,10 @@ pub async fn fs_remove_empty_dirs_handler(
         match state.storage.is_physically_empty(&dir).await {
             Ok(true) => {
                 if let Err(err) = state.storage.remove(&dir).await {
-                    tracing::error!(
+                    tracing::warn!(
                         error = %err,
                         path = %dir,
-                        "failed to remove empty directory"
-                    );
-
-                    return api_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        500,
-                        "Internal server error",
+                        "failed to remove empty directory, skipping"
                     );
                 }
             }
@@ -640,16 +647,10 @@ pub async fn fs_remove_empty_dirs_handler(
             Ok(false) => {}
 
             Err(err) => {
-                tracing::error!(
+                tracing::warn!(
                     error = %err,
                     path = %dir,
-                    "failed to verify directory emptiness"
-                );
-
-                return api_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    500,
-                    "Internal server error",
+                    "failed to verify directory emptiness, skipping"
                 );
             }
         }

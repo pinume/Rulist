@@ -173,7 +173,7 @@ export const globalStyles = globalCss({
       outlineOffset: "2px",
     },
   html: {
-    fontFamily: `-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol" !important`,
+    fontFamily: `"Maple Mono NF CN","Noto Sans Mono CJK SC",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace !important`,
     width: "100%",
     minHeight: "100%",
   },

@@ -2,8 +2,7 @@ import { Box, createDisclosure, VStack } from "@hope-ui/solid"
 import { createMemo, Show } from "solid-js"
 import { RightIcon } from "./Icon"
 import { CgMoreO } from "solid-icons/cg"
-import { TbCheckbox } from "solid-icons/tb"
-import { objStore, selectAll, State, toggleCheckbox, userCan } from "~/store"
+import { objStore, selectAll, State, userCan } from "~/store"
 import { bus } from "~/utils"
 import { operations } from "./operations"
 import { AiOutlineCloudUpload, AiOutlineSetting } from "solid-icons/ai"
@@ -78,15 +77,6 @@ export const Right = () => {
                 }}
               />
             </Show>
-            <Show when={isFolder() && userCan("move") && objStore.write}>
-              <RightIcon
-                as={operations.recursive_move.icon}
-                tips="recursive_move"
-                onClick={() => {
-                  bus.emit("tool", "recursiveMove")
-                }}
-              />
-            </Show>
             <Show when={isFolder() && userCan("delete") && objStore.write}>
               <RightIcon
                 as={operations.remove_empty_directory.icon}
@@ -121,11 +111,6 @@ export const Right = () => {
                 }}
               />
             </Show>
-            <RightIcon
-              tips="toggle_checkbox"
-              as={TbCheckbox}
-              onClick={toggleCheckbox}
-            />
             <RightIcon
               as={AiOutlineSetting}
               tips="settings"

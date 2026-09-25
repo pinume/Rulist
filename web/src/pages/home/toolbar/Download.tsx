@@ -13,16 +13,6 @@ import { FullLoading } from "~/components"
 import { useT } from "~/hooks"
 import { getSettingBool } from "~/store"
 import { bus, notify } from "~/utils"
-import { CenterIcon } from "./Icon"
-
-export const Download = () => (
-  <CenterIcon
-    name="download"
-    onClick={() => {
-      bus.emit("tool", "package_download_direct")
-    }}
-  />
-)
 
 const PackageDownload = lazy(() => import("./PackageDownload"))
 

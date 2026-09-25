@@ -136,30 +136,45 @@ const Users = () => {
   const dividerColor = useColorModeValue("$neutral4", "$neutral6")
 
   return (
-    <VStack spacing="$3" alignItems="stretch" w="$full">
-      <HStack spacing="$2" w="$full" justifyContent="space-between">
-        <HStack spacing="$2">
-          <Button
-            colorScheme="accent"
-            size={{ "@initial": "sm", "@sm": "md" }}
-            loading={getUsersLoading()}
-            onClick={refresh}
-          >
-            {t("global.refresh")}
-          </Button>
-          <Button
-            size={{ "@initial": "sm", "@sm": "md" }}
-            onClick={() => {
-              to("/@settings/users/add")
-            }}
-          >
-            {t("global.add")}
-          </Button>
+    <Box
+      w="$full"
+      rounded="$xl"
+      shadow="$sm"
+      border="1px solid"
+      borderColor={cardBorder()}
+      bg={cardBg()}
+      overflow="hidden"
+    >
+      <Box
+        p={{ "@initial": "$3", "@sm": "$4" }}
+        borderBottom="1px solid"
+        borderColor={dividerColor()}
+        bg={useColorModeValue("$neutral2", "$neutral4")()}
+      >
+        <HStack spacing="$2" w="$full" justifyContent="space-between">
+          <HStack spacing="$2">
+            <Button
+              colorScheme="accent"
+              size={{ "@initial": "sm", "@sm": "md" }}
+              loading={getUsersLoading()}
+              onClick={refresh}
+            >
+              {t("global.refresh")}
+            </Button>
+            <Button
+              size={{ "@initial": "sm", "@sm": "md" }}
+              onClick={() => {
+                to("/@settings/users/add")
+              }}
+            >
+              {t("global.add")}
+            </Button>
+          </HStack>
         </HStack>
-      </HStack>
+      </Box>
 
       {/* 移动端卡片视图 */}
-      <Box class={mobileOnlyClass()} w="$full">
+      <Box class={mobileOnlyClass()} w="$full" p={{ "@initial": "$3", "@sm": "$4" }}>
         <Show
           when={loaded()}
           fallback={
@@ -379,7 +394,7 @@ const Users = () => {
         </Table>
         </Show>
       </Box>
-    </VStack>
+    </Box>
   )
 }
 

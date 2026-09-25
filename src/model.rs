@@ -110,6 +110,8 @@ pub struct FileObj {
     pub readme: String,
     pub header: String,
     pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -290,6 +292,33 @@ pub struct FsLinkResp {
     pub url: String,
 }
 
+#[cfg(unix)]
+pub fn format_mode(mode: u32, is_dir: bool) -> String {
+    let d = if is_dir { 'd' } else { '-' };
+    let r1 = if mode & 0o400 != 0 { 'r' } else { '-' };
+    let w1 = if mode & 0o200 != 0 { 'w' } else { '-' };
+    let x1 = if mode & 0o100 != 0 { 'x' } else { '-' };
+    let r2 = if mode & 0o040 != 0 { 'r' } else { '-' };
+    let w2 = if mode & 0o020 != 0 { 'w' } else { '-' };
+    let x2 = if mode & 0o010 != 0 { 'x' } else { '-' };
+    let r3 = if mode & 0o004 != 0 { 'r' } else { '-' };
+    let w3 = if mode & 0o002 != 0 { 'w' } else { '-' };
+    let x3 = if mode & 0o001 != 0 { 'x' } else { '-' };
+    format!(
+        "{}{}{}{}{}{}{}{}{}{}",
+        d, r1, w1, x1, r2, w2, x2, r3, w3, x3
+    )
+}
+
+#[cfg(not(unix))]
+pub fn format_mode(_mode: u32, is_dir: bool) -> String {
+    if is_dir {
+        "drwxr-xr-x".to_string()
+    } else {
+        "-rw-r--r--".to_string()
+    }
+}
+
 impl FileObj {
     pub fn new(
         name: impl Into<String>,
@@ -316,6 +345,7 @@ impl FileObj {
             readme: String::new(),
             header: String::new(),
             provider: "Local".to_string(),
+            permissions: None,
         }
     }
 }

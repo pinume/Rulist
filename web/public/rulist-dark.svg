@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-labelledby="title">
+  <title id="title">Rulist</title>
+  <defs>
+    <linearGradient id="rulist-blue" x1="35" y1="126" x2="120" y2="208" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#129BFF"/>
+      <stop offset="1" stop-color="#0878F5"/>
+    </linearGradient>
+  </defs>
+  <path d="M 52 42
+H 151
+C 184 42 208 67 208 101
+C 208 124 198 143 180 155
+L 174 159
+L 207 197
+C 213 204 208 209 199 209
+H 170
+C 164 209 160 207 156 202
+L 121 161
+C 112 151 113 139 124 132
+L 145 119
+C 153 114 158 108 158 100
+C 158 92 153 88 145 88
+H 75
+C 67 88 61 85 56 80
+L 40 59
+C 33 50 39 42 52 42
+Z" fill="#F8FAFC"/>
+  <path d="M 54 126
+C 46 126 35 136 35 147
+V 184
+C 35 198 45 208 59 208
+H 104
+C 118 208 124 196 115 186
+L 67 132
+C 63 128 59 126 54 126
+Z" fill="url(#rulist-blue)"/>
+</svg>

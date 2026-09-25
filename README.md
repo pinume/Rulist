@@ -1,4 +1,4 @@
-# Rulist
+# <img src="web/public/rulist.svg" width="32" alt="" /> Rulist
 
 A lightweight, high-performance file listing tool written in Rust (Rulist).
 

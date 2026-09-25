@@ -276,36 +276,7 @@ For trivial changes such as documentation, comments, formatting, or spelling tha
 
 ⸻
 
-10. Verification Artifact
-
-After applicable E2E verification, generate a verifiable and reproducible acceptance artifact in the project root.
-
-Examples:
-
-* output files;
-* JSON / CSV / XLSX results;
-* validation reports;
-* execution summaries;
-* logs;
-* diffs;
-* checksums;
-* verification directories.
-
-The artifact must:
-
-* provide evidence that the functionality actually executed;
-* be independently verifiable;
-* be reproducible where practical;
-* not overwrite original user data;
-* not contain passwords, tokens, API keys, secrets, or other sensitive data.
-
-Prefer existing project output formats.
-
-A verification artifact is not required for trivial changes that do not affect runtime behavior.
-
-⸻
-
-11. CI Rules
+10. CI Rules
 
 * Do not add GitHub Actions.
 * Do not proactively add other CI/CD workflows.
@@ -314,7 +285,7 @@ A verification artifact is not required for trivial changes that do not affect r
 
 ⸻
 
-12. Dependencies and Configuration
+11. Dependencies and Configuration
 
 * Do not add dependencies without a clear need.
 * Do not upgrade unrelated dependencies for a local task.
@@ -325,7 +296,7 @@ A verification artifact is not required for trivial changes that do not affect r
 
 ⸻
 
-13. Definition of Done
+12. Definition of Done
 
 A coding task is complete only when:
 
@@ -342,7 +313,6 @@ A coding task is complete only when:
 * the final code was reviewed using ponytail:ponytail-audit or ponytail:ponytail-review;
 * review findings have been resolved;
 * the corrected result has been rebuilt, re-verified, and re-reviewed;
-* a verification artifact exists when applicable;
 * final acceptance is based on actual execution evidence rather than agent self-reporting.
 
 ⸻
@@ -563,17 +533,7 @@ ponytail:ponytail-review
 
 ⸻
 
-10. 验证工件
-
-适用的 E2E 完成后，在项目根目录生成可验证、可重复的验收工件。
-
-可包括输出文件、JSON / CSV / XLSX、报告、执行摘要、日志、diff、checksum 或验证目录。
-
-不得覆盖原始数据或包含敏感信息。
-
-⸻
-
-11. CI 规则
+10. CI 规则
 
 * 不新增 GitHub Actions。
 * 不主动增加其他 CI/CD。
@@ -582,7 +542,7 @@ ponytail:ponytail-review
 
 ⸻
 
-12. 依赖与配置
+11. 依赖与配置
 
 * 没有明确需要时不增加依赖。
 * 不为局部任务升级无关依赖。
@@ -593,7 +553,7 @@ ponytail:ponytail-review
 
 ⸻
 
-13. 完成标准
+12. 完成标准
 
 编码任务只有满足以下条件才算完成：
 
@@ -610,5 +570,4 @@ ponytail:ponytail-review
 * 最终代码已通过 Ponytail audit/review；
 * 审查问题已解决；
 * 修复后已重新编译、验证和审查；
-* 适用时已生成验收工件；
 * 最终验收基于真实执行证据。

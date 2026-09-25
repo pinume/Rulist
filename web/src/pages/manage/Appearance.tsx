@@ -111,17 +111,18 @@ export const Appearance = () => {
   return (
     <Box
       w="$full"
-      rounded="$lg"
+      rounded="$xl"
       border="1px solid"
       borderColor={cardBorder()}
       bg={cardBg()}
-      shadow="$xs"
+      shadow="$sm"
       overflow="hidden"
     >
       <Box
         p={{ "@initial": "$4", "@sm": "$5" }}
         borderBottom="1px solid"
         borderColor={dividerColor()}
+        bg={useColorModeValue("$neutral2", "$neutral4")()}
       >
         <Heading size={{ "@initial": "base", "@sm": "lg" }}>
           {t("manage.appearance")}
@@ -146,6 +147,8 @@ export const Appearance = () => {
               }
               borderColor={dividerColor()}
               gap="$3"
+              _hover={{ bg: useColorModeValue("$neutral2", "$neutral4")() }}
+              transition="background-color 0.15s"
             >
               <Text fontWeight="$medium" fontSize="$sm">
                 {t(`home.local_settings.${setting.key}`)}

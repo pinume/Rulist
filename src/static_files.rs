@@ -121,22 +121,26 @@ pub async fn manifest_handler(State(state): State<Arc<AppState>>) -> impl IntoRe
         .get("site_title")
         .cloned()
         .unwrap_or_else(|| "Rulist".to_string());
-    let logo = settings
-        .get("logo")
-        .cloned()
-        .unwrap_or_else(|| "favicon.ico".to_string());
-    let logo_first = logo.lines().next().unwrap_or(&logo).to_string();
+    let logo = settings.get("logo").cloned().unwrap_or_default();
+    let logo_first = logo.lines().next().unwrap_or(&logo).trim();
+    let icons = if logo.trim().is_empty()
+        || logo.trim() == "favicon.ico"
+        || logo.trim() == "rulist.svg\nrulist-dark.svg"
+    {
+        serde_json::json!([
+            { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+            { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+        ])
+    } else {
+        serde_json::json!([{ "src": logo_first }])
+    };
 
     let manifest = serde_json::json!({
         "display": "standalone",
         "scope": "/",
         "start_url": "/",
         "name": site_title,
-        "icons": [{
-            "src": logo_first,
-            "sizes": "512x512",
-            "type": "image/png"
-        }]
+        "icons": icons
     });
 
     let mut res = axum::Json(manifest).into_response();
@@ -157,7 +161,9 @@ pub async fn favicon_handler(State(state): State<Arc<AppState>>) -> impl IntoRes
         return Redirect::temporary(&fav).into_response();
     }
 
-    if let Some(res) = serve_dist_asset("rulist.svg") {
+    if let Some(mut res) = serve_dist_asset("favicon.ico") {
+        res.headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
         return res;
     }
     StatusCode::NOT_FOUND.into_response()

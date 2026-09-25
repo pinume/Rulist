@@ -17,6 +17,7 @@ export interface Obj {
   sign?: string
   thumb: string
   type: ObjType
+  permissions?: string
 }
 
 export type StoreObj = Obj & {

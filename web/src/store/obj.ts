@@ -1,10 +1,9 @@
-import { createStorageSignal } from "@solid-primitives/storage"
 import { createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Obj, ObjType, StoreObj } from "~/types"
-import { bus } from "~/utils"
 import { keyPressed } from "./key-event"
 import { useT } from "~/hooks"
+import { local } from "./local_settings"
 
 export type OrderBy = "name" | "size" | "modified"
 export const LIST_PAGE_SIZE = 100
@@ -69,6 +68,9 @@ const [objStore, setObjStore] = createStore<
 >(initialObjStore)
 
 const setListing = (objs: Obj[], total: number, page: number) => {
+  if (objStore.page !== page) {
+    setDirectoryFilter("")
+  }
   lastChecked.start = -1
   lastChecked.end = -1
   setObjStore({ objs, total, page })
@@ -107,38 +109,42 @@ const lastChecked = {
 }
 
 export const selectIndex = (index: number, checked: boolean, one?: boolean) => {
+  const indexes = visibleObjIndexes()
+  if (!indexes.includes(index)) return
   if (one) {
     selectAll(false)
   }
   if (keyPressed["Shift"]) {
     if (lastChecked.start < 0) {
-      for (
-        let i = 0;
-        i < Math.max(index + 1, objStore.objs.length - index);
-        ++i
-      ) {
-        if (objStore.objs[index - i]?.selected) {
-          lastChecked.start = index - i
-          lastChecked.end = index - i
+      const current = indexes.indexOf(index)
+      for (let i = 0; i < indexes.length; ++i) {
+        if (objStore.objs[indexes[current - i]]?.selected) {
+          lastChecked.start = indexes[current - i]
+          lastChecked.end = indexes[current - i]
           break
-        } else if (objStore.objs[index + i]?.selected) {
-          lastChecked.start = index + i
-          lastChecked.end = index + i
+        } else if (objStore.objs[indexes[current + i]]?.selected) {
+          lastChecked.start = indexes[current + i]
+          lastChecked.end = indexes[current + i]
           break
         }
       }
     }
-    const countUncheck = Math.abs(lastChecked.end - lastChecked.start)
-    const signUncheck = Math.sign(lastChecked.end - lastChecked.start)
-    for (let i = 1; i <= countUncheck; ++i) {
-      setObjStore("objs", lastChecked.start + signUncheck * i, {
-        selected: false,
-      })
+    if (lastChecked.start < 0) {
+      setObjStore("objs", index, { selected: checked })
+      lastChecked.start = index
+      lastChecked.end = index
+      return
     }
-    const countCheck = Math.abs(index - lastChecked.start)
-    const signCheck = Math.sign(index - lastChecked.start)
-    for (let i = 0; i <= countCheck; ++i) {
-      setObjStore("objs", lastChecked.start + signCheck * i, { selected: true })
+    const range = (from: number, to: number) => {
+      const start = indexes.indexOf(from)
+      const end = indexes.indexOf(to)
+      return indexes.slice(Math.min(start, end), Math.max(start, end) + 1)
+    }
+    for (const i of range(lastChecked.start, lastChecked.end)) {
+      setObjStore("objs", i, { selected: false })
+    }
+    for (const i of range(lastChecked.start, index)) {
+      setObjStore("objs", i, { selected: true })
     }
     lastChecked.end = index
   } else {
@@ -154,7 +160,12 @@ export const selectIndex = (index: number, checked: boolean, one?: boolean) => {
 }
 
 export const selectAll = (checked: boolean) => {
-  setObjStore("objs", {}, (obj) => ({ selected: checked }))
+  const indexes = checked
+    ? visibleObjIndexes()
+    : objStore.objs.map((_, index) => index)
+  for (const index of indexes) {
+    setObjStore("objs", index, { selected: checked })
+  }
 }
 
 export const selectedObjs = () => {
@@ -162,7 +173,11 @@ export const selectedObjs = () => {
 }
 
 export const allChecked = () => {
-  return objStore.objs.length === selectedNum()
+  const indexes = visibleObjIndexes()
+  return (
+    indexes.length > 0 &&
+    indexes.every((index) => objStore.objs[index].selected)
+  )
 }
 
 export const oneChecked = () => {
@@ -174,46 +189,62 @@ export const haveSelected = () => {
 }
 
 export const isIndeterminate = () => {
-  return selectedNum() > 0 && selectedNum() < objStore.objs.length
+  const selected = visibleObjIndexes().filter(
+    (index) => objStore.objs[index].selected,
+  )
+  return selected.length > 0 && selected.length < visibleObjIndexes().length
 }
 
 const selectedNum = createMemo(() => selectedObjs().length)
 
-export type LayoutType = "list" | "grid"
-const [pathname, setPathname] = createSignal<string>(location.pathname)
-const layoutRecord: Record<string, LayoutType> = (() => {
-  try {
-    return JSON.parse(localStorage.getItem("layoutRecord") || "{}")
-  } catch (e) {
-    return {}
-  }
-})()
-
-bus.on("pathname", (p) => setPathname(p))
-const [_layout, _setLayout] = createSignal<LayoutType>(
-  layoutRecord[pathname()] === "grid" ? "grid" : "list",
-)
-export const layout = () => {
-  _setLayout(layoutRecord[pathname()] === "grid" ? "grid" : "list")
-  return _layout()
-}
-export const setLayout = (layout: LayoutType) => {
-  layoutRecord[pathname()] = layout
-  localStorage.setItem("layoutRecord", JSON.stringify(layoutRecord))
-  _setLayout(layout)
-}
-
-const [_checkboxOpen, setCheckboxOpen] = createStorageSignal<string>(
-  "checkbox-open",
-  "false",
-)
-export const checkboxOpen = () => _checkboxOpen() === "true"
-
-export const toggleCheckbox = () => {
-  setCheckboxOpen(checkboxOpen() ? "false" : "true")
-}
-
 export { objStore }
+const [directoryFilter, setDirectoryFilterValue] = createSignal("")
+export const setDirectoryFilter = (value: string) => {
+  if (directoryFilter() === value) return
+  selectAll(false)
+  lastChecked.start = -1
+  lastChecked.end = -1
+  setDirectoryFilterValue(value)
+}
+export const clearDirectoryFilter = () => setDirectoryFilter("")
+export { directoryFilter }
+export const visibleObjIndexes = createMemo(() => {
+  const query = directoryFilter().trim().toLowerCase()
+  const indexes = objStore.objs.flatMap((obj, index) =>
+    !query || obj.name.toLowerCase().includes(query) ? [index] : [],
+  )
+  const position = (local["folder_sort_position"] || "top") as string
+  const orderBy = objStore.orderBy
+  const reverse = objStore.reverse
+
+  return indexes.sort((i, j) => {
+    const a = objStore.objs[i]
+    const b = objStore.objs[j]
+    if (!a || !b) return 0
+    if (position === "top" && a.is_dir !== b.is_dir) {
+      return a.is_dir ? -1 : 1
+    }
+    let res = 0
+    if (orderBy === "size") {
+      res = a.size - b.size
+    } else if (orderBy === "modified") {
+      const aTime = new Date(a.modified).getTime() || 0
+      const bTime = new Date(b.modified).getTime() || 0
+      res = aTime - bTime
+    } else {
+      res = a.name.localeCompare(b.name, undefined, { numeric: true })
+    }
+    if (res === 0) {
+      res = a.name.localeCompare(b.name, undefined, { numeric: true })
+    }
+    const orderedRes = reverse ? -res : res
+    if (orderedRes !== 0) return orderedRes
+    if (a.is_dir !== b.is_dir) {
+      return a.is_dir ? -1 : 1
+    }
+    return 0
+  })
+})
 const [password, setPassword] = createSignal<string>("")
 export { password, setPassword }
 
@@ -252,15 +283,6 @@ export const selectedMsg = (filterType?: ObjType) => {
   const isSelected = selectedList.length > 0
 
   return isSelected ? getCountStr(selectedList, "selected", filterType) : ""
-}
-
-export const smartCountMsg = (filterType?: ObjType) => {
-  const selectedList = selectedObjs()
-  const isSelected = selectedList.length > 0
-
-  return isSelected
-    ? getCountStr(selectedList, "selected", filterType)
-    : countMsg(filterType)
 }
 
 export const [uploadConfig, setUploadConfig] = createStore({
