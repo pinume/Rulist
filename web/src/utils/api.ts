@@ -103,19 +103,6 @@ export const fsRemove = (dir: string, names: string[]): PEmptyResp => {
   return r.post("/fs/remove", { dir, names })
 }
 
-export const fsRemoveEmptyDirectory = (src_dir: string): PEmptyResp => {
-  return r.post("/fs/remove_empty_directory", { src_dir })
-}
-
-export const fsNewFile = (path: string, overwrite: boolean): PEmptyResp => {
-  return r.put("/fs/put", undefined, {
-    headers: {
-      "File-Path": encodeURIComponent(path),
-      Overwrite: overwrite.toString(),
-    },
-  })
-}
-
 export const fsLink = (path: string): PResp<{ url: string }> => {
   return r.post("/fs/link", { path })
 }

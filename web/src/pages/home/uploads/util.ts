@@ -1,3 +1,4 @@
+import { bus } from "~/utils"
 import { UploadFileProps } from "./types"
 
 export const traverseFileTree = async (entry: FileSystemEntry) => {
@@ -61,4 +62,27 @@ export const File2Upload = (file: File): UploadFileProps => {
     speed: 0,
     status: "pending",
   }
+}
+
+let pendingFiles: File[] = []
+let uploadListenerActive = false
+
+export const setUploadListenerActive = (active: boolean) => {
+  uploadListenerActive = active
+}
+
+export const enqueueFilesForUpload = (files: File[]) => {
+  if (files.length === 0) return
+  if (uploadListenerActive) {
+    bus.emit("upload_files", files)
+  } else {
+    pendingFiles.push(...files)
+  }
+  bus.emit("tool", "upload")
+}
+
+export const takePendingFiles = (): File[] => {
+  const files = pendingFiles
+  pendingFiles = []
+  return files
 }

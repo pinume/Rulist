@@ -12,18 +12,23 @@ import {
   Button,
   Stack,
 } from "@hope-ui/solid"
-import { createSignal, For, Show } from "solid-js"
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { usePath, useRouter, useT } from "~/hooks"
 import { getMainColor, uploadConfig, setUploadConfig } from "~/store"
 import {
   RiDocumentFolderUploadFill,
   RiDocumentFileUploadFill,
 } from "solid-icons/ri"
-import { getFileSize, notify, pathJoin } from "~/utils"
+import { bus, getFileSize, notify, pathJoin } from "~/utils"
 import { asyncPool } from "~/utils/async_pool"
 import { createStore } from "solid-js/store"
 import { UploadFileProps, StatusBadge } from "./types"
-import { File2Upload, traverseFileTree } from "./util"
+import {
+  File2Upload,
+  traverseFileTree,
+  setUploadListenerActive,
+  takePendingFiles,
+} from "./util"
 import { StreamUpload } from "./stream"
 
 const UploadFile = (props: UploadFileProps & { onRetry?: () => void }) => {
@@ -118,6 +123,24 @@ const Upload = () => {
     // 再次延迟刷新一次，以便能看到后端异步生成的 BT 文件（如 189/189pc 驱动的 .cas.torrent）
     setTimeout(() => refresh(undefined, true), 5000)
   }
+
+  onMount(() => {
+    setUploadListenerActive(true)
+    const pending = takePendingFiles()
+    if (pending.length > 0) {
+      handleAddFiles(pending)
+    }
+  })
+
+  const onUploadFiles = (files: File[]) => {
+    handleAddFiles(files)
+  }
+  bus.on("upload_files", onUploadFiles)
+  onCleanup(() => {
+    setUploadListenerActive(false)
+    bus.off("upload_files", onUploadFiles)
+  })
+
   const setUpload = (path: string, key: keyof UploadFileProps, value: any) => {
     setUploadFiles("uploads", (upload) => upload.path === path, key, value)
   }

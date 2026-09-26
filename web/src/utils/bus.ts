@@ -2,6 +2,7 @@ type Events = {
   to: string
   tool: string
   pathname: string
+  upload_files: File[]
 }
 
 type Handler<T = any> = (event: T) => void

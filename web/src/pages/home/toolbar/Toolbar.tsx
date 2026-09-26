@@ -1,11 +1,8 @@
 import { Portal } from "solid-js/web"
-import { Right } from "./Right"
 import { Copy, Move } from "./CopyMove"
 import { Delete } from "./Delete"
 import { Rename } from "./Rename"
-import { NewFile } from "./NewFile"
 import { Mkdir } from "./Mkdir"
-import { RemoveEmptyDirectory } from "./RemoveEmptyDirectory"
 import { BatchRename } from "./BatchRename"
 import { PackageDownloadModal } from "./Download"
 import { lazy } from "solid-js"
@@ -21,9 +18,7 @@ export const Modal = () => {
       <Move />
       <Rename />
       <Delete />
-      <NewFile />
       <Mkdir />
-      <RemoveEmptyDirectory />
       <BatchRename />
       <PackageDownloadModal />
       <ModalWrapper name="upload" title="home.toolbar.upload">
@@ -36,7 +31,6 @@ export const Modal = () => {
 export const Toolbar = () => {
   return (
     <Portal>
-      <Right />
       <Modal />
       <BackTop />
     </Portal>

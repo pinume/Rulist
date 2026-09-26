@@ -30,6 +30,12 @@
     "next": "下一页",
     "page": "第 {{page}} / {{pages}} 页（共 {{total}} 项）"
   },
+  "add_menu": {
+    "title": "新建与上传",
+    "upload_file": "上传文件",
+    "upload_folder": "上传文件夹",
+    "create_folder": "创建文件夹"
+  },
   "input_password": "请输入密码",
   "toolbar": {
     "more": "更多",
@@ -47,8 +53,6 @@
     "encode_down_link": "编码下载链接",
     "mkdir": "新建文件夹",
     "input_dir_name": "输入文件夹名称",
-    "new_file": "新建文件",
-    "input_filename": "输入文件名",
     "cancel_select": "取消选择",
     "download": "下载",
     "package_download": "打包下载",
@@ -57,8 +61,6 @@
     "package_download-tips": "正在下载，请稍候不要关闭页面",
     "upload": "上传",
     "settings": "设置",
-    "remove_empty_directory": "移除空文件夹",
-    "remove_empty_directory-tips": "您确定要删除所有空子文件夹吗？",
     "batch_rename": "批量重命名",
     "sequential_renaming": "顺序重命名",
     "batch_rename_preview": "更改后文件",
