@@ -1,4 +1,5 @@
 import {
+  Button,
   Divider,
   HStack,
   Icon,
@@ -24,7 +25,9 @@ import {
   ObjStore,
   OrderBy,
   objStore,
+  selectAll,
   selectedMsg,
+  userCan,
   visibleObjIndexes,
 } from "~/store"
 import { Col, cols, ListItem } from "./ListItem"
@@ -80,11 +83,7 @@ export const ListTitle = (props: {
       borderTopRadius="$xl"
     >
       <HStack w={cols[0].w} spacing="$1">
-        {selectedMsg() ? (
-          <Text {...itemProps(cols[0])}>{selectedMsg()}</Text>
-        ) : (
-          <Text {...itemProps(cols[0])}>{t(`home.obj.${cols[0].name}`)}</Text>
-        )}
+        <Text {...itemProps(cols[0])}>{t(`home.obj.${cols[0].name}`)}</Text>
       </HStack>
       <Text
         w={cols[1].w}
@@ -228,12 +227,8 @@ export const ListTitle = (props: {
                 >
                   <Text
                     fontSize="$sm"
-                    color={
-                      objStore.reverse ? getMainColor() : undefined
-                    }
-                    fontWeight={
-                      objStore.reverse ? "semibold" : "normal"
-                    }
+                    color={objStore.reverse ? getMainColor() : undefined}
+                    fontWeight={objStore.reverse ? "semibold" : "normal"}
                   >
                     {t("home.sort_desc") || "Z 至 A"}
                   </Text>
@@ -331,22 +326,8 @@ const ListLayout = () => {
 
   const { registerSelectContainer } = useSelectWithMouse()
   registerSelectContainer()
-
-  const onDragOver = (e: DragEvent) => {
-    const items = Array.from(e.dataTransfer?.items ?? [])
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i]
-      if (item.kind === "file") {
-        bus.emit("tool", "upload")
-        e.preventDefault()
-        break
-      }
-    }
-  }
-
   return (
     <VStack
-      onDragOver={onDragOver}
       class="list viselect-container"
       w="$full"
       spacing="$0"
@@ -359,6 +340,60 @@ const ListLayout = () => {
         initialOrder={objStore.orderBy}
         initialReverse={objStore.reverse}
       />
+      <Show when={selectedMsg()}>
+        <HStack
+          w="$full"
+          px={{ "@initial": "$3", "@md": "$4" }}
+          py="$2"
+          spacing="$3"
+          borderBottom="1px solid"
+          borderColor="$neutral4"
+          bgColor={useColorModeValue("$info2", "$neutral4")()}
+          flexWrap="wrap"
+        >
+          <Text size="sm" fontWeight="semibold" mr="auto">
+            {selectedMsg()}
+          </Text>
+          <Show when={userCan("copy") && objStore.write}>
+            <Button
+              size="sm"
+              variant="ghost"
+              color={getMainColor()}
+              onClick={() => bus.emit("tool", "copy")}
+            >
+              {t("home.toolbar.copy")}
+            </Button>
+          </Show>
+          <Show when={userCan("move") && objStore.write}>
+            <Button
+              size="sm"
+              variant="ghost"
+              color={getMainColor()}
+              onClick={() => bus.emit("tool", "move")}
+            >
+              {t("home.toolbar.move")}
+            </Button>
+          </Show>
+          <Show when={userCan("delete") && objStore.write}>
+            <Button
+              size="sm"
+              variant="ghost"
+              color="$danger9"
+              onClick={() => bus.emit("tool", "delete")}
+            >
+              {t("home.toolbar.delete")}
+            </Button>
+          </Show>
+          <Button
+            size="sm"
+            variant="ghost"
+            color="$neutral10"
+            onClick={() => selectAll(false)}
+          >
+            {t("home.toolbar.cancel_select")}
+          </Button>
+        </HStack>
+      </Show>
       <For each={visibleObjIndexes()}>
         {(index) => {
           return <ListItem obj={objStore.objs[index]} index={index} />

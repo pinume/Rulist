@@ -94,7 +94,8 @@ async fn stream_file(
         };
 
         let s = sign.unwrap_or_default();
-        if verify_sign(&token, &clean_path, &s).is_err() {
+        let context = state.storage.storage_context_for_path(&clean_path);
+        if verify_sign(&token, &clean_path, &context, &s).is_err() {
             return (
                 StatusCode::FORBIDDEN,
                 "Invalid or expired download link signature",
@@ -136,9 +137,7 @@ async fn stream_file(
     }
 
     let file_size = meta.len();
-    let content_type = mime_guess::from_path(&clean_path)
-        .first_or_octet_stream()
-        .to_string();
+    let content_type = crate::preview::detector::detect_from_path(&clean_path).1;
 
     let filename = Path::new(&clean_path)
         .file_name()
@@ -210,7 +209,9 @@ fn apply_stream_headers(
             h.insert(CONTENT_RANGE, val);
         }
     }
-    if !as_attachment {
+    if !as_attachment
+        && (content_type.starts_with("text/html") || content_type.starts_with("image/svg+xml"))
+    {
         h.insert(CONTENT_SECURITY_POLICY, HeaderValue::from_static("sandbox"));
     }
 }

@@ -24,6 +24,7 @@ export const UserPermissionBits = {
   copy: 6,
   delete: 7,
   overwrite: 8,
+  allow_empty_password: 9,
 } as const
 
 export const UserPermissions = Object.keys(UserPermissionBits) as Array<

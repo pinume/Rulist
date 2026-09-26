@@ -2,6 +2,8 @@
 
 A lightweight, high-performance file listing tool written in Rust (Rulist).
 
+Run the local HTTP smoke test after `cargo build --locked`: `python3 scripts/smoke_e2e.py`.
+
 ## 开发与构建环境
 
 - **Rust**: 1.85+

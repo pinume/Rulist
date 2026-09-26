@@ -7,15 +7,33 @@ pub enum PreviewType {
     Video,
     Audio,
     Pdf,
+    Html,
     Markdown,
     Text,
     Code,
     Json,
     Xml,
-    Csv,
-    Archive,
-    Html,
     Unknown,
+}
+
+impl PreviewType {
+    pub fn strategy(&self) -> PreviewStrategy {
+        match self {
+            PreviewType::Image
+            | PreviewType::Video
+            | PreviewType::Audio
+            | PreviewType::Pdf
+            | PreviewType::Html => PreviewStrategy::Direct,
+
+            PreviewType::Markdown
+            | PreviewType::Text
+            | PreviewType::Code
+            | PreviewType::Json
+            | PreviewType::Xml => PreviewStrategy::Processed,
+
+            PreviewType::Unknown => PreviewStrategy::Unsupported,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,6 +42,12 @@ pub enum PreviewStrategy {
     Direct,
     Processed,
     Unsupported,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessedContent {
+    pub kind: String,
+    pub value: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,15 +64,10 @@ pub struct PreviewMeta {
     pub permissions: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProcessedContent {
-    pub kind: String,
-    pub value: String,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PreviewResponse {
     pub meta: PreviewMeta,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<ProcessedContent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -57,4 +76,26 @@ pub struct PreviewResponse {
 #[derive(Debug, Deserialize)]
 pub struct PreviewReq {
     pub path: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_strategy() {
+        assert_eq!(PreviewType::Image.strategy(), PreviewStrategy::Direct);
+        assert_eq!(PreviewType::Video.strategy(), PreviewStrategy::Direct);
+        assert_eq!(PreviewType::Pdf.strategy(), PreviewStrategy::Direct);
+        assert_eq!(PreviewType::Html.strategy(), PreviewStrategy::Direct);
+        assert_eq!(PreviewType::Markdown.strategy(), PreviewStrategy::Processed);
+        assert_eq!(PreviewType::Text.strategy(), PreviewStrategy::Processed);
+        assert_eq!(PreviewType::Code.strategy(), PreviewStrategy::Processed);
+        assert_eq!(PreviewType::Json.strategy(), PreviewStrategy::Processed);
+        assert_eq!(PreviewType::Xml.strategy(), PreviewStrategy::Processed);
+        assert_eq!(
+            PreviewType::Unknown.strategy(),
+            PreviewStrategy::Unsupported
+        );
+    }
 }

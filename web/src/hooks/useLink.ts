@@ -1,4 +1,4 @@
-import { objStore, selectedObjs, State, me } from "~/store"
+import { objStore, State, me } from "~/store"
 import { Obj } from "~/types"
 import { api, encodePath, pathDir, pathJoin, standardizePath } from "~/utils"
 import { useRouter } from "."
@@ -26,16 +26,4 @@ export const useLink = () => {
     return getLinkByDirAndObj(dir, obj, encodeAll)
   }
   return { rawLink }
-}
-
-export const useSelectedLink = () => {
-  const { rawLink: rawUrl } = useLink()
-  const rawLinks = (encodeAll?: boolean) => {
-    return selectedObjs()
-      .filter((obj) => !obj.is_dir)
-      .map((obj) => rawUrl(obj, encodeAll))
-  }
-  return {
-    rawLinks: rawLinks,
-  }
 }

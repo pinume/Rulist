@@ -17,7 +17,6 @@ import {
   fsGet,
   fsList,
   handleRespWithoutNotify,
-  log,
   notify,
   pathJoin,
 } from "~/utils"
@@ -90,13 +89,13 @@ export const usePath = () => {
     const { orderBy, reverse } = loadSortState(path)
     ObjStore.setSort(orderBy, reverse)
     if (hasHistory(path)) {
-      log(`handle [${getHistoryKey(path)}] from history`)
+      console.log(`handle [${getHistoryKey(path)}] from history`)
       return recoverHistory(path)
     } else if (IsDirRecord[path]) {
-      log(`handle [${getHistoryKey(path)}] as folder`)
+      console.log(`handle [${getHistoryKey(path)}] as folder`)
       return handleFolder(path, force, page)
     } else {
-      log(`handle [${getHistoryKey(path)}] as obj`)
+      console.log(`handle [${getHistoryKey(path)}] as obj`)
       return handleObj(path)
     }
   }

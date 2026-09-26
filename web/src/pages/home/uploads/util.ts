@@ -14,9 +14,9 @@ export const traverseFileTree = async (entry: FileSystemEntry) => {
         ;(entry as FileSystemFileEntry).file((file) => {
           const newFile = new File([file], path + file.name, {
             type: file.type,
+            lastModified: file.lastModified,
           })
           res.push(newFile)
-          console.log(newFile)
           resolve()
         }, errorCallback)
       } else if (entry.isDirectory) {
@@ -31,18 +31,6 @@ export const traverseFileTree = async (entry: FileSystemEntry) => {
             } else {
               resolve()
             }
-
-            /**
-            why? https://stackoverflow.com/questions/3590058/does-html5-allow-drag-drop-upload-of-folders-or-a-folder-tree/53058574#53058574
-            Unfortunately none of the existing answers are completely correct because 
-            readEntries will not necessarily return ALL the (file or directory) entries for a given directory. 
-            This is part of the API specification (see Documentation section below).
-            
-            To actually get all the files, we'll need to call readEntries repeatedly (for each directory we encounter) 
-            until it returns an empty array. If we don't, we will miss some files/sub-directories in a directory 
-            e.g. in Chrome, readEntries will only return at most 100 entries at a time.
-            
-            */
           }, errorCallback)
         }
         readEntries()
@@ -50,6 +38,46 @@ export const traverseFileTree = async (entry: FileSystemEntry) => {
     })
   }
   await internalProcess(entry, "")
+  return res
+}
+
+export const extractFilesFromDataTransfer = async (
+  dataTransfer: DataTransfer | null,
+): Promise<File[]> => {
+  if (!dataTransfer) return []
+  const items = Array.from(dataTransfer.items ?? [])
+  const files = Array.from(dataTransfer.files ?? [])
+
+  if (items.length === 0) {
+    return files
+  }
+
+  const entries: { isDirectory: boolean; entry?: FileSystemEntry; file?: File }[] = []
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    if (item.kind !== "file") continue
+    const entry = item.webkitGetAsEntry?.()
+    if (entry?.isDirectory) {
+      entries.push({ isDirectory: true, entry })
+    } else if (files[i]) {
+      entries.push({ isDirectory: false, file: files[i] })
+    }
+  }
+
+  const res: File[] = []
+  for (const item of entries) {
+    if (item.isDirectory && item.entry) {
+      try {
+        const innerFiles = await traverseFileTree(item.entry)
+        res.push(...innerFiles)
+      } catch (e) {
+        console.error("Failed to traverse directory", e)
+      }
+    } else if (item.file) {
+      res.push(item.file)
+    }
+  }
+
   return res
 }
 

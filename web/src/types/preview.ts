@@ -8,8 +8,6 @@ export type PreviewType =
   | "code"
   | "json"
   | "xml"
-  | "csv"
-  | "archive"
   | "html"
   | "unknown"
 
@@ -37,4 +35,3 @@ export interface PreviewResponse {
   content?: ProcessedContent
   error?: string
 }
-

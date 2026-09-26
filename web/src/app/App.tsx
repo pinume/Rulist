@@ -7,7 +7,6 @@ import {
   lazy,
   Match,
   onCleanup,
-  onMount,
   Switch,
 } from "solid-js"
 import { Portal } from "solid-js/web"
@@ -21,25 +20,7 @@ import "./index.css"
 import { globalStyles } from "./theme"
 
 const Home = lazy(() => import("~/pages/home/Layout"))
-const Settings = lazy(() => import("~/pages/manage"))
 const Login = lazy(() => import("~/pages/login"))
-
-const LegacyManageRedirect = () => {
-  const { pathname, search, to } = useRouter()
-  onMount(() => {
-    const oldPath = pathname().slice("/@manage".length)
-    to(
-      (oldPath && oldPath !== "/"
-        ? "/@settings" + oldPath
-        : "/@settings/profile") + search,
-      false,
-      {
-        replace: true,
-      },
-    )
-  })
-  return null
-}
 
 const App: Component = () => {
   const t = useT()
@@ -87,15 +68,6 @@ const App: Component = () => {
         fallback={
           <Routes base={base_path}>
             <Route path="/@login" component={Login} />
-            <Route
-              path="/@settings/*"
-              element={
-                <MustUser>
-                  <Settings />
-                </MustUser>
-              }
-            />
-            <Route path="/@manage/*" component={LegacyManageRedirect} />
             <Route
               path="*"
               element={

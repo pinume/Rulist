@@ -3,6 +3,7 @@ import {
   BreadcrumbItem,
   BreadcrumbLink,
   BreadcrumbSeparator,
+  HStack,
 } from "@hope-ui/solid"
 import { Link } from "@solidjs/router"
 import { createMemo, For, Show } from "solid-js"
@@ -18,11 +19,12 @@ export const Nav = () => {
 
   return (
     <Show when={paths().length > 0}>
-      <Breadcrumb
+      <HStack
         position="sticky"
         top="60px"
         zIndex={90}
-        h="36px"
+        minH="40px"
+        py="$1"
         background="$background"
         _after={{
           content: '""',
@@ -35,43 +37,60 @@ export const Nav = () => {
           left: "50%",
           top: 0,
         }}
-        class="nav"
         w="$full"
       >
-        <For each={paths()}>
-          {(name, i) => {
-            const isLast = createMemo(() => i() === paths().length - 1)
-            const path = `/${paths()
-              .slice(0, i() + 1)
-              .join("/")}`
-            const href = encodePath(path)
-            return (
-              <BreadcrumbItem class="nav-item">
-                <BreadcrumbLink
-                  class="nav-link"
-                  css={{
-                    wordBreak: "break-all",
-                  }}
-                  color={isLast() ? "$neutral12" : "$neutral10"}
-                  _hover={{ color: "$neutral12" }}
-                  cursor="pointer"
-                  px="$1"
-                  py="$0_5"
-                  currentPage={isLast()}
-                  as={isLast() ? undefined : Link}
-                  href={joinBase(href)}
-                  onMouseEnter={() => setPathAs(path)}
-                >
-                  {name}
-                </BreadcrumbLink>
-                <Show when={!isLast()}>
-                  <BreadcrumbSeparator class="nav-separator" />
-                </Show>
-              </BreadcrumbItem>
-            )
-          }}
-        </For>
-      </Breadcrumb>
+        <Breadcrumb class="nav" minW={0} overflow="hidden">
+          <BreadcrumbItem class="nav-item">
+            <BreadcrumbLink
+              class="nav-link"
+              as={Link}
+              href={joinBase("/")}
+              color="$neutral10"
+              _hover={{ color: "$neutral12" }}
+              cursor="pointer"
+              px="$1"
+              py="$0_5"
+              onMouseEnter={() => setPathAs("/")}
+            >
+              我的文件
+            </BreadcrumbLink>
+            <BreadcrumbSeparator class="nav-separator" />
+          </BreadcrumbItem>
+          <For each={paths()}>
+            {(name, i) => {
+              const isLast = createMemo(() => i() === paths().length - 1)
+              const path = `/${paths()
+                .slice(0, i() + 1)
+                .join("/")}`
+              const href = encodePath(path)
+              return (
+                <BreadcrumbItem class="nav-item">
+                  <BreadcrumbLink
+                    class="nav-link"
+                    css={{
+                      wordBreak: "break-all",
+                    }}
+                    color={isLast() ? "$neutral12" : "$neutral10"}
+                    _hover={{ color: "$neutral12" }}
+                    cursor="pointer"
+                    px="$1"
+                    py="$0_5"
+                    currentPage={isLast()}
+                    as={isLast() ? undefined : Link}
+                    href={joinBase(href)}
+                    onMouseEnter={() => setPathAs(path)}
+                  >
+                    {name}
+                  </BreadcrumbLink>
+                  <Show when={!isLast()}>
+                    <BreadcrumbSeparator class="nav-separator" />
+                  </Show>
+                </BreadcrumbItem>
+              )
+            }}
+          </For>
+        </Breadcrumb>
+      </HStack>
     </Show>
   )
 }

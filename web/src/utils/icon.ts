@@ -71,19 +71,6 @@ export const getIconByTypeAndName = (type: number, name: string) => {
   switch (type) {
     case ObjType.FOLDER:
       return IoFolder
-    // case ObjType.OFFICE: {
-    //   if (ext === "doc" || ext === "docx") {
-    //     return BsFileEarmarkWordFill;
-    //   }
-    //   if (ext === "xls" || ext === "xlsx") {
-    //     return BsFileEarmarkExcelFill;
-    //   }
-    //   if (ext === "ppt" || ext === "pptx") {
-    //     return BsFileEarmarkPptFill;
-    //   } else {
-    //     return BsFileEarmarkPdfFill;
-    //   }
-    // }
     case ObjType.VIDEO:
       return BsFileEarmarkPlayFill
     case ObjType.AUDIO:

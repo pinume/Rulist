@@ -1,20 +1,10 @@
-pub mod archive;
-pub mod csv;
-pub mod json;
-pub mod markdown;
-pub mod text;
-pub mod xml;
-
 use tokio::io::AsyncReadExt;
 
 use crate::driver::StorageManager;
-use crate::preview::limits::{
-    MAX_ARCHIVE_FILE_SIZE, MAX_CSV_SIZE, MAX_TEXT_PREVIEW_SIZE, PROCESSED_PREVIEW_CONCURRENCY,
-};
 use crate::preview::types::{PreviewType, ProcessedContent};
 
-static SEMAPHORE: tokio::sync::Semaphore =
-    tokio::sync::Semaphore::const_new(PROCESSED_PREVIEW_CONCURRENCY);
+pub const MAX_DOCUMENT_PREVIEW_SIZE: u64 = 4 * 1024 * 1024; // 4MB
+static SEMAPHORE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(16);
 
 pub async fn process_file(
     storage: &StorageManager,
@@ -22,11 +12,7 @@ pub async fn process_file(
     preview_type: PreviewType,
     file_size: i64,
 ) -> Result<ProcessedContent, &'static str> {
-    let max_size = match preview_type {
-        PreviewType::Archive => MAX_ARCHIVE_FILE_SIZE,
-        PreviewType::Csv => MAX_CSV_SIZE,
-        _ => MAX_TEXT_PREVIEW_SIZE,
-    };
+    let max_size = MAX_DOCUMENT_PREVIEW_SIZE;
 
     if file_size > max_size as i64 {
         return Err("too_large");
@@ -45,18 +31,39 @@ pub async fn process_file(
         return Err("too_large");
     }
 
-    if preview_type == PreviewType::Archive {
-        return archive::process(&bytes, path);
-    }
-
     let text = std::str::from_utf8(&bytes).map_err(|_| "unsupported_encoding")?;
 
     match preview_type {
-        PreviewType::Markdown => markdown::process(text),
-        PreviewType::Text | PreviewType::Code => text::process(text),
-        PreviewType::Json => json::process(text),
-        PreviewType::Xml => xml::process(text),
-        PreviewType::Csv => csv::process(text, path),
-        _ => text::process(text),
+        PreviewType::Markdown => {
+            let mut html = String::new();
+            let parser = pulldown_cmark::Parser::new_ext(text, pulldown_cmark::Options::all());
+            pulldown_cmark::html::push_html(&mut html, parser);
+            Ok(ProcessedContent {
+                kind: "html".to_string(),
+                value: ammonia::clean(&html),
+            })
+        }
+        PreviewType::Json => {
+            let value = match serde_json::from_str::<serde_json::Value>(text) {
+                Ok(val) => serde_json::to_string_pretty(&val).unwrap_or_else(|_| text.to_string()),
+                Err(_) => text.to_string(),
+            };
+            Ok(ProcessedContent {
+                kind: "json".to_string(),
+                value,
+            })
+        }
+        PreviewType::Xml => Ok(ProcessedContent {
+            kind: "xml".to_string(),
+            value: text.to_string(),
+        }),
+        PreviewType::Code => Ok(ProcessedContent {
+            kind: "code".to_string(),
+            value: text.to_string(),
+        }),
+        _ => Ok(ProcessedContent {
+            kind: "text".to_string(),
+            value: text.to_string(),
+        }),
     }
 }

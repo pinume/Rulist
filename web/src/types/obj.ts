@@ -15,6 +15,7 @@ export interface Obj {
   created: string
   modified: string
   sign?: string
+  raw_url?: string
   thumb: string
   type: ObjType
   permissions?: string

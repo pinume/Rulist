@@ -2,7 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::path::Path;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ApiResponse<T> {
@@ -31,6 +30,7 @@ impl<T> ApiResponse<T> {
 }
 
 pub const ROLE_ADMIN: i32 = 2;
+pub const PERM_ALLOW_EMPTY_PASSWORD: i32 = 9;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct User {
@@ -42,8 +42,6 @@ pub struct User {
     pub pwd_ts: i64,
     #[serde(skip_serializing)]
     pub salt: String,
-    #[serde(skip_serializing)]
-    pub password: Option<String>,
     pub base_path: String,
     pub role: i32,
     pub disabled: bool,
@@ -54,7 +52,6 @@ pub struct User {
     pub otp_secret: Option<String>,
     #[serde(skip_serializing)]
     pub last_otp_step: i64,
-    pub sso_id: Option<String>,
     #[sqlx(default)]
     #[serde(default)]
     pub otp: bool,
@@ -232,8 +229,6 @@ pub struct UserWithMount {
     pub disabled: bool,
     pub permission: i32,
     #[serde(default)]
-    pub sso_id: Option<String>,
-    #[serde(default)]
     pub local_path: String,
     #[serde(default)]
     pub directory_path: String,
@@ -351,22 +346,16 @@ impl FileObj {
 }
 
 pub fn get_file_type(filename: &str) -> i32 {
-    let ext = Path::new(filename)
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_lowercase();
-
-    match ext.as_str() {
-        "mp4" | "mkv" | "avi" | "mov" | "wmv" | "flv" | "webm" | "m4v" | "rmvb" | "ts" => {
-            TYPE_VIDEO
-        }
-        "mp3" | "flac" | "ogg" | "m4a" | "wav" | "opus" | "aac" | "aiff" | "wma" => TYPE_AUDIO,
-        "jpg" | "jpeg" | "png" | "gif" | "bmp" | "webp" | "svg" | "ico" | "tiff" | "heic" => {
-            TYPE_IMAGE
-        }
-        "txt" | "md" | "json" | "xml" | "yaml" | "yml" | "go" | "rs" | "py" | "js" | "html"
-        | "css" | "c" | "cpp" | "h" | "sh" | "log" | "sql" | "toml" | "ini" | "conf" => TYPE_TEXT,
+    match crate::preview::detect_from_path(filename).0 {
+        crate::preview::PreviewType::Video => TYPE_VIDEO,
+        crate::preview::PreviewType::Audio => TYPE_AUDIO,
+        crate::preview::PreviewType::Image => TYPE_IMAGE,
+        crate::preview::PreviewType::Text
+        | crate::preview::PreviewType::Html
+        | crate::preview::PreviewType::Markdown
+        | crate::preview::PreviewType::Code
+        | crate::preview::PreviewType::Json
+        | crate::preview::PreviewType::Xml => TYPE_TEXT,
         _ => TYPE_UNKNOWN,
     }
 }
@@ -509,6 +498,11 @@ mod tests {
         assert_eq!(get_file_type("movie.mp4"), TYPE_VIDEO);
         assert_eq!(get_file_type("photo.png"), TYPE_IMAGE);
         assert_eq!(get_file_type("doc.md"), TYPE_TEXT);
+        assert_eq!(get_file_type("script.py"), TYPE_TEXT);
+        assert_eq!(get_file_type("data.json"), TYPE_TEXT);
         assert_eq!(get_file_type("archive.bin"), TYPE_UNKNOWN);
+        assert_eq!(get_file_type("word.docx"), TYPE_UNKNOWN);
+        assert_eq!(get_file_type("excel.xlsx"), TYPE_UNKNOWN);
+        assert_eq!(get_file_type("slide.pptx"), TYPE_UNKNOWN);
     }
 }

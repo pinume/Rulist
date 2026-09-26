@@ -42,14 +42,9 @@ export const useObjTitle = () => {
   useTitle(
     () =>
       `${
-        pathname() === "/" ? t("manage.sidemenu.home") : pathBase(pathname())
+        pathname() === "/" ? t("global.home") : pathBase(pathname())
       } | ${getSetting("site_title")}`,
   )
-}
-
-export const useManageTitle = (title: string) => {
-  const t = useT()
-  useTitle(() => `${t(title)} | ${t("manage.title")}`)
 }
 
 export { useTitle }

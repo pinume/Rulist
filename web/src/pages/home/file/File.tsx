@@ -4,7 +4,7 @@ import { FilePreviewLayout } from "~/components/preview"
 import { useRouter, useT } from "~/hooks"
 import { objStore } from "~/store"
 import { PreviewResponse, Resp } from "~/types"
-import { getFileSize, r } from "~/utils"
+import { getFileSize, r, startDownload } from "~/utils"
 
 const fetchPreview = async (path: string): Promise<PreviewResponse | null> => {
   if (!path) return null
@@ -24,16 +24,6 @@ const File = () => {
   const { pathname } = useRouter()
   const [preview] = createResource(pathname, fetchPreview)
 
-  const startDownload = () => {
-    const rawUrl = preview()?.meta?.raw_url || objStore.raw_url
-    const url = new URL(rawUrl, window.location.href)
-    url.searchParams.set("openlist_ts", Date.now().toString())
-    const anchor = document.createElement("a")
-    anchor.href = url.toString()
-    anchor.download = preview()?.meta?.name || objStore.obj.name || "download"
-    anchor.click()
-  }
-
   return (
     <Switch>
       <Match when={preview.loading}>
@@ -49,6 +39,7 @@ const File = () => {
       </Match>
       <Match when={preview()?.meta}>
         <FilePreviewLayout
+          path={pathname()}
           meta={preview()!.meta}
           content={preview()!.content}
           error={preview()!.error}
@@ -69,7 +60,16 @@ const File = () => {
           <Text color="$neutral10">
             {getFileSize(preview()?.meta?.size || objStore.obj.size)}
           </Text>
-          <Button onClick={startDownload}>{t("home.toolbar.download")}</Button>
+          <Button
+            onClick={() =>
+              startDownload(
+                preview()?.meta?.raw_url || objStore.raw_url,
+                preview()?.meta?.name || objStore.obj.name || "download",
+              )
+            }
+          >
+            {t("home.toolbar.download")}
+          </Button>
         </VStack>
       </Match>
     </Switch>

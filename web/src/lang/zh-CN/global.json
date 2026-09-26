@@ -38,5 +38,8 @@
   "unsaved_changes_confirm": "您有未保存的更改。是否确定要离开？",
   "invalid_filename_chars": "文件名不能包含: / \\ ? < > * : | \"",
   "name": "名称",
-  "go_to_users": "转到用户管理"
+  "go_to_users": "转到用户管理",
+  "home": "首页",
+  "logout": "退出登录",
+  "logout_success": "登出成功"
 }

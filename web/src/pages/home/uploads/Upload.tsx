@@ -25,7 +25,7 @@ import { createStore } from "solid-js/store"
 import { UploadFileProps, StatusBadge } from "./types"
 import {
   File2Upload,
-  traverseFileTree,
+  extractFilesFromDataTransfer,
   setUploadListenerActive,
   takePendingFiles,
 } from "./util"
@@ -262,26 +262,10 @@ const Upload = () => {
             e.preventDefault()
             e.stopPropagation()
             setDrag(false)
-            const res: File[] = []
-            const items = Array.from(e.dataTransfer?.items ?? [])
-            const files = Array.from(e.dataTransfer?.files ?? [])
-            let itemLength = items.length
-            const folderEntries = []
-            for (let i = 0; i < itemLength; i++) {
-              const item = items[i]
-              const entry = item.webkitGetAsEntry()
-              if (entry?.isFile) {
-                res.push(files[i])
-              } else if (entry?.isDirectory) {
-                folderEntries.push(entry)
-              }
-            }
-            for (const entry of folderEntries) {
-              const innerFiles = await traverseFileTree(entry)
-              res.push(...innerFiles)
-            }
+            const res = await extractFilesFromDataTransfer(e.dataTransfer)
             if (res.length === 0) {
               notify.warning(t("home.upload.no_files_drag"))
+              return
             }
             handleAddFiles(res)
           }}

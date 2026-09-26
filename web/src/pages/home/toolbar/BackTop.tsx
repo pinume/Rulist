@@ -1,7 +1,7 @@
 import { Show, createSignal, onCleanup } from "solid-js"
 import { Box, Icon } from "@hope-ui/solid"
 import { FiArrowUp } from "solid-icons/fi"
-import { isMobile } from "~/utils/compatibility"
+import { isMobile } from "~/utils"
 import { getMainColor } from "~/store"
 
 export const useScrollListener = (

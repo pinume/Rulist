@@ -544,7 +544,7 @@ impl LocalDriver {
             .await
     }
 
-    pub async fn move_to_safe_internal(
+    pub(crate) async fn move_to_safe_internal(
         &self,
         src_subpath: &str,
         dst_subpath: &str,

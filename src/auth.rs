@@ -34,13 +34,7 @@ pub fn rand_string(n: usize) -> String {
 }
 
 fn hex_encode(bytes: impl AsRef<[u8]>) -> String {
-    let b = bytes.as_ref();
-    let mut s = String::with_capacity(b.len() * 2);
-    for byte in b {
-        use std::fmt::Write;
-        let _ = write!(s, "{byte:02x}");
-    }
-    s
+    bytes.as_ref().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Generate random token formatted as rulist-<hex>
@@ -125,6 +119,8 @@ pub fn verify_password(raw_password: &str, pwd_hash: &str, salt: &str) -> bool {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserClaims {
+    #[serde(default)]
+    pub user_id: i64,
     pub username: String,
     pub pwd_ts: i64,
     pub jti: String,
@@ -134,6 +130,7 @@ pub struct UserClaims {
 }
 
 pub fn generate_jwt(
+    user_id: i64,
     username: &str,
     pwd_ts: i64,
     secret: &str,
@@ -151,6 +148,7 @@ pub fn generate_jwt(
     let exp = now + (expires_in_hours as usize * 3600);
 
     let claims = UserClaims {
+        user_id,
         username: username.to_string(),
         pwd_ts,
         jti,

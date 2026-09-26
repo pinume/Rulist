@@ -2,8 +2,11 @@ import { Box, Icon, Text, VStack } from "@hope-ui/solid"
 import { BsFileEarmarkMusicFill } from "solid-icons/bs"
 import { PreviewMeta } from "~/types"
 import { getFileSize } from "~/utils"
+import { useRenewMediaUrl } from "./useRenewMediaUrl"
 
-export const AudioPreview = (props: { meta: PreviewMeta }) => {
+export const AudioPreview = (props: { meta: PreviewMeta; path: string }) => {
+  const { rawUrl, onError } = useRenewMediaUrl(() => props.path, () => props.meta.raw_url)
+
   return (
     <Box display="flex" justifyContent="center" alignItems="center" p="$8">
       <VStack
@@ -24,8 +27,9 @@ export const AudioPreview = (props: { meta: PreviewMeta }) => {
           {getFileSize(props.meta.size)}
         </Text>
         <audio
-          src={props.meta.raw_url}
+          src={rawUrl()}
           controls
+          onError={onError}
           preload="metadata"
           style={{ width: "100%", "max-width": "500px" }}
         />

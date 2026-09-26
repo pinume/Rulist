@@ -20,16 +20,14 @@ import {
   clearDirectoryFilter,
   directoryFilter,
   getLogo,
-  getMainColor,
   objStore,
   setDirectoryFilter,
   State,
 } from "~/store"
 import { Container } from "../Container"
 import { LinkWithBase } from "~/components"
-import { joinBase } from "~/utils"
+import { authLogout, changeToken, handleResp, joinBase, notify } from "~/utils"
 import { useRouter, useT } from "~/hooks"
-import { FiSettings } from "solid-icons/fi"
 import { AddMenu } from "./AddMenu"
 
 export const Header = () => {
@@ -92,7 +90,7 @@ export const Header = () => {
     >
       <Container>
         <HStack
-          px="calc(2% + 0.5rem)"
+          px={{ "@initial": "$3", "@md": "$6" }}
           py="$2"
           w="$full"
           spacing="$2"
@@ -126,7 +124,7 @@ export const Header = () => {
                 onInput={(event) =>
                   setDirectoryFilter(event.currentTarget.value)
                 }
-                w={{ "@initial": "150px", "@sm": "200px", "@md": "240px" }}
+                w={{ "@initial": "150px", "@sm": "260px", "@md": "360px" }}
                 size="sm"
               />
             </Show>
@@ -134,26 +132,24 @@ export const Header = () => {
             <Tooltip
               placement="bottom"
               withArrow
-              label={t("home.toolbar.settings") || "设置"}
+              label={t("global.logout") || "退出登录"}
             >
               <IconButton
-                aria-label={t("home.toolbar.settings") || "设置"}
+                aria-label={t("global.logout") || "退出登录"}
                 icon={
                   <svg
                     viewBox="0 0 24 24"
-                    width="13"
-                    height="13"
+                    width="14"
+                    height="14"
                     stroke="currentColor"
-                    stroke-width="2.5"
+                    stroke-width="2.2"
                     stroke-linecap="round"
                     stroke-linejoin="round"
                     fill="none"
-                    style={{
-                      transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-                    }}
                   >
-                    <circle cx="12" cy="12" r="3" />
-                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" y1="12" x2="9" y2="12" />
                   </svg>
                 }
                 w="$7"
@@ -169,20 +165,23 @@ export const Header = () => {
                 shadow="$xs"
                 transition="all 0.15s ease-in-out"
                 _hover={{
-                  color: getMainColor(),
-                  borderColor: getMainColor(),
-                  bgColor: useColorModeValue("$neutral3", "$neutral5")(),
+                  color: "$danger9",
+                  borderColor: "$danger7",
+                  bgColor: useColorModeValue("$danger2", "$danger4")(),
                   transform: "translateY(-1px)",
                   shadow: "$sm",
-                  "& svg": {
-                    transform: "rotate(45deg)",
-                  },
                 }}
                 _active={{
                   transform: "translateY(0)",
                   shadow: "none",
                 }}
-                onClick={() => to("/@settings")}
+                onClick={async () => {
+                  handleResp(await authLogout(), () => {
+                    changeToken()
+                    notify.success(t("global.logout_success") || "登出成功")
+                    to("/@login?redirect=%2F")
+                  })
+                }}
               />
             </Tooltip>
           </HStack>

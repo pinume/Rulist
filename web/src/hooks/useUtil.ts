@@ -34,14 +34,6 @@ export const useUtil = () => {
         notify.error(t("global.clipboard_denied"))
       }
     },
-    paste: async (): Promise<string> => {
-      try {
-        return navigator.clipboard.readText()
-      } catch (e: any) {
-        notify.error(e.message || t("global.clipboard_denied"))
-        return ""
-      }
-    },
     isHide: (obj: Obj) => {
       const fullPath = pathJoin(pathname(), obj.name)
       return getHideFiles().some((reg) => reg.test(fullPath))

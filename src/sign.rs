@@ -15,8 +15,8 @@ fn derive_key(token: &str) -> [u8; 32] {
     Sha256::digest(format!("{}{}", token, SIGN_SALT).as_bytes()).into()
 }
 
-/// Sign a path with expiration (5 minutes by default)
-pub fn sign_path(token: &str, path: &str) -> Result<String> {
+/// Sign a path with expiration (5 minutes by default) and storage context
+pub fn sign_path(token: &str, path: &str, context: &str) -> Result<String> {
     if token.trim().is_empty() {
         return Err(anyhow!("signing token is missing"));
     }
@@ -25,22 +25,26 @@ pub fn sign_path(token: &str, path: &str) -> Result<String> {
         .unwrap_or_default()
         .as_secs() as i64;
     let expires = now + DEFAULT_LIFETIME_SECS;
-    Ok(sign_path_with_expire(token, path, expires))
+    Ok(sign_path_with_expire(token, path, context, expires))
 }
 
-/// Sign path with explicit expiration timestamp
-pub fn sign_path_with_expire(token: &str, path: &str, expires: i64) -> String {
+/// Sign path with explicit expiration timestamp and storage context
+pub fn sign_path_with_expire(token: &str, path: &str, context: &str, expires: i64) -> String {
     let key = derive_key(token);
     let mut mac = HmacSha256::new_from_slice(&key).expect("valid hmac key");
-    let payload = format!("{}:{}", path, expires);
+    let payload = if context.is_empty() {
+        format!("{}:{}", path, expires)
+    } else {
+        format!("{}:{}:{}", path, context, expires)
+    };
     mac.update(payload.as_bytes());
     let hash = mac.finalize().into_bytes();
     let b64 = BASE64_URL.encode(hash);
     format!("{}:{}", b64, expires)
 }
 
-/// Verify signature for a given path
-pub fn verify_sign(token: &str, path: &str, sign: &str) -> Result<()> {
+/// Verify signature for a given path and storage context
+pub fn verify_sign(token: &str, path: &str, context: &str, sign: &str) -> Result<()> {
     if token.trim().is_empty() {
         return Err(anyhow!("signing token is missing"));
     }
@@ -62,7 +66,7 @@ pub fn verify_sign(token: &str, path: &str, sign: &str) -> Result<()> {
         return Err(anyhow!("signature expired"));
     }
 
-    let expected = sign_path_with_expire(token, path, expires);
+    let expected = sign_path_with_expire(token, path, context, expires);
     if sign.as_bytes().ct_eq(expected.as_bytes()).into() {
         Ok(())
     } else {
@@ -78,14 +82,17 @@ mod tests {
     fn test_sign_and_verify() {
         let token = "rulist-abcdef123456";
         let path = "/Local/test.mp4";
-        let s = sign_path(token, path).unwrap();
+        let ctx = "id=1:add=/tmp/local";
+        let s = sign_path(token, path, ctx).unwrap();
 
-        assert!(verify_sign(token, path, &s).is_ok());
-        assert!(verify_sign(token, "/Local/other.mp4", &s).is_err());
-        assert!(verify_sign("wrong_token", path, &s).is_err());
+        assert!(verify_sign(token, path, ctx, &s).is_ok());
+        assert!(verify_sign(token, "/Local/other.mp4", ctx, &s).is_err());
+        assert!(verify_sign("wrong_token", path, ctx, &s).is_err());
+        // Different mount context must fail (remount rebinding protection)
+        assert!(verify_sign(token, path, "id=1:add=/tmp/remounted", &s).is_err());
 
         // Expired signature
-        let expired_sign = sign_path_with_expire(token, path, 1000);
-        assert!(verify_sign(token, path, &expired_sign).is_err());
+        let expired_sign = sign_path_with_expire(token, path, ctx, 1000);
+        assert!(verify_sign(token, path, ctx, &expired_sign).is_err());
     }
 }

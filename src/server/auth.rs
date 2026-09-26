@@ -59,6 +59,26 @@ pub async fn login_handler(
     State(state): State<SharedState>,
     Json(req): Json<LoginReq>,
 ) -> Response {
+    let user = match get_user_by_name(&state.pool, &req.username).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            tracing::warn!(username = %req.username, "login failed: user not found");
+            return api_error(
+                StatusCode::UNAUTHORIZED,
+                401,
+                "invalid username or password",
+            );
+        }
+        Err(err) => {
+            tracing::error!(error = %err, "login database error");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
+    };
+
     let attempt_key = login_attempt_key(&req.username);
     match reserve_login_attempt(&state.pool, &attempt_key).await {
         Ok(Some(count)) if count > LOGIN_FAILURE_LIMIT => {
@@ -85,25 +105,6 @@ pub async fn login_handler(
             );
         }
     }
-    let user = match get_user_by_name(&state.pool, &req.username).await {
-        Ok(Some(u)) => u,
-        Ok(None) => {
-            tracing::warn!(username = %req.username, "login failed: user not found");
-            return api_error(
-                StatusCode::UNAUTHORIZED,
-                401,
-                "invalid username or password",
-            );
-        }
-        Err(err) => {
-            tracing::error!(error = %err, "login database error");
-            return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Internal server error",
-            );
-        }
-    };
 
     if user.disabled {
         tracing::warn!(username = %user.username, "login failed: user is disabled");
@@ -159,6 +160,7 @@ pub async fn login_handler(
     }
 
     match generate_jwt(
+        user.id,
         &user.username,
         user.pwd_ts,
         &state.config.jwt_secret,
@@ -302,6 +304,16 @@ pub async fn update_current_handler(
         }
     }
 
+    if let Some(new_pwd) = &req.password {
+        if new_pwd.is_empty() {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                400,
+                "Password cannot be empty in personal profile",
+            );
+        }
+    }
+
     if user.is_admin()
         && let Some(new_pwd) = &req.password
         && !new_pwd.is_empty()
@@ -374,22 +386,35 @@ pub async fn update_current_handler(
             .unwrap_or_default()
             .as_secs() as i64;
 
-        if let Err(e) = sqlx::query(
-            "UPDATE `x_users` SET `pwd_hash` = ?, `salt` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?), `password_unset` = 0 WHERE `id` = ?",
+        let update_res = sqlx::query(
+            "UPDATE `x_users` SET `pwd_hash` = ?, `salt` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?), `password_unset` = 0 WHERE `id` = ? AND `pwd_ts` = ?",
         )
         .bind(&encoded_pwd)
         .bind(&salt)
         .bind(now_ts)
         .bind(user.id)
+        .bind(user.pwd_ts)
         .execute(&mut *tx)
-        .await
-        {
-            tracing::error!(error = %e, "failed to update user password in transaction");
-            return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Internal server error",
-            );
+        .await;
+
+        match update_res {
+            Ok(res) if res.rows_affected() == 0 => {
+                let _ = tx.rollback().await;
+                return api_error(
+                    StatusCode::CONFLICT,
+                    409,
+                    "Password has been changed concurrently, please log in again",
+                );
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::error!(error = %e, "failed to update user password in transaction");
+                return api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    500,
+                    "Internal server error",
+                );
+            }
         }
     }
 
@@ -633,8 +658,15 @@ pub async fn two_factor_disable_handler(
     else {
         return api_error(StatusCode::BAD_REQUEST, 400, "2FA is not enabled");
     };
-    if !verify_totp(secret, req.code.trim()) {
+    let Some(step) = matching_totp_step(secret, req.code.trim()) else {
         return api_error(StatusCode::BAD_REQUEST, 400, "Invalid verification code");
+    };
+    if step <= user.last_otp_step {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            400,
+            "Verification code has already been used",
+        );
     }
     let mut tx = match state.pool.begin().await {
         Ok(tx) => tx,
@@ -647,17 +679,30 @@ pub async fn two_factor_disable_handler(
             );
         }
     };
-    if let Err(err) =
-        sqlx::query("UPDATE `x_users` SET `otp_secret` = '', `last_otp_step` = -1 WHERE `id` = ?")
-            .bind(user.id)
-            .execute(&mut *tx)
-            .await
+    let update_res = match sqlx::query(
+        "UPDATE `x_users` SET `otp_secret` = '', `last_otp_step` = -1 WHERE `id` = ? AND `last_otp_step` < ?",
+    )
+    .bind(user.id)
+    .bind(step)
+    .execute(&mut *tx)
+    .await
     {
-        tracing::error!(error = %err, "failed to disable 2fa");
+        Ok(res) => res.rows_affected() > 0,
+        Err(err) => {
+            tracing::error!(error = %err, "failed to disable 2fa");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Failed to disable 2FA",
+            );
+        }
+    };
+    if !update_res {
+        let _ = tx.rollback().await;
         return api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            500,
-            "Failed to disable 2FA",
+            StatusCode::BAD_REQUEST,
+            400,
+            "Verification code has already been used",
         );
     }
     if let Err(err) = sqlx::query("DELETE FROM `x_otp_pending` WHERE `user_id` = ?")

@@ -79,6 +79,7 @@
     "add_as_task": "添加为任务",
     "upload-tips": "拖动文件到此处可上传，或点击：",
     "release": "松开可上传",
+    "release_to_upload": "释放文件或文件夹以上传到当前目录",
     "no_files_drag": "没有拖入文件。",
     "upload_files": "选择文件",
     "upload_folder": "选择文件夹",
@@ -90,35 +91,6 @@
     "retry": "重试",
     "back": "返回上传",
     "clear_done": "清空完成"
-  },
-  "local_settings": {
-    "show_folder_in_image_view_options": {
-      "top": "上方",
-      "bottom": "下方",
-      "none": "隐藏"
-    },
-    "position_of_header_navbar": "标题栏和导航栏的位置",
-    "position_of_header_navbar_options": {
-      "static": "常规",
-      "sticky": "吸附到页面顶部",
-      "only_navbar_sticky": "仅吸附导航栏"
-    },
-    "show_sidebar": "显示侧边栏",
-    "show_sidebar_options": {
-      "none": "隐藏",
-      "visible": "显示"
-    },
-    "list_item_filename_overflow": "列表项目文件名过长",
-    "list_item_filename_overflow_options": {
-      "ellipsis": "省略号",
-      "scrollable": "可滚动",
-      "multi_line": "多行显示"
-    },
-    "folder_sort_position": "文件夹排序位置",
-    "folder_sort_position_options": {
-      "top": "顶部",
-      "mixed": "与文件混合"
-    }
   },
   "sort": "排序",
   "sort_by": "排序依据",

@@ -106,3 +106,7 @@ export const fsRemove = (dir: string, names: string[]): PEmptyResp => {
 export const fsLink = (path: string): PResp<{ url: string }> => {
   return r.post("/fs/link", { path })
 }
+
+export const authLogout = (): PEmptyResp => {
+  return r.get("/auth/logout") as PEmptyResp
+}

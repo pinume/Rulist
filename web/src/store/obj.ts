@@ -1,7 +1,6 @@
 import { createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Obj, ObjType, StoreObj } from "~/types"
-import { keyPressed } from "./key-event"
 import { useT } from "~/hooks"
 import { local } from "./local_settings"
 
@@ -71,8 +70,6 @@ const setListing = (objs: Obj[], total: number, page: number) => {
   if (objStore.page !== page) {
     setDirectoryFilter("")
   }
-  lastChecked.start = -1
-  lastChecked.end = -1
   setObjStore({ objs, total, page })
   setObjStore("obj", "is_dir", true)
 }
@@ -103,60 +100,13 @@ export const ObjStore = {
   setErr: (err: string) => setObjStore("err", err),
 }
 
-const lastChecked = {
-  start: -1,
-  end: -1,
-}
-
 export const selectIndex = (index: number, checked: boolean, one?: boolean) => {
   const indexes = visibleObjIndexes()
   if (!indexes.includes(index)) return
   if (one) {
     selectAll(false)
   }
-  if (keyPressed["Shift"]) {
-    if (lastChecked.start < 0) {
-      const current = indexes.indexOf(index)
-      for (let i = 0; i < indexes.length; ++i) {
-        if (objStore.objs[indexes[current - i]]?.selected) {
-          lastChecked.start = indexes[current - i]
-          lastChecked.end = indexes[current - i]
-          break
-        } else if (objStore.objs[indexes[current + i]]?.selected) {
-          lastChecked.start = indexes[current + i]
-          lastChecked.end = indexes[current + i]
-          break
-        }
-      }
-    }
-    if (lastChecked.start < 0) {
-      setObjStore("objs", index, { selected: checked })
-      lastChecked.start = index
-      lastChecked.end = index
-      return
-    }
-    const range = (from: number, to: number) => {
-      const start = indexes.indexOf(from)
-      const end = indexes.indexOf(to)
-      return indexes.slice(Math.min(start, end), Math.max(start, end) + 1)
-    }
-    for (const i of range(lastChecked.start, lastChecked.end)) {
-      setObjStore("objs", i, { selected: false })
-    }
-    for (const i of range(lastChecked.start, index)) {
-      setObjStore("objs", i, { selected: true })
-    }
-    lastChecked.end = index
-  } else {
-    setObjStore("objs", index, { selected: checked })
-    if (checked) {
-      lastChecked.start = index
-      lastChecked.end = index
-    } else {
-      lastChecked.end = -1
-      lastChecked.start = -1
-    }
-  }
+  setObjStore("objs", index, { selected: checked })
 }
 
 export const selectAll = (checked: boolean) => {
@@ -202,8 +152,6 @@ const [directoryFilter, setDirectoryFilterValue] = createSignal("")
 export const setDirectoryFilter = (value: string) => {
   if (directoryFilter() === value) return
   selectAll(false)
-  lastChecked.start = -1
-  lastChecked.end = -1
   setDirectoryFilterValue(value)
 }
 export const clearDirectoryFilter = () => setDirectoryFilter("")

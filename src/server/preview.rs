@@ -4,7 +4,6 @@ use axum::response::Response;
 
 use crate::preview::{
     PreviewMeta, PreviewReq, PreviewResponse, PreviewStrategy, detect_from_path, processor,
-    resolve_strategy,
 };
 use crate::server::fs::signing_token;
 use crate::server::{
@@ -41,7 +40,11 @@ pub async fn preview_handler(
                 Err(response) => return response,
             };
 
-            let sign = match sign_path(&token, &path) {
+            let sign = match sign_path(
+                &token,
+                &path,
+                &state.storage.storage_context_for_path(&path),
+            ) {
                 Ok(s) => s,
                 Err(err) => {
                     tracing::error!(error = %err, "failed to sign file path for preview");
@@ -55,7 +58,7 @@ pub async fn preview_handler(
 
             let raw_url = format!("/p{}?sign={}", encode_url_path(&path), sign);
             let (preview_type, mime_type) = detect_from_path(&file.name);
-            let strategy = resolve_strategy(&preview_type);
+            let strategy = preview_type.strategy();
 
             let meta = PreviewMeta {
                 name: file.name,

@@ -1,5 +1,5 @@
 import axios from "axios"
-import { api, log } from "."
+import { api } from "."
 
 const instance = axios.create({
   baseURL: api + "/api",
@@ -15,9 +15,7 @@ const instance = axios.create({
 // response interceptor
 instance.interceptors.response.use(
   (response) => {
-    const resp = response.data
-    log(resp)
-    return resp
+    return response.data
   },
   (error) => {
     // response error

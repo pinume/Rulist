@@ -1,8 +1,7 @@
-import { Text, useColorModeValue, VStack, Button } from "@hope-ui/solid"
+import { Text, useColorModeValue, VStack } from "@hope-ui/solid"
 import {
   createEffect,
   createMemo,
-  createSignal,
   lazy,
   Match,
   on,
@@ -17,16 +16,11 @@ import {
   recordHistory,
   setPassword,
   /*layout,*/ State,
-  me,
 } from "~/store"
-import { UserMethods } from "~/types"
 
 const Folder = lazy(() => import("./folder/Folder"))
 const File = lazy(() => import("./file/File"))
 const Password = lazy(() => import("./Password"))
-
-const [objBoxRef, setObjBoxRef] = createSignal<HTMLDivElement>()
-export { objBoxRef }
 
 export const Obj = () => {
   const t = useT()
@@ -48,25 +42,8 @@ export const Obj = () => {
     }),
   )
 
-  const isStorageError = createMemo(() => {
-    const err = objStore.err
-    return (
-      err.includes("storage not found") || err.includes("please add a storage")
-    )
-  })
-
-  const shouldShowStorageButton = createMemo(() => {
-    return isStorageError() && UserMethods.is_admin(me())
-  })
-
-  const storageErrorActions = () => (
-    <Button colorScheme="accent" onClick={() => to("/@settings/users")}>
-      {t("global.go_to_users")}
-    </Button>
-  )
   return (
     <VStack
-      ref={(el: HTMLDivElement) => setObjBoxRef(el)}
       class="obj-box"
       w="$full"
       rounded="$xl"
@@ -81,12 +58,7 @@ export const Obj = () => {
       <Suspense fallback={<FullLoading />}>
         <Switch>
           <Match when={objStore.err}>
-            <Error
-              msg={objStore.err}
-              actions={
-                shouldShowStorageButton() ? storageErrorActions() : undefined
-              }
-            />
+            <Error msg={objStore.err} />
           </Match>
           <Match
             when={[State.FetchingObj, State.FetchingObjs].includes(

@@ -8,6 +8,7 @@ mod auth;
 mod config;
 mod db;
 mod driver;
+mod interactive;
 mod model;
 pub mod preview;
 mod server;
@@ -42,15 +43,13 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Interactive management console (default)
+    #[command(alias = "menu", alias = "manage", alias = "console", alias = "i")]
+    Interactive,
+
     /// Run Rulist HTTP server
     #[command(alias = "serve")]
     Server(ServerArgs),
-
-    /// Manage admin user credentials
-    Admin(AdminArgs),
-
-    /// Manage user passwords
-    User(UserArgs),
 
     /// Display version and build information
     Version,
@@ -65,32 +64,6 @@ struct ServerArgs {
     /// HTTP listen host address
     #[arg(long)]
     host: Option<String>,
-}
-
-#[derive(Args, Debug)]
-struct AdminArgs {
-    #[command(subcommand)]
-    action: Option<AdminSubcommand>,
-}
-
-#[derive(Subcommand, Debug)]
-enum AdminSubcommand {
-    /// Show admin token
-    Token,
-}
-
-#[derive(Args, Debug)]
-struct UserArgs {
-    #[command(subcommand)]
-    action: UserSubcommand,
-}
-
-#[derive(Subcommand, Debug)]
-enum UserSubcommand {
-    /// Set a user's password using a hidden terminal prompt
-    SetPassword { username: String },
-    /// Reset a user's password to empty and disable 2FA
-    ResetPassword { username: String },
 }
 
 #[tokio::main]
@@ -111,13 +84,30 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // Default to 'server' if no subcommand provided
-    let command = cli.command.unwrap_or(Commands::Server(ServerArgs {
-        port: None,
-        host: None,
-    }));
+    // Default to 'interactive' console if no subcommand provided
+    let command = cli.command.unwrap_or(Commands::Interactive);
+
+    let data_dir = if cli.data_dir == std::path::Path::new("data") && !cli.data_dir.exists() {
+        if let Ok(home) = std::env::var("HOME") {
+            let user_rulist = PathBuf::from(home).join(".rulist").join("data");
+            if user_rulist.exists() {
+                user_rulist
+            } else {
+                cli.data_dir
+            }
+        } else {
+            cli.data_dir
+        }
+    } else {
+        cli.data_dir
+    };
 
     match command {
+        Commands::Interactive => {
+            let (config, _) = config::Config::load_or_create(&data_dir)?;
+            let pool = db::init_db(&config.resolved_db_path(&data_dir)).await?;
+            interactive::run_interactive_console(&pool, &data_dir).await?;
+        }
         Commands::Version => {
             println!("Version: v{}", env!("CARGO_PKG_VERSION"));
             println!(
@@ -126,57 +116,8 @@ async fn main() -> Result<()> {
                 std::env::consts::ARCH
             );
         }
-        Commands::Admin(admin_args) => {
-            if admin_args.action.is_none() {
-                use clap::CommandFactory;
-                Cli::command()
-                    .find_subcommand_mut("admin")
-                    .unwrap()
-                    .print_help()?;
-                println!();
-                return Ok(());
-            }
-            let (config, _) = config::Config::load_or_create(&cli.data_dir)?;
-            let db_path = config.resolved_db_path(&cli.data_dir);
-            let pool = db::init_db(&db_path).await?;
-
-            match admin_args.action {
-                Some(AdminSubcommand::Token) => {
-                    if let Some(token) = db::get_setting(&pool, "token").await? {
-                        println!("Admin token: {}", token);
-                    } else {
-                        eprintln!("Admin token not found");
-                    }
-                }
-                None => unreachable!(),
-            }
-        }
-        Commands::User(args) => {
-            let (config, _) = config::Config::load_or_create(&cli.data_dir)?;
-            let pool = db::init_db(&config.resolved_db_path(&cli.data_dir)).await?;
-            match args.action {
-                UserSubcommand::SetPassword { username } => {
-                    let password = rpassword::prompt_password("New password: ")?;
-                    let Some(user) = db::get_user_by_name(&pool, &username).await? else {
-                        bail!("user not found: {username}");
-                    };
-                    if user.is_admin() && !auth::valid_password(&password) {
-                        bail!("password length must be between 8 and 128 characters");
-                    }
-                    if password != rpassword::prompt_password("Confirm password: ")? {
-                        bail!("passwords do not match");
-                    }
-                    db::set_user_password(&pool, &username, &password, false).await?;
-                    println!("Password set for {username}");
-                }
-                UserSubcommand::ResetPassword { username } => {
-                    db::set_user_password(&pool, &username, "", true).await?;
-                    println!("Password reset and 2FA disabled for {username}");
-                }
-            }
-        }
         Commands::Server(server_args) => {
-            let (mut config, config_path) = config::Config::load_or_create(&cli.data_dir)?;
+            let (mut config, config_path) = config::Config::load_or_create(&data_dir)?;
             if let Some(port) = server_args.port {
                 config.scheme.http_port = port;
             }
@@ -186,7 +127,7 @@ async fn main() -> Result<()> {
 
             info!("loaded configuration from {:?}", config_path);
 
-            let db_path = config.resolved_db_path(&cli.data_dir);
+            let db_path = config.resolved_db_path(&data_dir);
             let is_new_database = !db_path.exists();
             let home_path = if is_new_database {
                 let home_path = std::env::var_os("HOME")

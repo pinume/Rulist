@@ -1,12 +1,16 @@
 import { Box } from "@hope-ui/solid"
 import { PreviewMeta } from "~/types"
+import { useRenewMediaUrl } from "./useRenewMediaUrl"
 
-export const VideoPreview = (props: { meta: PreviewMeta }) => {
+export const VideoPreview = (props: { meta: PreviewMeta; path: string }) => {
+  const { rawUrl, onError } = useRenewMediaUrl(() => props.path, () => props.meta.raw_url)
+
   return (
     <Box display="flex" justifyContent="center" p="$4">
       <video
-        src={props.meta.raw_url}
+        src={rawUrl()}
         controls
+        onError={onError}
         preload="metadata"
         style={{
           "max-height": "75vh",

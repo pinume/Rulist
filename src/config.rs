@@ -9,11 +9,9 @@ pub struct DatabaseConfig {
     #[serde(default = "default_db_file")]
     pub db_file: String,
 }
-
 fn default_db_file() -> String {
     "data.db".to_string()
 }
-
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
@@ -29,15 +27,12 @@ pub struct SchemeConfig {
     #[serde(default = "default_http_port")]
     pub http_port: u16,
 }
-
 fn default_address() -> String {
     "0.0.0.0".to_string()
 }
-
-fn default_http_port() -> u16 {
+const fn default_http_port() -> u16 {
     5244
 }
-
 impl Default for SchemeConfig {
     fn default() -> Self {
         Self {
@@ -58,15 +53,12 @@ pub struct Config {
     #[serde(default)]
     pub scheme: SchemeConfig,
 }
-
 fn default_jwt_secret() -> String {
     rand_string(32)
 }
-
-fn default_token_expires_in() -> u32 {
+const fn default_token_expires_in() -> u32 {
     48
 }
-
 impl Default for Config {
     fn default() -> Self {
         Self {

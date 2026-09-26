@@ -13,10 +13,24 @@ use crate::server::AppState;
 #[folder = "public/dist/"]
 pub struct DistAssets;
 
+fn dist_mime(path: &str) -> &'static str {
+    if path.ends_with(".js") {
+        "application/javascript"
+    } else if path.ends_with(".css") {
+        "text/css"
+    } else if path.ends_with(".woff2") {
+        "font/woff2"
+    } else if path.ends_with(".woff") {
+        "font/woff"
+    } else {
+        crate::preview::detector::detect_from_path(path).1
+    }
+}
+
 pub fn serve_dist_asset(path: &str) -> Option<Response<Body>> {
     let clean_path = path.trim_start_matches('/');
     let file = DistAssets::get(clean_path)?;
-    let mime = mime_guess::from_path(clean_path).first_or_octet_stream();
+    let mime = dist_mime(clean_path);
 
     let response = Response::builder()
         .status(StatusCode::OK)
@@ -35,7 +49,7 @@ pub fn serve_dist_asset(path: &str) -> Option<Response<Body>> {
     Some(response)
 }
 
-pub async fn render_html(pool: &crate::db::DbPool, is_manage: bool) -> String {
+pub async fn render_html(pool: &crate::db::DbPool) -> String {
     let raw_html = match DistAssets::get("index.html") {
         Some(f) => String::from_utf8_lossy(&f.data).to_string(),
         None => return "Rulist frontend not found".to_string(),
@@ -66,7 +80,7 @@ pub async fn render_html(pool: &crate::db::DbPool, is_manage: bool) -> String {
         favicon
     };
 
-    let mut html = raw_html
+    raw_html
         .replace("cdn: undefined", "cdn: ''")
         .replace("base_path: undefined", "base_path: '/'")
         .replace(
@@ -82,35 +96,7 @@ pub async fn render_html(pool: &crate::db::DbPool, is_manage: bool) -> String {
             "<title>Rulist</title>",
             &format!("<title>{}</title>", safe_site_title),
         )
-        .replace("Loading...", &safe_site_title);
-
-    if !is_manage {
-        let customize_head: Option<String> = sqlx::query_scalar(
-            "SELECT `value` FROM `x_setting_items` WHERE `key` = 'customize_head'",
-        )
-        .fetch_optional(pool)
-        .await
-        .unwrap_or_default();
-
-        let customize_body: Option<String> = sqlx::query_scalar(
-            "SELECT `value` FROM `x_setting_items` WHERE `key` = 'customize_body'",
-        )
-        .fetch_optional(pool)
-        .await
-        .unwrap_or_default();
-
-        html = html
-            .replace(
-                "<!-- customize head -->",
-                &customize_head.unwrap_or_default(),
-            )
-            .replace(
-                "<!-- customize body -->",
-                &customize_body.unwrap_or_default(),
-            );
-    }
-
-    html
+        .replace("Loading...", &safe_site_title)
 }
 
 pub async fn manifest_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -214,8 +200,7 @@ pub async fn spa_fallback_handler(
     }
 
     // 2. Otherwise serve SPA HTML
-    let is_manage = path.starts_with("@manage") || path.starts_with("manage");
-    let html = render_html(&state.pool, is_manage).await;
+    let html = render_html(&state.pool).await;
 
     Response::builder()
         .status(StatusCode::OK)

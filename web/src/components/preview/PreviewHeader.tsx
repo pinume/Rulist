@@ -10,7 +10,7 @@ import {
 } from "@hope-ui/solid"
 import { FiDownload, FiExternalLink } from "solid-icons/fi"
 import { PreviewMeta, ObjType } from "~/types"
-import { formatDate, getFileSize } from "~/utils"
+import { formatDate, getFileSize, startDownload } from "~/utils"
 import { getIconByObj, getIconColorByObj } from "~/utils/icon"
 import { useT } from "~/hooks"
 
@@ -18,15 +18,6 @@ export const PreviewHeader = (props: { meta: PreviewMeta }) => {
   const t = useT()
   const headerBg = useColorModeValue("$neutral1", "$neutral2")
   const metaColor = useColorModeValue("$neutral10", "$neutral9")
-
-  const startDownload = () => {
-    const url = new URL(props.meta.raw_url, window.location.href)
-    url.searchParams.set("openlist_ts", Date.now().toString())
-    const anchor = document.createElement("a")
-    anchor.href = url.toString()
-    anchor.download = props.meta.name
-    anchor.click()
-  }
 
   const metaDetails = () => {
     const parts = [
@@ -81,7 +72,7 @@ export const PreviewHeader = (props: { meta: PreviewMeta }) => {
             size="sm"
             colorScheme="accent"
             leftIcon={<Icon as={FiDownload} />}
-            onClick={startDownload}
+            onClick={() => startDownload(props.meta.raw_url, props.meta.name)}
           >
             {t("home.toolbar.download") || "Download"}
           </Button>

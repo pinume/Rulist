@@ -14,7 +14,6 @@ import { useLink, usePath, useRouter, useT, useUtil } from "~/hooks"
 import {
   getMainColor,
   getSettingBool,
-  local,
   me,
   objStore,
   OrderBy,
@@ -66,12 +65,9 @@ export const ListItem = (props: { obj: StoreObj; index: number }) => {
   const { rawLink } = useLink()
   const { setPathAs } = usePath()
   const { pushHref, to } = useRouter()
-  const filenameStyle = () => local["list_item_filename_overflow"]
-  const canPackageDownload = () => {
-    return UserMethods.is_admin(me()) || getSettingBool("package_download")
-  }
   const hasAnyAction = () => {
-    if (!props.obj.is_dir || canPackageDownload()) return true
+    if (!props.obj.is_dir) return true
+    if (getSettingBool("package_download")) return true
     if (objStore.write) {
       if (
         userCan("rename") ||
@@ -95,19 +91,19 @@ export const ListItem = (props: { obj: StoreObj; index: number }) => {
         class="list-item viselect-item"
         data-index={props.index}
         w="$full"
-        px="$3"
-        py="$2"
+        px={{ "@initial": "$3", "@md": "$4" }}
+        py="$3"
         borderBottom="1px solid"
         borderColor="$neutral3"
         transition="background-color 0.15s"
         _hover={{
           bgColor: props.obj.selected
-            ? colorAlpha(getMainColor(), 0.15)
+            ? colorAlpha(getMainColor(), 0.13)
             : hoverColor(),
         }}
         cursor="pointer"
         bgColor={
-          props.obj.selected ? colorAlpha(getMainColor(), 0.15) : undefined
+          props.obj.selected ? colorAlpha(getMainColor(), 0.13) : undefined
         }
         onClick={(e: MouseEvent) => {
           const target = e.target as HTMLElement | null
@@ -155,17 +151,9 @@ export const ListItem = (props: { obj: StoreObj; index: number }) => {
                 class="name"
                 css={{
                   wordBreak: "break-all",
-                  whiteSpace:
-                    filenameStyle() === "multi_line" ? "unset" : "nowrap",
-                  "overflow-x":
-                    filenameStyle() === "scrollable" ? "auto" : "hidden",
-                  textOverflow:
-                    filenameStyle() === "ellipsis" ? "ellipsis" : "unset",
-                  "scrollbar-width": "none", // firefox
-                  "&::-webkit-scrollbar": {
-                    // webkit
-                    display: "none",
-                  },
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
                 }}
                 title={props.obj.name}
                 minW="0"
@@ -233,7 +221,7 @@ export const ListItem = (props: { obj: StoreObj; index: number }) => {
                 <Icon as={BsThreeDotsVertical} boxSize="$4" />
               </MenuTrigger>
               <MenuContent shadow="$md" zIndex={100}>
-                <Show when={!props.obj.is_dir || canPackageDownload()}>
+                <Show when={!props.obj.is_dir || getSettingBool("package_download")}>
                   <MenuItem
                     cursor="pointer"
                     icon={
@@ -245,12 +233,6 @@ export const ListItem = (props: { obj: StoreObj; index: number }) => {
                     onSelect={() => {
                       if (props.obj.is_dir) {
                         selectIndex(props.index, true, true)
-                        if (!canPackageDownload()) {
-                          notify.warning(
-                            t("home.toolbar.package_download_disabled"),
-                          )
-                          return
-                        }
                         bus.emit("tool", "package_download")
                       } else {
                         const url = rawLink(props.obj, true)

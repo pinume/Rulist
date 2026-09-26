@@ -21,13 +21,13 @@ use tracing::info;
 use crate::auth::parse_jwt;
 use crate::config::Config;
 use crate::db::{DbPool, get_admin, get_public_settings, get_setting, get_user_by_name};
-use crate::driver::{SharedStorageManager, StorageManager};
+use crate::driver::StorageManager;
 use crate::model::{ApiResponse, User};
 
 pub struct AppState {
     pub pool: DbPool,
     pub config: Config,
-    pub storage: SharedStorageManager,
+    pub storage: StorageManager,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -40,7 +40,7 @@ pub async fn run_server(
     let state = Arc::new(AppState {
         pool,
         config: config.clone(),
-        storage: Arc::new(storage),
+        storage,
     });
 
     let app = build_app(state);
@@ -109,18 +109,9 @@ pub fn build_app(state: SharedState) -> Router {
             post(auth::two_factor_disable_handler),
         )
         // File system read
-        .route(
-            "/api/fs/list",
-            post(fs::fs_list_handler).get(fs::fs_list_handler),
-        )
-        .route(
-            "/api/fs/get",
-            post(fs::fs_get_handler).get(fs::fs_get_handler),
-        )
-        .route(
-            "/api/fs/dirs",
-            post(fs::fs_dirs_handler).get(fs::fs_dirs_handler),
-        )
+        .route("/api/fs/list", post(fs::fs_list_handler))
+        .route("/api/fs/get", post(fs::fs_get_handler))
+        .route("/api/fs/dirs", post(fs::fs_dirs_handler))
         // File system write
         .route("/api/fs/mkdir", post(fs::fs_mkdir_handler))
         .route("/api/fs/rename", post(fs::fs_rename_handler))
@@ -139,10 +130,7 @@ pub fn build_app(state: SharedState) -> Router {
         // File system batch & link
         .route("/api/fs/batch_rename", post(fs::fs_batch_rename_handler))
         .route("/api/fs/link", post(fs::fs_link_handler))
-        .route(
-            "/api/fs/preview",
-            post(preview::preview_handler).get(preview::preview_handler),
-        )
+        .route("/api/fs/preview", post(preview::preview_handler))
         // Admin User Management
         .route("/api/admin/user/list", get(users::admin_user_list_handler))
         .route("/api/admin/user/get", get(users::admin_user_get_handler))
@@ -247,7 +235,11 @@ pub(crate) async fn authenticate_user_with_setup(
         .ok()
         .flatten()?;
 
-    if user.disabled || user.pwd_ts != claims.pwd_ts || (user.password_unset && !allow_unset) {
+    if (claims.user_id > 0 && user.id != claims.user_id)
+        || user.disabled
+        || user.pwd_ts != claims.pwd_ts
+        || (user.is_admin() && user.password_unset && !allow_unset)
+    {
         return None;
     }
 
@@ -337,7 +329,6 @@ mod tests {
             pwd_hash: String::new(),
             pwd_ts: 0,
             salt: String::new(),
-            password: None,
             base_path: "/.users/2".into(),
             role: 0,
             disabled: false,
@@ -345,7 +336,6 @@ mod tests {
             password_unset: false,
             otp_secret: None,
             last_otp_step: -1,
-            sso_id: None,
             otp: false,
         };
         assert_eq!(
@@ -374,7 +364,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: config.clone(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         // 1. Get initial admin user and admin token
@@ -547,17 +537,24 @@ mod tests {
         assert_eq!(json["code"], 200);
         assert!(json["data"]["token"].is_string());
 
-        // 10. The owner cancels 2FA with a current code
-        let current_step = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            / 30;
+        // 10. Attempting to reuse the same login OTP code to disable 2FA must be rejected (replay prevention)
         let resp = auth::two_factor_disable_handler(
             headers.clone(),
             State(state.clone()),
             Json(TwoFaVerifyReq {
-                code: crate::auth::compute_totp(&secret, current_step).unwrap(),
+                code: crate::auth::compute_totp(&secret, cur_step).unwrap(),
+            }),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // Disabling 2FA with a fresh OTP code (next step within tolerance) succeeds
+        let next_step = cur_step + 1;
+        let resp = auth::two_factor_disable_handler(
+            headers.clone(),
+            State(state.clone()),
+            Json(TwoFaVerifyReq {
+                code: crate::auth::compute_totp(&secret, next_step).unwrap(),
             }),
         )
         .await;
@@ -595,7 +592,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: config.clone(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         let admin_token = crate::db::get_setting(&pool, "token")
@@ -690,7 +687,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: config.clone(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         // Login to get valid JWT token
@@ -847,7 +844,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: config.clone(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         // Get admin token
@@ -1009,7 +1006,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: config.clone(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         // Get admin token
@@ -1193,7 +1190,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: config.clone(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         let login_req = LoginReq {
@@ -1319,7 +1316,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: config.clone(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         let login_req = LoginReq {
@@ -1424,7 +1421,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: config.clone(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         // Create alice and bob
@@ -1568,7 +1565,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: config.clone(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         let admin_login = LoginReq {
@@ -1681,7 +1678,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: config.clone(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         let admin_login = LoginReq {
@@ -1794,7 +1791,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: Config::default(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         // Case 1: Non-existent user -> 401 UNAUTHORIZED, code 401, "invalid username or password"
@@ -1860,7 +1857,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: Config::default(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         let app = build_app(state);
@@ -1911,7 +1908,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: Config::default(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         // 1. /api/me without auth -> 401 UNAUTHORIZED, code 401
@@ -1925,8 +1922,10 @@ mod tests {
         assert_eq!(json["code"], 401);
 
         // 2. /api/admin/user/list as non-admin -> 403 FORBIDDEN, code 403
+        let reg_user = get_user_by_name(&pool, "regular").await.unwrap().unwrap();
         let regular_token =
-            crate::auth::generate_jwt("regular", 0, &state.config.jwt_secret, 3600).unwrap();
+            crate::auth::generate_jwt(reg_user.id, "regular", 0, &state.config.jwt_secret, 3600)
+                .unwrap();
         let mut regular_headers = HeaderMap::new();
         regular_headers.insert(
             AUTHORIZATION,
@@ -1969,7 +1968,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: config.clone(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         let admin_login = LoginReq {
@@ -2216,7 +2215,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: config.clone(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         let admin_login = LoginReq {
@@ -2402,7 +2401,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: config.clone(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         let admin_login = LoginReq {
@@ -2515,7 +2514,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: config.clone(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         let admin_login = LoginReq {
@@ -2632,7 +2631,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: config.clone(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         let admin_login = LoginReq {
@@ -2816,7 +2815,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: Config::default(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         let admin_login = LoginReq {
@@ -2940,7 +2939,7 @@ mod tests {
         let state = Arc::new(AppState {
             pool: pool.clone(),
             config: Config::default(),
-            storage: Arc::new(storage_mgr),
+            storage: storage_mgr,
         });
 
         // Step 1: Admin logs in, gets token1
@@ -3169,5 +3168,417 @@ mod tests {
             .unwrap();
         let admin_after_reset2 = crate::db::get_admin(&pool).await.unwrap().unwrap();
         assert!(admin_after_reset2.pwd_ts > admin_after_reset1.pwd_ts);
+    }
+
+    #[tokio::test]
+    async fn test_jwt_user_id_binding_and_login_dos_prevention() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "AdminPassword123!")
+            .await
+            .unwrap();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: Config::default(),
+            storage: storage_mgr,
+        });
+
+        // 1. Unknown usernames must NOT create entries in x_login_attempts
+        for i in 0..10 {
+            let login_req = LoginReq {
+                username: format!("nonexistent_user_{}", i),
+                password: "Password123!".to_string(),
+                otp_code: None,
+            };
+            let resp = auth::login_handler(State(state.clone()), Json(login_req)).await;
+            assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        }
+        let attempts_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `x_login_attempts`")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            attempts_count, 0,
+            "Unknown usernames must never consume login attempt quota in x_login_attempts"
+        );
+
+        // 2. JWT user_id binding prevents cross-account rebinding
+        let salt_a = crate::auth::rand_string(16);
+        let s_hash_a = crate::auth::static_hash("PassA123!");
+        let pwd_hash_a = crate::auth::encode_argon2_hash(&s_hash_a, &salt_a);
+        sqlx::query(
+            "INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `salt`, `base_path`, `role`, `disabled`, `permission`) VALUES (?, ?, 1000, ?, '/', 0, 0, 0)",
+        )
+        .bind("user_a")
+        .bind(&pwd_hash_a)
+        .bind(&salt_a)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let salt_b = crate::auth::rand_string(16);
+        let s_hash_b = crate::auth::static_hash("PassB123!");
+        let pwd_hash_b = crate::auth::encode_argon2_hash(&s_hash_b, &salt_b);
+        sqlx::query(
+            "INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `salt`, `base_path`, `role`, `disabled`, `permission`) VALUES (?, ?, 1000, ?, '/', 0, 0, 0)",
+        )
+        .bind("user_b")
+        .bind(&pwd_hash_b)
+        .bind(&salt_b)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let user_a = crate::db::get_user_by_name(&pool, "user_a")
+            .await
+            .unwrap()
+            .unwrap();
+        let user_b = crate::db::get_user_by_name(&pool, "user_b")
+            .await
+            .unwrap()
+            .unwrap();
+
+        // Valid token for user_a
+        let token_a = crate::auth::generate_jwt(
+            user_a.id,
+            "user_a",
+            user_a.pwd_ts,
+            &state.config.jwt_secret,
+            3600,
+        )
+        .unwrap();
+
+        let mut headers_a = HeaderMap::new();
+        headers_a.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", token_a)).unwrap(),
+        );
+        let authed_a = authenticate_user(&headers_a, &state).await;
+        assert!(authed_a.is_some());
+        assert_eq!(authed_a.unwrap().id, user_a.id);
+
+        // Forged or stale token with user_a's ID claiming to be user_b
+        let forged_token = crate::auth::generate_jwt(
+            user_a.id,
+            "user_b",
+            user_b.pwd_ts,
+            &state.config.jwt_secret,
+            3600,
+        )
+        .unwrap();
+
+        let mut forged_headers = HeaderMap::new();
+        forged_headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", forged_token)).unwrap(),
+        );
+        let forged_auth = authenticate_user(&forged_headers, &state).await;
+        assert!(
+            forged_auth.is_none(),
+            "Token with mismatched user_id must be rejected"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fresh_install_admin_random_password_rejects_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("fresh.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+
+        // 1. Verify admin was seeded with password_unset = false
+        let admin = crate::db::get_admin(&pool)
+            .await
+            .unwrap()
+            .expect("admin must be seeded");
+        assert_eq!(admin.username, "admin");
+        assert!(
+            !admin.password_unset,
+            "Seeded admin password must NOT be marked unset"
+        );
+        assert!(
+            !admin.pwd_hash.is_empty(),
+            "Seeded admin must have a password hash"
+        );
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: Config::default(),
+            storage: storage_mgr,
+        });
+
+        // 2. Logging in with an empty password MUST fail with 401 UNAUTHORIZED
+        let empty_login = LoginReq {
+            username: "admin".to_string(),
+            password: "".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(empty_login)).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        // 3. Resetting admin password via reset_admin_password works
+        let new_pwd = crate::auth::rand_string(16);
+        crate::db::reset_admin_password(&pool, &new_pwd)
+            .await
+            .unwrap();
+
+        let valid_login = LoginReq {
+            username: "admin".to_string(),
+            password: new_pwd,
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(valid_login)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_allow_empty_password_permission_lifecycle() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("perm_empty_pwd.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+        crate::db::set_admin_password(&pool, "AdminPass123!")
+            .await
+            .unwrap();
+
+        let storage_mgr = StorageManager::load_from_db(&pool).await.unwrap();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            config: Config::default(),
+            storage: storage_mgr,
+        });
+
+        let admin = crate::db::get_admin(&pool).await.unwrap().unwrap();
+        let admin_token = crate::auth::generate_jwt(
+            admin.id,
+            &admin.username,
+            admin.pwd_ts,
+            &state.config.jwt_secret,
+            3600,
+        )
+        .unwrap();
+
+        let mut admin_headers = HeaderMap::new();
+        admin_headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", admin_token)).unwrap(),
+        );
+
+        let user_home = tmp.path().join("u_home");
+        tokio::fs::create_dir_all(&user_home).await.unwrap();
+
+        // 1. Creating user without PERM_ALLOW_EMPTY_PASSWORD and empty password MUST fail
+        let create_no_perm = AdminUserSaveReq {
+            id: None,
+            username: "u_no_empty_perm".to_string(),
+            password: Some("".to_string()),
+            directory_path: None,
+            role: Some(0),
+            permission: Some(0),
+            disabled: Some(false),
+            local_path: Some(user_home.to_str().unwrap().to_string()),
+        };
+        let resp = users::admin_user_create_handler(
+            admin_headers.clone(),
+            State(state.clone()),
+            Json(create_no_perm),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // 2. Creating user WITH PERM_ALLOW_EMPTY_PASSWORD and empty password MUST succeed
+        let create_with_perm = AdminUserSaveReq {
+            id: None,
+            username: "u_with_empty_perm".to_string(),
+            password: Some("".to_string()),
+            directory_path: None,
+            role: Some(0),
+            permission: Some(1 << crate::model::PERM_ALLOW_EMPTY_PASSWORD),
+            disabled: Some(false),
+            local_path: Some(user_home.to_str().unwrap().to_string()),
+        };
+        let resp = users::admin_user_create_handler(
+            admin_headers.clone(),
+            State(state.clone()),
+            Json(create_with_perm),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 3. The user can log in with empty password
+        let empty_login = LoginReq {
+            username: "u_with_empty_perm".to_string(),
+            password: "".to_string(),
+            otp_code: None,
+        };
+        let resp = auth::login_handler(State(state.clone()), Json(empty_login)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let u_user = crate::db::get_user_by_name(&pool, "u_with_empty_perm")
+            .await
+            .unwrap()
+            .unwrap();
+        let u_token = crate::auth::generate_jwt(
+            u_user.id,
+            &u_user.username,
+            u_user.pwd_ts,
+            &state.config.jwt_secret,
+            3600,
+        )
+        .unwrap();
+        let mut u_headers = HeaderMap::new();
+        u_headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", u_token)).unwrap(),
+        );
+
+        // 4. In personal profile (/me/update), setting empty password MUST fail
+        let update_empty_req = UpdateCurrentReq {
+            username: None,
+            password: Some("".to_string()),
+            current_password: None,
+        };
+        let resp = auth::update_current_handler(
+            u_headers.clone(),
+            State(state.clone()),
+            Json(update_empty_req),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // Setting a non-empty password in personal profile succeeds
+        let update_real_pwd = UpdateCurrentReq {
+            username: None,
+            password: Some("NewValidPass123!".to_string()),
+            current_password: Some("".to_string()),
+        };
+        let resp = auth::update_current_handler(
+            u_headers.clone(),
+            State(state.clone()),
+            Json(update_real_pwd),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_cli_db_operations_and_settings() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("cli_test.db");
+        let pool = crate::db::init_db(&db_path).await.unwrap();
+
+        // 1. Settings CLI operations
+        crate::db::set_setting(&pool, "site_title", "My Custom Rulist")
+            .await
+            .unwrap();
+        crate::db::set_setting(&pool, "custom_key", "custom_val")
+            .await
+            .unwrap();
+        assert_eq!(
+            crate::db::get_setting(&pool, "site_title").await.unwrap(),
+            Some("My Custom Rulist".to_string())
+        );
+        assert_eq!(
+            crate::db::get_setting(&pool, "custom_key").await.unwrap(),
+            Some("custom_val".to_string())
+        );
+
+        let all_settings = crate::db::get_all_settings(&pool).await.unwrap();
+        assert!(
+            all_settings
+                .iter()
+                .any(|(k, v, _)| k == "site_title" && v == "My Custom Rulist")
+        );
+        assert!(
+            all_settings
+                .iter()
+                .any(|(k, v, _)| k == "custom_key" && v == "custom_val")
+        );
+
+        // 2. User CLI direct creation
+        let user_dir = tmp.path().join("bob_dir");
+        std::fs::create_dir_all(&user_dir).unwrap();
+        let bob_id = crate::db::create_user_direct(
+            &pool,
+            "bob",
+            "BobPassword123!",
+            0,
+            Some(&user_dir.to_string_lossy()),
+            504,
+            false,
+        )
+        .await
+        .unwrap();
+
+        let bob = crate::db::get_user_by_name(&pool, "bob")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(bob.id, bob_id);
+        assert_eq!(bob.username, "bob");
+        assert_eq!(bob.permission, 504);
+        assert!(!bob.disabled);
+
+        let storages = crate::db::get_all_storages(&pool).await.unwrap();
+        let bob_storage = storages
+            .iter()
+            .find(|s| s.mount_path == format!("/.users/{bob_id}"));
+        assert!(bob_storage.is_some());
+
+        // 3. User directory change
+        let new_user_dir = tmp.path().join("bob_new_dir");
+        std::fs::create_dir_all(&new_user_dir).unwrap();
+        crate::db::set_user_dir(&pool, bob_id, &new_user_dir.to_string_lossy())
+            .await
+            .unwrap();
+        let storages_after = crate::db::get_all_storages(&pool).await.unwrap();
+        let local_path = crate::db::compute_local_path(&bob.base_path, &storages_after);
+        assert_eq!(local_path, new_user_dir.to_string_lossy());
+
+        // 4. User permission change
+        crate::db::set_user_permission(&pool, bob_id, 255)
+            .await
+            .unwrap();
+        let bob_updated = crate::db::get_user_by_name(&pool, "bob")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(bob_updated.permission, 255);
+
+        // 5. User disable / enable
+        crate::db::set_user_disabled(&pool, bob_id, true)
+            .await
+            .unwrap();
+        let bob_disabled = crate::db::get_user_by_name(&pool, "bob")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(bob_disabled.disabled);
+
+        crate::db::set_user_disabled(&pool, bob_id, false)
+            .await
+            .unwrap();
+        let bob_enabled = crate::db::get_user_by_name(&pool, "bob")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!bob_enabled.disabled);
+
+        // 6. Delete user
+        crate::db::delete_user(&pool, bob_id).await.unwrap();
+        assert!(
+            crate::db::get_user_by_name(&pool, "bob")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let storages_final = crate::db::get_all_storages(&pool).await.unwrap();
+        assert!(
+            storages_final
+                .iter()
+                .all(|s| s.mount_path != format!("/.users/{bob_id}"))
+        );
     }
 }

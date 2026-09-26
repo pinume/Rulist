@@ -80,7 +80,11 @@ pub async fn fs_list_handler(
             for item in &mut content {
                 if !item.is_dir {
                     let item_path = format!("{}/{}", path.trim_end_matches('/'), item.name);
-                    let sign = match sign_path(&token, &item_path) {
+                    let sign = match sign_path(
+                        &token,
+                        &item_path,
+                        &state.storage.storage_context_for_path(&item_path),
+                    ) {
                         Ok(sign) => sign,
                         Err(err) => {
                             tracing::error!(error = %err, "failed to sign file path");
@@ -138,7 +142,11 @@ pub async fn fs_get_handler(
             };
 
             if !file.is_dir {
-                let s = match sign_path(&token, &path) {
+                let s = match sign_path(
+                    &token,
+                    &path,
+                    &state.storage.storage_context_for_path(&path),
+                ) {
                     Ok(sign) => sign,
                     Err(err) => {
                         tracing::error!(error = %err, "failed to sign file path");
@@ -686,6 +694,7 @@ pub async fn fs_put_handler(
 
     let body = request.into_body();
     // Stream body to file
+    state.storage.ensure_mounted(&file_path).await;
     let (ms, sub) = match state.storage.find_storage(&file_path) {
         Some(m) => m,
         None => return api_error(StatusCode::NOT_FOUND, 404, "storage not found"),
@@ -864,7 +873,11 @@ pub async fn fs_link_handler(
         Ok(path) => path,
         Err(_) => return permission_denied(),
     };
-    let sign = match sign_path(&token, &clean_path) {
+    let sign = match sign_path(
+        &token,
+        &clean_path,
+        &state.storage.storage_context_for_path(&clean_path),
+    ) {
         Ok(sign) => sign,
         Err(err) => {
             tracing::error!(error = %err, "failed to sign file path");

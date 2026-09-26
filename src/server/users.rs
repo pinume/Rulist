@@ -113,7 +113,6 @@ fn to_user_with_mount(
         role: u.role,
         disabled: u.disabled,
         permission: u.permission,
-        sso_id: u.sso_id,
         local_path,
         directory_path,
         otp: u.otp,
@@ -265,6 +264,15 @@ pub async fn admin_user_create_handler(
     }
 
     let raw_pwd = req.password.as_deref().unwrap_or("");
+    let allow_empty_pwd =
+        req.permission.unwrap_or(0) & (1 << crate::model::PERM_ALLOW_EMPTY_PASSWORD) != 0;
+    if raw_pwd.is_empty() && !allow_empty_pwd {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            400,
+            "Password cannot be empty unless 'allow empty password' permission is granted",
+        );
+    }
 
     let role = req.role.unwrap_or(0);
     if role == ROLE_ADMIN {
@@ -442,9 +450,24 @@ pub async fn admin_user_update_handler(
         }
     }
 
+    let allow_empty_pwd = if target_user.is_admin() {
+        false
+    } else {
+        req.permission.unwrap_or(target_user.permission)
+            & (1 << crate::model::PERM_ALLOW_EMPTY_PASSWORD)
+            != 0
+    };
+
     if let Some(pwd) = req.password.as_deref()
         && (!target_user.is_admin() || !pwd.is_empty())
     {
+        if pwd.is_empty() && !allow_empty_pwd {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                400,
+                "Password cannot be empty unless 'allow empty password' permission is granted",
+            );
+        }
         if target_user.is_admin() && !crate::auth::valid_password(pwd) {
             return api_error(
                 StatusCode::BAD_REQUEST,

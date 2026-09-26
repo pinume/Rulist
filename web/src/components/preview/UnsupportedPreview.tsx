@@ -1,21 +1,12 @@
 import { Box, Button, HStack, Icon, Text, VStack } from "@hope-ui/solid"
 import { FiDownload, FiExternalLink } from "solid-icons/fi"
 import { PreviewMeta, ObjType } from "~/types"
-import { getFileSize } from "~/utils"
+import { getFileSize, startDownload } from "~/utils"
 import { getIconByObj, getIconColorByObj } from "~/utils/icon"
 import { useT } from "~/hooks"
 
 export const UnsupportedPreview = (props: { meta: PreviewMeta }) => {
   const t = useT()
-
-  const startDownload = () => {
-    const url = new URL(props.meta.raw_url, window.location.href)
-    url.searchParams.set("openlist_ts", Date.now().toString())
-    const anchor = document.createElement("a")
-    anchor.href = url.toString()
-    anchor.download = props.meta.name
-    anchor.click()
-  }
 
   return (
     <Box display="flex" justifyContent="center" alignItems="center" p="$8">
@@ -47,7 +38,7 @@ export const UnsupportedPreview = (props: { meta: PreviewMeta }) => {
           <Button
             leftIcon={<Icon as={FiDownload} />}
             colorScheme="accent"
-            onClick={startDownload}
+            onClick={() => startDownload(props.meta.raw_url, props.meta.name)}
           >
             {t("home.toolbar.download") || "下载"}
           </Button>

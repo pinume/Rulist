@@ -80,9 +80,9 @@ export const AddMenu = () => {
         >
           <MenuTrigger
             aria-label={t("home.add_menu.title") || "新建与上传"}
-            w="$7"
+            w={{ "@initial": "$7", "@md": "auto" }}
             h="$7"
-            p={0}
+            p={{ "@initial": 0, "@md": "$3" }}
             minW="unset"
             rounded="8px"
             cursor="pointer"
@@ -120,6 +120,13 @@ export const AddMenu = () => {
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
+            <Text
+              display={{ "@initial": "none", "@md": "inline" }}
+              ml="$1"
+              fontSize="$sm"
+            >
+              新建/上传
+            </Text>
           </MenuTrigger>
         </Tooltip>
 

@@ -16,6 +16,7 @@ pub struct MountedStorage {
 
 #[derive(Clone, Default)]
 pub struct StorageManager {
+    pool: Option<DbPool>,
     storages: Arc<std::sync::RwLock<Vec<MountedStorage>>>,
 }
 
@@ -46,6 +47,7 @@ impl StorageManager {
         }
 
         Ok(Self {
+            pool: Some(pool.clone()),
             storages: Arc::new(std::sync::RwLock::new(storages)),
         })
     }
@@ -56,6 +58,31 @@ impl StorageManager {
         let mut w = self.storages.write().unwrap();
         *w = new_storages;
         Ok(())
+    }
+
+    pub async fn ensure_mounted(&self, req_path: &str) {
+        let clean = if req_path.is_empty() || !req_path.starts_with('/') {
+            format!("/{}", req_path)
+        } else {
+            req_path.to_string()
+        };
+
+        if clean.starts_with("/.users/") {
+            let has_mount = {
+                let storages = self.storages.read().unwrap();
+                storages.iter().any(|s| {
+                    s.storage.mount_path == clean
+                        || (clean.starts_with(&s.storage.mount_path)
+                            && clean.as_bytes().get(s.storage.mount_path.len()) == Some(&b'/')
+                            && s.storage.mount_path != "/")
+                })
+            };
+            if !has_mount {
+                if let Some(ref pool) = self.pool {
+                    let _ = self.reload_from_db(pool).await;
+                }
+            }
+        }
     }
 
     /// Match the best storage for a given request path
@@ -91,8 +118,19 @@ impl StorageManager {
         matched
     }
 
+    /// Return a unique context identifying the backing storage mount for a path
+    pub fn storage_context_for_path(&self, req_path: &str) -> String {
+        if let Some((ms, _)) = self.find_storage(req_path) {
+            let addition = ms.storage.addition.as_deref().unwrap_or("");
+            format!("id={}:add={}", ms.storage.id, addition)
+        } else {
+            String::new()
+        }
+    }
+
     /// List directory contents (virtual root or driver delegator)
     pub async fn list(&self, req_path: &str) -> Result<Vec<FileObj>> {
+        self.ensure_mounted(req_path).await;
         let clean_path = req_path.trim_matches('/');
 
         // Root virtual directory listing when no storage is mounted directly at '/'
@@ -124,6 +162,7 @@ impl StorageManager {
 
     /// Check if a path is physically empty on disk
     pub async fn is_physically_empty(&self, req_path: &str) -> Result<bool> {
+        self.ensure_mounted(req_path).await;
         let (storage, subpath) = self
             .find_storage(req_path)
             .ok_or_else(|| anyhow!("storage not found"))?;
@@ -133,6 +172,7 @@ impl StorageManager {
 
     /// Read physical directory entries without filtering hidden files
     pub async fn read_dir_physical(&self, req_path: &str) -> Result<Vec<(String, bool)>> {
+        self.ensure_mounted(req_path).await;
         let (storage, subpath) = self
             .find_storage(req_path)
             .ok_or_else(|| anyhow!("storage not found"))?;
@@ -142,6 +182,7 @@ impl StorageManager {
 
     /// Get object metadata
     pub async fn get(&self, req_path: &str) -> Result<FileObj> {
+        self.ensure_mounted(req_path).await;
         let clean = req_path.trim_matches('/');
         if clean.is_empty() {
             return Ok(FileObj::new("/", 0, true, ""));
@@ -167,6 +208,7 @@ impl StorageManager {
 
     /// Open file
     pub async fn open(&self, req_path: &str) -> Result<fs::File> {
+        self.ensure_mounted(req_path).await;
         if let Some((ms, sub)) = self.find_storage(req_path) {
             ms.driver.open(&sub).await
         } else {
@@ -176,6 +218,7 @@ impl StorageManager {
 
     /// Make directory
     pub async fn mkdir(&self, req_path: &str) -> Result<()> {
+        self.ensure_mounted(req_path).await;
         if let Some((ms, sub)) = self.find_storage(req_path) {
             ms.driver.mkdir(&sub).await
         } else {
@@ -185,6 +228,7 @@ impl StorageManager {
 
     /// Remove file or directory
     pub async fn remove(&self, req_path: &str) -> Result<()> {
+        self.ensure_mounted(req_path).await;
         if let Some((ms, sub)) = self.find_storage(req_path) {
             ms.driver.remove(&sub).await
         } else {
@@ -199,6 +243,7 @@ impl StorageManager {
         new_name: &str,
         overwrite: bool,
     ) -> Result<(), RenameError> {
+        self.ensure_mounted(req_path).await;
         let (storage, subpath) = self.find_storage(req_path).ok_or_else(|| {
             RenameError::NotFound(format!("target storage not found: {}", req_path))
         })?;
@@ -215,6 +260,7 @@ impl StorageManager {
         src_dir: &str,
         pairs: &[(String, String)],
     ) -> Result<(), RenameError> {
+        self.ensure_mounted(src_dir).await;
         let (storage, subpath) = self.find_storage(src_dir).ok_or_else(|| {
             RenameError::NotFound(format!("target storage not found: {}", src_dir))
         })?;
@@ -229,6 +275,8 @@ impl StorageManager {
         dst_path: &str,
         overwrite: bool,
     ) -> Result<()> {
+        self.ensure_mounted(src_path).await;
+        self.ensure_mounted(dst_path).await;
         let src_match = self
             .find_storage(src_path)
             .ok_or_else(|| anyhow!("src storage not found"))?;
@@ -262,6 +310,8 @@ impl StorageManager {
         dst_path: &str,
         overwrite: bool,
     ) -> Result<()> {
+        self.ensure_mounted(src_path).await;
+        self.ensure_mounted(dst_path).await;
         let src_match = self
             .find_storage(src_path)
             .ok_or_else(|| anyhow!("src storage not found"))?;
@@ -282,5 +332,3 @@ impl StorageManager {
         }
     }
 }
-
-pub type SharedStorageManager = Arc<StorageManager>;
