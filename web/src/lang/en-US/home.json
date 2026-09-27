@@ -1,0 +1,125 @@
+{
+  "obj": {
+    "name": "Name",
+    "size": "Size",
+    "modified": "Modified",
+    "count": {
+      "count": "This page: {{folders}} folders, {{files}} files",
+      "count_folders": "This page: {{folders}} folders",
+      "count_files": "This page: {{files}} files",
+      "selected": "Selected: {{folders}} folders, {{files}} files",
+      "selected_folders": "Selected: {{folders}} folders",
+      "selected_files": "Selected: {{files}} files"
+    }
+  },
+  "search": {
+    "aria_label": "Search files on this page",
+    "placeholder": "Search this page…",
+    "results": "{{count}} matches on this page",
+    "empty": "No matching files on this page"
+  },
+  "sidebar": {
+    "open": "Open folder navigation",
+    "close": "Close folder navigation"
+  },
+  "no_images": "No images in this folder",
+  "load_more": "Load more",
+  "no_more": "No more items",
+  "pagination": {
+    "previous": "Previous",
+    "next": "Next",
+    "page": "Page {{page}} of {{pages}} ({{total}} items)"
+  },
+  "add_menu": {
+    "title": "New & Upload",
+    "upload_file": "Upload file",
+    "upload_folder": "Upload folder",
+    "create_folder": "Create folder"
+  },
+  "input_password": "Enter password",
+  "toolbar": {
+    "more": "More",
+    "refresh": "Refresh",
+    "switch_lang": "Switch language",
+    "toggle_markdown_toc": "Toggle outline",
+    "rename": "Rename",
+    "input_new_name": "Enter a new name",
+    "move": "Move",
+    "copy": "Copy",
+    "choose_dst_folder": "Select destination folder",
+    "delete": "Delete",
+    "delete-tips": "Delete the selected items?",
+    "down_link": "Download link",
+    "encode_down_link": "Encoded download link",
+    "mkdir": "New folder",
+    "input_dir_name": "Enter folder name",
+    "cancel_select": "Cancel selection",
+    "download": "Download",
+    "package_download": "Download as archive",
+    "package_download_disabled": "Archive download is disabled",
+    "pre_package_download-tips": "Browser-based archive downloads use StreamSaver instead of the server and require CORS support from the storage service. Unsupported storage may cause the download to fail.",
+    "package_download-tips": "Downloading. Do not close this page.",
+    "upload": "Upload",
+    "settings": "Settings",
+    "batch_rename": "Batch rename",
+    "sequential_renaming": "Sequential rename",
+    "batch_rename_preview": "Renamed files",
+    "batch_rename_preview_old_name": "Old name",
+    "batch_rename_preview_new_name": "New name",
+    "sequential_renaming_desc": "Append a sequence number to new file names. Enter the new file name on the first line and the starting number on the second line. The {number} placeholder is supported.",
+    "sequential_renaming_input1_placeholder": "New file name (supports {number})",
+    "sequential_renaming_input2_placeholder": "Starting number (for example, 1)",
+    "sequential_renaming_input3_placeholder": "Zero-padding width (optional)",
+    "find_replace": "Find and replace",
+    "find_replace_desc": "Find text in the selected file names and replace it. Enter the text to find on the first line and the replacement on the second line.",
+    "find_replace_input1_placeholder": "Find",
+    "find_replace_input2_placeholder": "Replace with"
+  },
+  "upload": {
+    "add_as_task": "Add as task",
+    "upload-tips": "Drag files here to upload, or click:",
+    "release": "Release to upload",
+    "release_to_upload": "Drop files or folders to upload them to the current directory",
+    "no_files_drag": "No files were dragged in.",
+    "upload_files": "Select files",
+    "upload_folder": "Select folder",
+    "pending": "Pending",
+    "uploading": "Uploading",
+    "backending": "Uploading in background",
+    "success": "Success",
+    "error": "Error",
+    "retry": "Retry",
+    "back": "Back to upload",
+    "clear_done": "Clear completed"
+  },
+  "sort": "Sort",
+  "sort_by": "Sort by",
+  "sort_order": "Sort order",
+  "sort_folder": "Folders",
+  "sort_name": "File name",
+  "sort_modified": "Modified",
+  "sort_asc": "A to Z",
+  "sort_desc": "Z to A",
+  "sort_folder_top": "On top",
+  "sort_folder_mixed": "Mixed with files",
+  "package_download": {
+    "current_status": "Status",
+    "initializing": "Initializing",
+    "fetching_struct": "Fetching folder structure",
+    "fetching_struct_failed": "Failed to fetch folder structure",
+    "downloading": "Downloading files. Do not close or refresh this page.",
+    "failed": "Archive download failed",
+    "success": "Download complete"
+  },
+  "footer": {
+    "powered_by": "Powered by Rulist"
+  },
+  "fetching_settings_failed": "Failed to fetch settings: ",
+  "get_current_user_failed": "Failed to get current user: ",
+  "Loading storage, please wait": "Loading storage, please wait",
+  "conflict_policy": {
+    "cancel_if_exists": "Cancel if the file already exists",
+    "overwrite_existing": "Overwrite existing files",
+    "skip_existing": "Skip existing files"
+  }
+}
