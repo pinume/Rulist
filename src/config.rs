@@ -75,7 +75,6 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Load existing config.json from data directory or generate a new one
     pub fn load_or_create(data_dir: &Path) -> Result<(Self, PathBuf), anyhow::Error> {
         fs::create_dir_all(data_dir)?;
         fs::set_permissions(data_dir, fs::Permissions::from_mode(0o700))?;
@@ -99,29 +98,12 @@ impl Config {
         }
     }
 
-    /// Resolve relative database path against data directory
     pub fn resolved_db_path(&self, data_dir: &Path) -> PathBuf {
-        let p = Path::new(&self.database.db_file);
-        if p.is_absolute() {
-            return p.to_path_buf();
+        let path = Path::new(&self.database.db_file);
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            data_dir.join(path)
         }
-
-        let direct = data_dir.join(p);
-        if direct.exists() {
-            return direct;
-        }
-
-        if let Some(file_name) = p.file_name() {
-            let flat = data_dir.join(file_name);
-            if flat.exists() {
-                return flat;
-            }
-        }
-
-        if p.exists() {
-            return p.to_path_buf();
-        }
-
-        direct
     }
 }
