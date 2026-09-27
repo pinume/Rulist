@@ -61,7 +61,7 @@ pub(crate) async fn authenticate_user_with_setup(
 
 pub(crate) fn user_path(user: &User, requested: &str) -> Result<String, &'static str> {
     if requested
-        .split(['/', '\\'])
+        .split(|ch| ch == '/' || ch == '\\')
         .any(|part| part == "." || part == "..")
     {
         return Err("invalid path");
@@ -85,7 +85,11 @@ pub(crate) fn permitted(user: &User, bit: i32) -> bool {
 }
 
 pub(crate) fn valid_name(name: &str) -> bool {
-    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\'])
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains('/')
+        && !name.contains('\\')
 }
 
 pub(crate) fn encode_url_path(path: &str) -> String {
