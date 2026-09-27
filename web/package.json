@@ -1,36 +1,22 @@
 {
-  "name": "@openlist-frontend/openlist-frontend",
-  "version": "4.2.4",
+  "name": "rulist-web",
+  "version": "0.1.2",
+  "private": true,
   "type": "module",
-  "author": {
-    "name": "The OpenList Projects Contributors",
-    "url": "https://github.com/OpenListTeam"
-  },
-  "description": "A new AList Fork to Anti Trust Crisis",
+  "description": "Web frontend for Rulist",
   "packageManager": "pnpm@12.5.1",
   "engines": {
     "node": ">=22.13"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/OpenListTeam/OpenList-Frontend.git"
-  },
-  "bugs": {
-    "url": "https://github.com/OpenListTeam/OpenList/issues"
-  },
-  "files": [
-    "dist"
-  ],
-  "homepage": "https://openlist.team/",
   "scripts": {
     "start": "vite",
     "dev": "vite --force",
     "build": "vite build --mode production",
     "serve": "vite preview",
     "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
     "format": "prettier --ignore-path .gitignore -w \"src/**/*.{js,ts,json,css,tsx,jsx}\""
   },
-  "private": true,
   "devDependencies": {
     "@types/node": "^24.13.2",
     "@types/streamsaver": "^2.0.5",
