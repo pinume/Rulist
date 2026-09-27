@@ -19,6 +19,11 @@ const fetchPreview = async (path: string): Promise<PreviewResponse | null> => {
   return null
 }
 
+const isOfficeFile = (path: string) =>
+  /\.(doc|docx|docm|wps|rtf|odt|dot|dotx|dotm|xls|xlsx|xlsb|xlsm|et|xlt|xltx|xltm|xlam|ppt|pptx|pptm|pps|ppsx|ppsm|dps|key|pot|potx|potm)$/i.test(
+    path,
+  )
+
 const File = () => {
   const t = useT()
   const { pathname } = useRouter()
@@ -26,7 +31,7 @@ const File = () => {
 
   return (
     <Switch>
-      <Match when={preview.loading}>
+      <Match when={!isOfficeFile(pathname()) && preview.loading}>
         <VStack
           w="$full"
           minH="25vh"
@@ -37,7 +42,7 @@ const File = () => {
           <Spinner size="xl" thickness="3px" color="$accent9" />
         </VStack>
       </Match>
-      <Match when={preview()?.meta}>
+      <Match when={!isOfficeFile(pathname()) && preview()?.meta}>
         <FilePreviewLayout
           path={pathname()}
           meta={preview()!.meta}

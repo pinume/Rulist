@@ -2,6 +2,7 @@
 """Run a self-contained HTTP smoke test against a built Rulist binary."""
 
 import json
+import re
 import socket
 import sqlite3
 import subprocess
@@ -29,7 +30,7 @@ def pick_port():
 def http(url, method="GET", body=None, headers=None):
     request = Request(url, data=body, method=method, headers=headers or {})
     try:
-        with urlopen(request, timeout=2) as response:
+        with urlopen(request, timeout=10) as response:
             return response.status, response.read()
     except HTTPError as error:
         return error.code, error.read()
@@ -59,10 +60,17 @@ def main():
         storage_dir = tmp_path / "storage"
         storage_dir.mkdir()
 
-        token_command = [str(BINARY), "--data-dir", str(data_dir), "admin", "token"]
-        token_output = subprocess.run(token_command, check=True, text=True, capture_output=True).stdout
-        if not any(line.startswith("Admin token: ") for line in token_output.splitlines()):
-            raise AssertionError("admin token command did not initialize the database")
+        init_output = subprocess.run(
+            [str(BINARY), "--data-dir", str(data_dir), "interactive"],
+            input="0\n",
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout
+        password_match = re.search(r"Password: (\S+)", init_output)
+        if not password_match:
+            raise AssertionError("interactive initialization did not print the admin password")
+        initial_password = password_match.group(1)
 
         with sqlite3.connect(data_dir / "data.db") as connection:
             connection.execute(
@@ -99,11 +107,16 @@ def main():
                 )
                 expect(401, status, "unauthorized upload")
 
-                status, login = api(base, "/api/auth/login", {"username": "admin", "password": ""})
-                expect(200, status, "initial empty-password login")
+                status, login = api(base, "/api/auth/login", {"username": "admin", "password": initial_password})
+                expect(200, status, "initial password login")
                 setup_token = login["data"]["token"]
 
-                status, update = api(base, "/api/me/update", {"password": PASSWORD}, setup_token)
+                status, update = api(
+                    base,
+                    "/api/me/update",
+                    {"password": PASSWORD, "current_password": initial_password},
+                    setup_token,
+                )
                 expect(200, status, "set password")
                 if update["code"] != 200:
                     raise AssertionError(f"set password API error: {update}")

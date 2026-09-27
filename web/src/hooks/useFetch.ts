@@ -30,21 +30,3 @@ export const useFetch = <T>(
 ): [Accessor<typeof loading>, typeof p] => {
   return useLoading(p, true, loading)
 }
-
-export const useListFetch = <T, K>(
-  p: (key: K, ...arg: any[]) => Promise<T>,
-  initial?: K,
-): [Accessor<typeof initial>, typeof p] => {
-  const [loading, setLoading] = createSignal(initial)
-  return [
-    loading,
-    async (key: K, ...arg: any[]) => {
-      setLoading(() => key)
-      const data = await p(key, ...arg)
-      if ((data as EmptyResp).code !== 401) {
-        setLoading(undefined)
-      }
-      return data
-    },
-  ]
-}

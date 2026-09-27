@@ -24,7 +24,6 @@ const trimSlash = (str: string) => {
 
 interface FileItem {
   path: string
-  url?: string
 }
 
 const PackageDownload = (props: { onClose: () => void }) => {
@@ -44,7 +43,6 @@ const PackageDownload = (props: { onClose: () => void }) => {
       return [
         {
           path: pathJoin(pre, obj.name),
-          url: obj.raw_url,
         },
       ]
     }
@@ -61,7 +59,6 @@ const PackageDownload = (props: { onClose: () => void }) => {
       } else {
         files.push({
           path: pathJoin(pre, obj.name, item.name),
-          url: item.raw_url,
         })
       }
     }
@@ -119,17 +116,14 @@ const PackageDownload = (props: { onClose: () => void }) => {
       if (!p) {
         const file = downFiles[index]
         p = (async () => {
-          let rawUrl = file.url
-          if (!rawUrl) {
-            const filePath = pathJoin(pathname(), file.path)
-            const linkResp = await fsLink(filePath)
-            if (linkResp.code !== 200) {
-              throw new Error(
-                `Failed to get link for ${file.path}: ${linkResp.message}`,
-              )
-            }
-            rawUrl = linkResp.data.url
+          const filePath = pathJoin(pathname(), file.path)
+          const linkResp = await fsLink(filePath)
+          if (linkResp.code !== 200) {
+            throw new Error(
+              `Failed to get link for ${file.path}: ${linkResp.message}`,
+            )
           }
+          const rawUrl = linkResp.data.url
           const url =
             rawUrl.startsWith("http://") || rawUrl.startsWith("https://")
               ? rawUrl

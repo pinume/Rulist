@@ -88,6 +88,8 @@ const UploadFile = (props: UploadFileProps & { onRetry?: () => void }) => {
   )
 }
 
+type UploadTask = UploadFileProps & { id: number }
+
 const Upload = () => {
   const t = useT()
   const { pathname } = useRouter()
@@ -95,7 +97,7 @@ const Upload = () => {
   const [drag, setDrag] = createSignal(false)
   const [uploading, setUploading] = createSignal(false)
   const [uploadFiles, setUploadFiles] = createStore<{
-    uploads: UploadFileProps[]
+    uploads: UploadTask[]
   }>({
     uploads: [],
   })
@@ -107,16 +109,20 @@ const Upload = () => {
   let fileInput!: HTMLInputElement
   let folderInput!: HTMLInputElement
   // keep the File handles around so a failed row can be retried in place
-  const fileMap = new Map<string, File>()
+  const fileMap = new Map<number, File>()
+  let nextUploadId = 0
   const handleAddFiles = async (files: File[]) => {
     if (files.length === 0) return
     setUploading(true)
-    for (const file of files) {
-      const upload = File2Upload(file)
-      fileMap.set(upload.path, file)
+    const uploads = files.map((file) => {
+      const upload = { ...File2Upload(file), id: nextUploadId++ }
+      fileMap.set(upload.id, file)
       setUploadFiles("uploads", (uploads) => [...uploads, upload])
-    }
-    for await (const ms of asyncPool(3, files, handleFile)) {
+      return { file, upload }
+    })
+    for await (const ms of asyncPool(3, uploads, ({ file, upload }) =>
+      handleFile(upload.id, file),
+    )) {
       console.log(ms)
     }
     refresh()
@@ -141,43 +147,43 @@ const Upload = () => {
     bus.off("upload_files", onUploadFiles)
   })
 
-  const setUpload = (path: string, key: keyof UploadFileProps, value: any) => {
-    setUploadFiles("uploads", (upload) => upload.path === path, key, value)
+  const setUpload = (id: number, key: keyof UploadFileProps, value: any) => {
+    setUploadFiles("uploads", (upload) => upload.id === id, key, value)
   }
 
-  const retryFile = (path: string) => {
-    const file = fileMap.get(path)
+  const retryFile = (id: number) => {
+    const file = fileMap.get(id)
     if (!file) return
-    setUpload(path, "msg", "")
-    setUpload(path, "progress", 0)
-    setUpload(path, "speed", 0)
-    handleFile(file)
+    setUpload(id, "msg", "")
+    setUpload(id, "progress", 0)
+    setUpload(id, "speed", 0)
+    handleFile(id, file)
   }
-  const handleFile = async (file: File) => {
+  const handleFile = async (id: number, file: File) => {
     const path = file.webkitRelativePath ? file.webkitRelativePath : file.name
-    setUpload(path, "status", "uploading")
+    setUpload(id, "status", "uploading")
     const uploadPath = pathJoin(pathname(), path)
     try {
       const err = await StreamUpload(
         uploadPath,
         file,
         (key, value) => {
-          setUpload(path, key, value)
+          setUpload(id, key, value)
         },
         uploadConfig.asTask,
         uploadConfig.overwrite,
       ).catch((err) => err)
       if (!err) {
-        setUpload(path, "status", "success")
-        setUpload(path, "progress", 100)
+        setUpload(id, "status", "success")
+        setUpload(id, "progress", 100)
       } else {
-        setUpload(path, "status", "error")
-        setUpload(path, "msg", err.message)
+        setUpload(id, "status", "error")
+        setUpload(id, "msg", err.message)
       }
     } catch (e: any) {
       console.error(e)
-      setUpload(path, "status", "error")
-      setUpload(path, "msg", e.message)
+      setUpload(id, "status", "error")
+      setUpload(id, "msg", e.message)
     }
   }
   return (
@@ -214,7 +220,7 @@ const Upload = () => {
               {(upload) => (
                 <UploadFile
                   {...upload}
-                  onRetry={() => retryFile(upload.path)}
+                  onRetry={() => retryFile(upload.id)}
                 />
               )}
             </For>

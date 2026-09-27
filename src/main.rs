@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
-use std::path::PathBuf;
+use std::{io, path::PathBuf};
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -106,7 +106,16 @@ async fn main() -> Result<()> {
         Commands::Interactive => {
             let (config, _) = config::Config::load_or_create(&data_dir)?;
             let pool = db::init_db(&config.resolved_db_path(&data_dir)).await?;
-            interactive::run_interactive_console(&pool, &data_dir).await?;
+            if let Err(error) = interactive::run_interactive_console(&pool, &data_dir).await {
+                if error
+                    .downcast_ref::<io::Error>()
+                    .is_some_and(|error| error.kind() == io::ErrorKind::UnexpectedEof)
+                {
+                    println!("\n已退出 Rulist 交互控制台。");
+                } else {
+                    return Err(error);
+                }
+            }
         }
         Commands::Version => {
             println!("Version: v{}", env!("CARGO_PKG_VERSION"));

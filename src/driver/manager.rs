@@ -284,6 +284,10 @@ impl StorageManager {
             .find_storage(dst_path)
             .ok_or_else(|| anyhow!("dst storage not found"))?;
 
+        if src_match.1.trim_matches('/').is_empty() || dst_match.1.trim_matches('/').is_empty() {
+            return Err(anyhow!("cannot move storage root"));
+        }
+
         if src_match.0.storage.id == dst_match.0.storage.id {
             src_match
                 .0
@@ -319,6 +323,10 @@ impl StorageManager {
             .find_storage(dst_path)
             .ok_or_else(|| anyhow!("dst storage not found"))?;
 
+        if src_match.1.trim_matches('/').is_empty() || dst_match.1.trim_matches('/').is_empty() {
+            return Err(anyhow!("cannot copy storage root"));
+        }
+
         if src_match.0.storage.id == dst_match.0.storage.id {
             src_match
                 .0
@@ -330,5 +338,86 @@ impl StorageManager {
             let dst_full = dst_match.0.driver.safe_resolve(&dst_match.1)?;
             crate::driver::local::copy_path_safe(&src_full, &dst_full, overwrite, false).await
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn mount(id: i64, path: &str, root_path: std::path::PathBuf) -> MountedStorage {
+        MountedStorage {
+            storage: Storage {
+                id,
+                mount_path: path.to_string(),
+                order: 0,
+                driver: "Local".to_string(),
+                cache_expiration: 0,
+                status: None,
+                addition: None,
+                remark: None,
+                disabled: false,
+                enable_sign: false,
+                order_by: None,
+                order_direction: None,
+            },
+            driver: LocalDriver {
+                root_path,
+                show_hidden: false,
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn cross_mount_operations_reject_storage_roots() {
+        let source = tempdir().unwrap();
+        let destination = tempdir().unwrap();
+        tokio::fs::write(source.path().join("file"), b"data")
+            .await
+            .unwrap();
+        let manager = StorageManager {
+            pool: None,
+            storages: Arc::new(std::sync::RwLock::new(vec![
+                mount(1, "/source", source.path().to_path_buf()),
+                mount(2, "/destination", destination.path().to_path_buf()),
+            ])),
+        };
+
+        manager
+            .copy_to_safe("/source/file", "/destination/copied", false)
+            .await
+            .unwrap();
+        assert_eq!(
+            tokio::fs::read(destination.path().join("copied"))
+                .await
+                .unwrap(),
+            b"data"
+        );
+        assert!(
+            manager
+                .move_to_safe("/source", "/destination/file", false)
+                .await
+                .is_err()
+        );
+        assert!(
+            manager
+                .move_to_safe("/source/file", "/destination", false)
+                .await
+                .is_err()
+        );
+        assert!(
+            manager
+                .copy_to_safe("/source", "/destination/file", false)
+                .await
+                .is_err()
+        );
+        assert!(
+            manager
+                .copy_to_safe("/source/file", "/destination", false)
+                .await
+                .is_err()
+        );
+        assert!(source.path().join("file").exists());
     }
 }
