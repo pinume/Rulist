@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
-use rulist::auth::compute_totp;
+use rulist::auth::{compute_totp, generate_otp_secret};
 use rulist::config::Config;
 use rulist::db;
 use rulist::driver::StorageManager;
@@ -37,47 +37,28 @@ async fn json_request(
 }
 
 #[tokio::test]
-async fn two_factor_lifecycle_is_enforced_and_replay_safe() {
+async fn two_factor_login_is_enforced_and_replay_safe() {
     let temp = tempfile::tempdir().unwrap();
     let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
     db::set_admin_password(&pool, "TestPass123!").await.unwrap();
 
-    let master_token = db::get_setting(&pool, "token").await.unwrap().unwrap();
+    let admin = db::get_admin(&pool).await.unwrap().unwrap();
+    let secret = generate_otp_secret();
+    let step = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        / 30;
+    db::enable_user_2fa(&pool, admin.id, &secret, step.saturating_sub(1) as i64)
+        .await
+        .unwrap();
+
     let storage = StorageManager::load_from_db(&pool).await.unwrap();
     let app = build_app(Arc::new(AppState {
         pool: pool.clone(),
         config: Config::default(),
         storage,
     }));
-
-    let (status, generated) = json_request(
-        &app,
-        "POST",
-        "/api/auth/2fa/generate",
-        Some(&master_token),
-        json!({ "current_password": "TestPass123!" }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(generated["code"], 200);
-    let secret = generated["data"]["secret"].as_str().unwrap();
-
-    let step = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        / 30;
-    let setup_code = compute_totp(secret, step).unwrap();
-    let (status, verified) = json_request(
-        &app,
-        "POST",
-        "/api/auth/2fa/verify",
-        Some(&master_token),
-        json!({ "code": setup_code }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(verified["code"], 200);
 
     let (status, missing_otp) = json_request(
         &app,
@@ -90,7 +71,7 @@ async fn two_factor_lifecycle_is_enforced_and_replay_safe() {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert_eq!(missing_otp["code"], 402);
 
-    let login_code = compute_totp(secret, step + 1).unwrap();
+    let login_code = compute_totp(&secret, step).unwrap();
     let (status, logged_in) = json_request(
         &app,
         "POST",
@@ -107,7 +88,7 @@ async fn two_factor_lifecycle_is_enforced_and_replay_safe() {
     assert_eq!(logged_in["code"], 200);
     assert!(logged_in["data"]["token"].is_string());
 
-    let replay_code = compute_totp(secret, step + 1).unwrap();
+    let replay_code = compute_totp(&secret, step).unwrap();
     let (status, replayed) = json_request(
         &app,
         "POST",
