@@ -228,37 +228,3 @@ pub fn matching_totp_step(secret: &str, code: &str) -> Option<i64> {
     }
     None
 }
-
-fn url_encode_component(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for byte in s.bytes() {
-        if byte.is_ascii_alphanumeric()
-            || byte == b'-'
-            || byte == b'_'
-            || byte == b'.'
-            || byte == b'~'
-        {
-            out.push(byte as char);
-        } else {
-            out.push_str(&format!("%{byte:02X}"));
-        }
-    }
-    out
-}
-
-pub fn generate_totp_qr(issuer: &str, username: &str, secret: &str) -> anyhow::Result<String> {
-    let enc_issuer = url_encode_component(issuer);
-    let enc_username = url_encode_component(username);
-    let label = format!("{enc_issuer}:{enc_username}");
-    let otpauth_url = format!(
-        "otpauth://totp/{label}?secret={secret}&issuer={enc_issuer}&algorithm=SHA1&digits=6&period=30"
-    );
-
-    let code = qrcode::QrCode::new(otpauth_url.as_bytes())?;
-    let svg = code
-        .render::<qrcode::render::svg::Color>()
-        .min_dimensions(200, 200)
-        .build();
-    let b64 = base64::engine::general_purpose::STANDARD.encode(svg.as_bytes());
-    Ok(format!("data:image/svg+xml;base64,{b64}"))
-}
