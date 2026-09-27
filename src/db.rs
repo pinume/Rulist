@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Pool, Sqlite};
 
-use crate::auth::{encode_argon2_hash, rand_string, rand_token, static_hash, verify_password};
+use crate::auth::{hash_password, rand_string, rand_token};
 use crate::model::{ROLE_ADMIN, User};
 
 pub type DbPool = Pool<Sqlite>;
@@ -38,12 +38,6 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
         fs::set_permissions(db_path, fs::Permissions::from_mode(0o600))?;
     }
 
-    // Older Rulist databases may predate these two columns. This narrow bridge
-    // exists only so SQLx can take over migration tracking without discarding
-    // persisted user data. New databases never enter this path.
-    ensure_legacy_user_columns(&pool).await?;
-    validate_admin_invariants(&pool).await?;
-
     MIGRATOR
         .run(&pool)
         .await
@@ -65,64 +59,7 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
     Ok(pool)
 }
 
-async fn table_exists(pool: &DbPool, name: &str) -> Result<bool> {
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
-    )
-    .bind(name)
-    .fetch_one(pool)
-    .await?;
-    Ok(count > 0)
-}
-
-async fn ensure_legacy_user_columns(pool: &DbPool) -> Result<()> {
-    if !table_exists(pool, "x_users").await? {
-        return Ok(());
-    }
-
-    let has_password_unset: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM pragma_table_info('x_users') WHERE name = 'password_unset'",
-    )
-    .fetch_one(pool)
-    .await?;
-    if has_password_unset == 0 {
-        sqlx::query("ALTER TABLE `x_users` ADD COLUMN `password_unset` NUMERIC NOT NULL DEFAULT 0")
-            .execute(pool)
-            .await?;
-
-        let users: Vec<(i64, String, String)> =
-            sqlx::query_as("SELECT `id`, `pwd_hash`, `salt` FROM `x_users`")
-                .fetch_all(pool)
-                .await?;
-        for (id, pwd_hash, salt) in users {
-            if verify_password("", &pwd_hash, &salt) {
-                sqlx::query("UPDATE `x_users` SET `password_unset` = 1 WHERE `id` = ?")
-                    .bind(id)
-                    .execute(pool)
-                    .await?;
-            }
-        }
-    }
-
-    let has_last_otp_step: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM pragma_table_info('x_users') WHERE name = 'last_otp_step'",
-    )
-    .fetch_one(pool)
-    .await?;
-    if has_last_otp_step == 0 {
-        sqlx::query("ALTER TABLE `x_users` ADD COLUMN `last_otp_step` INTEGER NOT NULL DEFAULT -1")
-            .execute(pool)
-            .await?;
-    }
-
-    Ok(())
-}
-
 async fn validate_admin_invariants(pool: &DbPool) -> Result<()> {
-    if !table_exists(pool, "x_users").await? {
-        return Ok(());
-    }
-
     let invalid_admins: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM `x_users` WHERE `role` = ? AND (`username` != 'admin' OR `disabled` != 0)",
     )
@@ -135,9 +72,7 @@ async fn validate_admin_invariants(pool: &DbPool) -> Result<()> {
         .await?;
 
     if invalid_admins > 0 || admin_count > 1 {
-        bail!(
-            "database must contain at most one enabled administrator named admin; resolve legacy accounts before startup"
-        );
+        bail!("database must contain at most one enabled administrator named admin");
     }
     if admin_count == 0 && get_user_by_name(pool, "admin").await?.is_some() {
         bail!("username admin is already assigned to a non-administrator");
@@ -192,9 +127,7 @@ async fn seed_admin(pool: &DbPool) -> Result<()> {
 
     if admin_count == 0 {
         let initial_pwd = rand_string(16);
-        let salt = rand_string(16);
-        let s_hash = static_hash(&initial_pwd);
-        let encoded_pwd = encode_argon2_hash(&s_hash, &salt);
+        let encoded_pwd = hash_password(&initial_pwd);
         let now_ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -202,13 +135,12 @@ async fn seed_admin(pool: &DbPool) -> Result<()> {
 
         sqlx::query(
             r#"
-            INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `salt`, `base_path`, `role`, `disabled`, `permission`, `password_unset`)
-            VALUES ('admin', ?, ?, ?, '/', ?, 0, 0, 0)
+            INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `base_path`, `role`, `disabled`, `permission`, `password_unset`)
+            VALUES ('admin', ?, ?, '/', ?, 0, 0, 0)
             "#,
         )
         .bind(&encoded_pwd)
         .bind(now_ts)
-        .bind(&salt)
         .bind(ROLE_ADMIN)
         .execute(pool)
         .await?;
@@ -248,9 +180,7 @@ pub async fn set_user_password(
     let user = get_user_by_name(pool, username)
         .await?
         .context("user not found")?;
-    let salt = rand_string(16);
-    let s_hash = static_hash(new_password);
-    let encoded_pwd = encode_argon2_hash(&s_hash, &salt);
+    let encoded_pwd = hash_password(new_password);
     let now_ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -258,11 +188,10 @@ pub async fn set_user_password(
 
     let mut tx = pool.begin().await?;
     sqlx::query(
-        "UPDATE `x_users` SET `pwd_hash` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?), `salt` = ?, `password_unset` = ?, `otp_secret` = CASE WHEN ? THEN '' ELSE `otp_secret` END, `last_otp_step` = CASE WHEN ? THEN -1 ELSE `last_otp_step` END WHERE `id` = ?",
+        "UPDATE `x_users` SET `pwd_hash` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?), `password_unset` = ?, `otp_secret` = CASE WHEN ? THEN '' ELSE `otp_secret` END, `last_otp_step` = CASE WHEN ? THEN -1 ELSE `last_otp_step` END WHERE `id` = ?",
     )
     .bind(encoded_pwd)
     .bind(now_ts)
-    .bind(salt)
     .bind(new_password.is_empty())
     .bind(clear_2fa)
     .bind(clear_2fa)
@@ -383,7 +312,6 @@ pub fn compute_local_path(base_path: &str, storages: &[crate::model::Storage]) -
     {
         let root = value
             .get("root_folder_path")
-            .or_else(|| value.get("root_folder"))
             .and_then(|value| value.as_str())
             .unwrap_or("");
         if !root.is_empty() {
@@ -557,9 +485,7 @@ pub async fn create_user_direct(
     permission: i32,
     disabled: bool,
 ) -> Result<i64> {
-    let salt = rand_string(16);
-    let s_hash = static_hash(password);
-    let encoded_pwd = encode_argon2_hash(&s_hash, &salt);
+    let encoded_pwd = hash_password(password);
     let now_ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -567,12 +493,11 @@ pub async fn create_user_direct(
 
     let mut tx = pool.begin().await?;
     let result = sqlx::query(
-        "INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `salt`, `base_path`, `role`, `disabled`, `permission`, `password_unset`) VALUES (?, ?, ?, ?, '/', ?, ?, ?, ?)",
+        "INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `base_path`, `role`, `disabled`, `permission`, `password_unset`) VALUES (?, ?, ?, '/', ?, ?, ?, ?)",
     )
     .bind(username)
     .bind(&encoded_pwd)
     .bind(now_ts)
-    .bind(&salt)
     .bind(role)
     .bind(if disabled { 1 } else { 0 })
     .bind(permission)
