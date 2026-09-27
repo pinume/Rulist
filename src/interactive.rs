@@ -603,10 +603,10 @@ async fn action_list_storages(pool: &DbPool) -> Result<()> {
     }
 
     println!(
-        "{:<4} {:<18} {:<10} {:<10} {}",
-        "ID", "MOUNT PATH", "DRIVER", "STATUS", "LOCAL PATH / DETAILS"
+        "{:<4} {:<18} {:<10} {}",
+        "ID", "MOUNT PATH", "STATUS", "LOCAL PATH / DETAILS"
     );
-    println!("{}", "-".repeat(80));
+    println!("{}", "-".repeat(70));
     for storage in storages {
         let status = if storage.disabled {
             "disabled"
@@ -620,7 +620,6 @@ async fn action_list_storages(pool: &DbPool) -> Result<()> {
             .and_then(|value| {
                 value
                     .get("root_folder_path")
-                    .or_else(|| value.get("root_folder"))
                     .and_then(|value| value.as_str())
                     .map(str::to_string)
             })
@@ -628,8 +627,8 @@ async fn action_list_storages(pool: &DbPool) -> Result<()> {
             .unwrap_or_default();
 
         println!(
-            "{:<4} {:<18} {:<10} {:<10} {}",
-            storage.id, storage.mount_path, storage.driver, status, detail
+            "{:<4} {:<18} {:<10} {}",
+            storage.id, storage.mount_path, status, detail
         );
     }
     Ok(())
