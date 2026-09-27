@@ -8,7 +8,6 @@ import {
   Tooltip,
   useColorModeValue,
 } from "@hope-ui/solid"
-import { FiPlus } from "solid-icons/fi"
 import {
   RiDocumentFileUploadLine,
   RiDocumentFolderUploadLine,
@@ -73,13 +72,9 @@ export const AddMenu = () => {
       />
 
       <Menu placement="bottom-end" offset={6}>
-        <Tooltip
-          placement="bottom"
-          withArrow
-          label={t("home.add_menu.title") || "新建与上传"}
-        >
+        <Tooltip placement="bottom" withArrow label={t("home.add_menu.title")}>
           <MenuTrigger
-            aria-label={t("home.add_menu.title") || "新建与上传"}
+            aria-label={t("home.add_menu.title")}
             w={{ "@initial": "$7", "@md": "auto" }}
             h="$7"
             p={{ "@initial": 0, "@md": "$3" }}
@@ -125,7 +120,7 @@ export const AddMenu = () => {
               ml="$1"
               fontSize="$sm"
             >
-              新建/上传
+              {t("home.add_menu.title")}
             </Text>
           </MenuTrigger>
         </Tooltip>
@@ -158,7 +153,7 @@ export const AddMenu = () => {
             }}
           >
             <Text fontSize="$sm" fontWeight="$medium">
-              {t("home.add_menu.upload_file") || "上传文件"}
+              {t("home.add_menu.upload_file")}
             </Text>
           </MenuItem>
 
@@ -180,7 +175,7 @@ export const AddMenu = () => {
             }}
           >
             <Text fontSize="$sm" fontWeight="$medium">
-              {t("home.add_menu.upload_folder") || "上传文件夹"}
+              {t("home.add_menu.upload_folder")}
             </Text>
           </MenuItem>
 
@@ -202,7 +197,7 @@ export const AddMenu = () => {
             }}
           >
             <Text fontSize="$sm" fontWeight="$medium">
-              {t("home.add_menu.create_folder") || "创建文件夹"}
+              {t("home.add_menu.create_folder")}
             </Text>
           </MenuItem>
         </MenuContent>
