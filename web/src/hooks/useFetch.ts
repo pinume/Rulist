@@ -23,7 +23,7 @@ export const useLoading = <T>(
   ]
 }
 
-// 配合handleResp使用
+// Used together with handleResp
 export const useFetch = <T>(
   p: (...arg: any[]) => Promise<T>,
   loading?: boolean,
