@@ -35,7 +35,7 @@ export const UnsupportedPreview = (props: { meta: PreviewMeta }) => {
           {getFileSize(props.meta.size)}
         </Text>
         <Text size="sm" color="$neutral11" textAlign="center">
-          {t("home.preview.unsupported") || "当前格式暂不支持在线预览"}
+          {t("home.preview.unsupported")}
         </Text>
         <HStack spacing="$3" pt="$2">
           <Button
@@ -43,7 +43,7 @@ export const UnsupportedPreview = (props: { meta: PreviewMeta }) => {
             colorScheme="accent"
             onClick={() => startDownload(props.meta.raw_url, props.meta.name)}
           >
-            {t("home.toolbar.download") || "下载"}
+            {t("home.toolbar.download")}
           </Button>
           <Button
             as="a"
@@ -53,7 +53,7 @@ export const UnsupportedPreview = (props: { meta: PreviewMeta }) => {
             variant="outline"
             leftIcon={<Icon as={FiExternalLink} />}
           >
-            {t("home.preview.open_raw") || "直接打开"}
+            {t("home.preview.open_raw")}
           </Button>
         </HStack>
       </VStack>
