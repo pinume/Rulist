@@ -1,10 +1,5 @@
 import { createSignal } from "solid-js"
-import {
-  User,
-  UserMethods,
-  UserPermissionBits,
-  UserPermissions,
-} from "~/types"
+import { User, UserMethods, UserPermissionBits, UserPermissions } from "~/types"
 
 export type Me = User & { otp: boolean }
 const [me, setMe] = createSignal<Me>({} as Me)

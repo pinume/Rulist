@@ -5,7 +5,10 @@ import { getFileSize } from "~/utils"
 import { useRenewMediaUrl } from "./useRenewMediaUrl"
 
 export const AudioPreview = (props: { meta: PreviewMeta; path: string }) => {
-  const { rawUrl, onError } = useRenewMediaUrl(() => props.path, () => props.meta.raw_url)
+  const { rawUrl, onError } = useRenewMediaUrl(
+    () => props.path,
+    () => props.meta.raw_url,
+  )
 
   return (
     <Box display="flex" justifyContent="center" alignItems="center" p="$8">

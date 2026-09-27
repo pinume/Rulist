@@ -8,7 +8,10 @@ const isExpired = (rawUrl: string) => {
   return Number.isFinite(expires) && expires > 0 && expires < Date.now() / 1000
 }
 
-export const useRenewMediaUrl = (path: () => string, initialUrl: () => string) => {
+export const useRenewMediaUrl = (
+  path: () => string,
+  initialUrl: () => string,
+) => {
   const [rawUrl, setRawUrl] = createSignal(initialUrl())
   let renewedUrl = ""
 
@@ -22,7 +25,9 @@ export const useRenewMediaUrl = (path: () => string, initialUrl: () => string) =
     const media = event.currentTarget as HTMLMediaElement
     const currentTime = media.currentTime
     const wasPlaying = !media.paused
-    const resp: Resp<PreviewResponse> = await r.post("/fs/preview", { path: path() })
+    const resp: Resp<PreviewResponse> = await r.post("/fs/preview", {
+      path: path(),
+    })
     const nextUrl = resp.code === 200 ? resp.data?.meta?.raw_url : undefined
     if (!nextUrl || nextUrl === currentUrl) return
 

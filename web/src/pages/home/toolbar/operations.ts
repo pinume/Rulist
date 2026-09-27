@@ -25,4 +25,3 @@ export const operations: Operations = {
   cancel_select: { icon: TiDeleteOutline },
   download: { icon: AiOutlineCloudDownload, color: "$primary9" },
 }
-

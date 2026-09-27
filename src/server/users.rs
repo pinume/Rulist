@@ -273,6 +273,13 @@ pub async fn admin_user_create_handler(
             "Password cannot be empty unless 'allow empty password' permission is granted",
         );
     }
+    if !(allow_empty_pwd && raw_pwd.is_empty()) && !crate::auth::valid_password(raw_pwd) {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            400,
+            "Password length must be between 8 and 128 characters",
+        );
+    }
 
     let role = req.role.unwrap_or(0);
     if role == ROLE_ADMIN {
@@ -468,7 +475,7 @@ pub async fn admin_user_update_handler(
                 "Password cannot be empty unless 'allow empty password' permission is granted",
             );
         }
-        if target_user.is_admin() && !crate::auth::valid_password(pwd) {
+        if !(allow_empty_pwd && pwd.is_empty()) && !crate::auth::valid_password(pwd) {
             return api_error(
                 StatusCode::BAD_REQUEST,
                 400,

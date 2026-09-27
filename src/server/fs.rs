@@ -134,6 +134,13 @@ pub async fn fs_get_handler(
         Err(_) => return permission_denied(),
     };
 
+    state.storage.ensure_mounted(&path).await;
+    if let Some((ms, sub)) = state.storage.find_storage(&path) {
+        if !ms.driver.show_hidden && sub.split('/').any(|p| p.starts_with('.')) {
+            return api_error(StatusCode::NOT_FOUND, 404, "File not found");
+        }
+    }
+
     match state.storage.get(&path).await {
         Ok(mut file) => {
             let token = match signing_token(&state).await {

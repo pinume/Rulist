@@ -245,6 +245,8 @@ pub struct TwoFaGenerateReq {
 #[derive(Debug, Clone, Deserialize)]
 pub struct TwoFaVerifyReq {
     pub code: String,
+    #[serde(default)]
+    pub current_password: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

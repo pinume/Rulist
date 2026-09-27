@@ -11,7 +11,6 @@ const instance = axios.create({
   withCredentials: false,
 })
 
-
 // response interceptor
 instance.interceptors.response.use(
   (response) => {

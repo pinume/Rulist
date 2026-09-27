@@ -7,10 +7,7 @@ export const MarkdownPreview = (props: { content?: ProcessedContent }) => {
 
   return (
     <Box w="$full" p="$6" bg={bg()} color={textColor()} overflowX="auto">
-      <Box
-        class="markdown-body"
-        innerHTML={props.content?.value ?? ""}
-      />
+      <Box class="markdown-body" innerHTML={props.content?.value ?? ""} />
     </Box>
   )
 }

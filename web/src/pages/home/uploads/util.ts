@@ -52,7 +52,11 @@ export const extractFilesFromDataTransfer = async (
     return files
   }
 
-  const entries: { isDirectory: boolean; entry?: FileSystemEntry; file?: File }[] = []
+  const entries: {
+    isDirectory: boolean
+    entry?: FileSystemEntry
+    file?: File
+  }[] = []
   for (let i = 0; i < items.length; i++) {
     const item = items[i]
     if (item.kind !== "file") continue

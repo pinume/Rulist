@@ -85,7 +85,9 @@ export const CodePreview = (props: {
             leftIcon={<Icon as={copied() ? FiCheck : FiCopy} />}
             onClick={handleCopy}
           >
-            {copied() ? t("global.copied") || "已复制" : t("global.copy") || "复制"}
+            {copied()
+              ? t("global.copied") || "已复制"
+              : t("global.copy") || "复制"}
           </Button>
         </HStack>
       </HStack>

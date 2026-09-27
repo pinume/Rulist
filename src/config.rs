@@ -26,6 +26,8 @@ pub struct SchemeConfig {
     pub address: String,
     #[serde(default = "default_http_port")]
     pub http_port: u16,
+    #[serde(default)]
+    pub allow_cors: bool,
 }
 fn default_address() -> String {
     "0.0.0.0".to_string()
@@ -38,6 +40,7 @@ impl Default for SchemeConfig {
         Self {
             address: default_address(),
             http_port: default_http_port(),
+            allow_cors: false,
         }
     }
 }

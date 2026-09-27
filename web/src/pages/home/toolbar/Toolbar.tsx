@@ -1,17 +1,70 @@
+import {
+  Modal,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalOverlay,
+  ModalCloseButton,
+  createDisclosure,
+} from "@hope-ui/solid"
+import { lazy, onCleanup, Show, Suspense } from "solid-js"
 import { Portal } from "solid-js/web"
+import { FullLoading } from "~/components"
+import { useT } from "~/hooks"
+import { bus } from "~/utils"
+import { BackTop } from "./BackTop"
+import { BatchRename } from "./BatchRename"
 import { Copy, Move } from "./CopyMove"
 import { Delete } from "./Delete"
-import { Rename } from "./Rename"
-import { Mkdir } from "./Mkdir"
-import { BatchRename } from "./BatchRename"
 import { PackageDownloadModal } from "./Download"
-import { lazy } from "solid-js"
-import { ModalWrapper } from "./ModalWrapper"
-import { BackTop } from "./BackTop"
+import { Mkdir } from "./Mkdir"
+import { Rename } from "./Rename"
 
 const Upload = lazy(() => import("../uploads/Upload"))
 
-export const Modal = () => {
+const UploadModal = () => {
+  const t = useT()
+  const { isOpen, onOpen, onClose } = createDisclosure()
+  const handler = (name: string) => {
+    if (name === "upload") {
+      onOpen()
+    }
+  }
+  bus.on("tool", handler)
+  onCleanup(() => {
+    bus.off("tool", handler)
+  })
+  return (
+    <Modal
+      opened={isOpen()}
+      onClose={onClose}
+      closeOnOverlayClick={false}
+      closeOnEsc={false}
+      size={{
+        "@initial": "xs",
+        "@md": "md",
+        "@lg": "lg",
+        "@xl": "xl",
+        "@2xl": "2xl",
+      }}
+    >
+      <ModalOverlay />
+      <ModalContent>
+        <ModalCloseButton />
+        <ModalHeader>{t("home.toolbar.upload")}</ModalHeader>
+        <ModalBody>
+          <Show when={isOpen()}>
+            <Suspense fallback={<FullLoading />}>
+              <Upload />
+            </Suspense>
+          </Show>
+        </ModalBody>
+      </ModalContent>
+    </Modal>
+  )
+}
+
+export const Modals = () => {
   return (
     <>
       <Copy />
@@ -21,9 +74,7 @@ export const Modal = () => {
       <Mkdir />
       <BatchRename />
       <PackageDownloadModal />
-      <ModalWrapper name="upload" title="home.toolbar.upload">
-        <Upload />
-      </ModalWrapper>
+      <UploadModal />
     </>
   )
 }
@@ -31,7 +82,7 @@ export const Modal = () => {
 export const Toolbar = () => {
   return (
     <Portal>
-      <Modal />
+      <Modals />
       <BackTop />
     </Portal>
   )

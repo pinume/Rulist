@@ -5,7 +5,10 @@ import { Portal } from "solid-js/web"
 import { useRouter, useT } from "~/hooks"
 import { getMainColor, objStore, State, userCan } from "~/store"
 import { notify } from "~/utils"
-import { enqueueFilesForUpload, extractFilesFromDataTransfer } from "./uploads/util"
+import {
+  enqueueFilesForUpload,
+  extractFilesFromDataTransfer,
+} from "./uploads/util"
 
 export const DropZone = () => {
   const t = useT()
@@ -130,9 +133,7 @@ export const DropZone = () => {
             <Box color={getMainColor()} fontSize="3.5rem">
               <FiUploadCloud />
             </Box>
-            <Heading size="lg">
-              {t("home.upload.release_to_upload")}
-            </Heading>
+            <Heading size="lg">{t("home.upload.release_to_upload")}</Heading>
             <Text fontSize="$sm" color="$neutral11">
               {pathname()}
             </Text>

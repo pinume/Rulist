@@ -31,7 +31,6 @@ import {
   visibleObjIndexes,
 } from "~/store"
 import { Col, cols, ListItem } from "./ListItem"
-import { useSelectWithMouse } from "./helper"
 import { bus } from "~/utils"
 import { BsFilter } from "solid-icons/bs"
 import { FiCheck } from "solid-icons/fi"
@@ -324,14 +323,8 @@ const ListLayout = () => {
   const { pathname } = useRouter()
   const { handleFolder } = usePath()
 
-  const { registerSelectContainer } = useSelectWithMouse()
-  registerSelectContainer()
   return (
-    <VStack
-      class="list viselect-container"
-      w="$full"
-      spacing="$0"
-    >
+    <VStack class="list viselect-container" w="$full" spacing="$0">
       <ListTitle
         sortCallback={(orderBy, reverse) => {
           ObjStore.setSort(orderBy, reverse)

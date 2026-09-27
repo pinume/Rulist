@@ -20,6 +20,7 @@ import {
   notify,
   handleRespWithoutAuthAndNotify,
   base_path,
+  getSafeRedirect,
 } from "~/utils"
 import { Resp } from "~/types"
 import LoginBg from "./LoginBg"
@@ -58,7 +59,7 @@ const Login = () => {
       })
     },
   )
-  const { to } = useRouter()
+  const { to, searchParams } = useRouter()
   const Login = async () => {
     if (remember() === "true") {
       localStorage.setItem("username", username())
@@ -71,7 +72,8 @@ const Login = () => {
       (data) => {
         notify.success(t("login.success"))
         changeToken(data.token)
-        to(base_path || "/", true)
+        const redirect = getSafeRedirect(searchParams["redirect"])
+        to(redirect || base_path || "/", true)
       },
       (msg, code) => {
         if (!needOpt() && code === 402) {

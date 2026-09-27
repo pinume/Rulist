@@ -1,9 +1,9 @@
 import { password } from "~/store"
 import { EmptyResp } from "~/types"
 import { r } from "~/utils"
-import { SetUpload, Upload } from "./types"
+import { SetUpload } from "./types"
 
-export const StreamUpload: Upload = async (
+export const StreamUpload = async (
   uploadPath: string,
   file: File,
   setUpload: SetUpload,

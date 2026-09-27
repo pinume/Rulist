@@ -542,25 +542,10 @@ pub async fn cancel_user_2fa(pool: &DbPool, user_id: i64) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 pub async fn set_user_disabled(pool: &DbPool, user_id: i64, disabled: bool) -> Result<()> {
     sqlx::query("UPDATE `x_users` SET `disabled` = ? WHERE `id` = ?")
         .bind(if disabled { 1 } else { 0 })
-        .bind(user_id)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
-#[allow(dead_code)]
-pub async fn set_user_role(pool: &DbPool, user_id: i64, role: i32) -> Result<()> {
-    let base_path = if role == ROLE_ADMIN {
-        "/".to_string()
-    } else {
-        format!("/.users/{user_id}")
-    };
-    sqlx::query("UPDATE `x_users` SET `role` = ?, `base_path` = ? WHERE `id` = ?")
-        .bind(role)
-        .bind(&base_path)
         .bind(user_id)
         .execute(pool)
         .await?;

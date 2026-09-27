@@ -221,7 +221,9 @@ export const ListItem = (props: { obj: StoreObj; index: number }) => {
                 <Icon as={BsThreeDotsVertical} boxSize="$4" />
               </MenuTrigger>
               <MenuContent shadow="$md" zIndex={100}>
-                <Show when={!props.obj.is_dir || getSettingBool("package_download")}>
+                <Show
+                  when={!props.obj.is_dir || getSettingBool("package_download")}
+                >
                   <MenuItem
                     cursor="pointer"
                     icon={

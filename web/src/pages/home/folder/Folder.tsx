@@ -17,7 +17,13 @@ const Pager = () => {
 
   return (
     <Show when={pageCount() > 1}>
-      <HStack justifyContent="center" spacing="$3" py="$2" borderTop="1px solid" borderColor="$neutral4">
+      <HStack
+        justifyContent="center"
+        spacing="$3"
+        py="$2"
+        borderTop="1px solid"
+        borderColor="$neutral4"
+      >
         <Button
           size="sm"
           disabled={objStore.page <= 1}

@@ -13,20 +13,7 @@ export const useUtil = () => {
         await navigator.clipboard.writeText(text)
         copied = true
       } catch {
-        const ta = document.createElement("textarea")
-        ta.value = text
-        ta.style.position = "fixed"
-        ta.style.opacity = "0"
-        const root = document.fullscreenElement ?? document.body
-        try {
-          root.appendChild(ta)
-          ta.select()
-          copied = document.execCommand("copy")
-        } catch {
-          copied = false
-        } finally {
-          ta.remove()
-        }
+        copied = false
       }
       if (copied) {
         notify.success(t("global.copied"))

@@ -218,10 +218,7 @@ const Upload = () => {
             </HStack>
             <For each={uploadFiles.uploads}>
               {(upload) => (
-                <UploadFile
-                  {...upload}
-                  onRetry={() => retryFile(upload.id)}
-                />
+                <UploadFile {...upload} onRetry={() => retryFile(upload.id)} />
               )}
             </For>
           </>

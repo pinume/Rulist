@@ -1,10 +1,4 @@
-import {
-  Box,
-  Center,
-  Flex,
-  Heading,
-  useColorModeValue,
-} from "@hope-ui/solid"
+import { Box, Center, Flex, Heading, useColorModeValue } from "@hope-ui/solid"
 import { mergeProps, Show, JSXElement } from "solid-js"
 
 export const Error = (props: {

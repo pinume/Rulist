@@ -47,7 +47,10 @@ export const PreviewHeader = (props: { meta: PreviewMeta }) => {
       <HStack spacing="$3" minW="0" flex="1">
         <Icon
           as={getIconByObj({ type: ObjType.UNKNOWN, name: props.meta.name })}
-          color={getIconColorByObj({ type: ObjType.UNKNOWN, name: props.meta.name })}
+          color={getIconColorByObj({
+            type: ObjType.UNKNOWN,
+            name: props.meta.name,
+          })}
           boxSize="$7"
           flexShrink={0}
         />

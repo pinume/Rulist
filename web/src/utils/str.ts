@@ -37,8 +37,14 @@ export const validateFilename = (
   return { valid: true }
 }
 
-export const isMobile =
-  typeof window !== "undefined" &&
-  /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-    window.navigator.userAgent,
-  )
+export const getSafeRedirect = (redirect?: string | null): string => {
+  if (!redirect) return ""
+  if (
+    redirect.startsWith("/") &&
+    !redirect.startsWith("//") &&
+    !redirect.startsWith("/\\")
+  ) {
+    return redirect
+  }
+  return ""
+}

@@ -94,7 +94,8 @@ export const getIconColorByObj = (obj: Pick<Obj, "type" | "name">) => {
   if (/\.(zip|tar|gz|tgz|bz2|xz|7z|rar)$/.test(name)) return "#d97706"
   if (/\.(html|htm)$/.test(name)) return "#0284c7"
   if (/\.(doc|docx|wps|rtf|odt|dot|dotx)$/.test(name)) return "#185abd"
-  if (/\.(ppt|pptx|pps|ppsx|dps|key|pot|potx|pptm)$/.test(name)) return "#d24726"
+  if (/\.(ppt|pptx|pps|ppsx|dps|key|pot|potx|pptm)$/.test(name))
+    return "#d24726"
   if (/\.(xls|xlsx|csv|tsv|et|xlt|xltx|xlsm)$/.test(name)) return "#107c41"
   if (/\.pdf$/.test(name)) return "#dc2626"
   if (/\.(txt|log|text)$/.test(name)) return "#475569"

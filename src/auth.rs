@@ -233,11 +233,6 @@ pub fn compute_totp(secret: &str, time_step: u64) -> Option<String> {
     Some(format!("{:06}", otp))
 }
 
-/// Verify 6-digit TOTP code with ±1 step (±30 seconds) tolerance
-pub fn verify_totp(secret: &str, code: &str) -> bool {
-    matching_totp_step(secret, code).is_some()
-}
-
 /// Return the accepted TOTP step using the existing ±1 step tolerance.
 pub fn matching_totp_step(secret: &str, code: &str) -> Option<i64> {
     let clean_code = code.trim();
@@ -368,9 +363,9 @@ mod tests {
             .as_secs()
             / 30;
         let code = compute_totp(&secret, now_step).unwrap();
-        assert!(verify_totp(&secret, &code));
-        assert!(!verify_totp(&secret, "000000"));
-        assert!(!verify_totp(&secret, "invalid"));
+        assert!(matching_totp_step(&secret, &code).is_some());
+        assert!(matching_totp_step(&secret, "000000").is_none());
+        assert!(matching_totp_step(&secret, "invalid").is_none());
 
         let qr = generate_totp_qr("Rulist", "admin", &secret).unwrap();
         assert!(qr.starts_with("data:image/svg+xml;base64,"));

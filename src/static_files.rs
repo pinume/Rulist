@@ -80,12 +80,15 @@ pub async fn render_html(pool: &crate::db::DbPool) -> String {
         favicon
     };
 
+    let safe_main_color =
+        serde_json::to_string(main_color).unwrap_or_else(|_| "\"#1890ff\"".to_string());
+
     raw_html
         .replace("cdn: undefined", "cdn: ''")
         .replace("base_path: undefined", "base_path: '/'")
         .replace(
             "main_color: undefined",
-            &format!("main_color: '{}'", escape_html(main_color)),
+            &format!("main_color: {}", safe_main_color),
         )
         .replace("https://res.oplist.org/logo/logo.svg", &escape_html(fav))
         .replace(

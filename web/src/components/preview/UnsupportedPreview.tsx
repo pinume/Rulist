@@ -23,7 +23,10 @@ export const UnsupportedPreview = (props: { meta: PreviewMeta }) => {
         <Icon
           as={getIconByObj({ type: ObjType.UNKNOWN, name: props.meta.name })}
           boxSize="$16"
-          color={getIconColorByObj({ type: ObjType.UNKNOWN, name: props.meta.name })}
+          color={getIconColorByObj({
+            type: ObjType.UNKNOWN,
+            name: props.meta.name,
+          })}
         />
         <Text fontWeight="$semibold" size="lg" textAlign="center" noOfLines={2}>
           {props.meta.name}

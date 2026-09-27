@@ -120,9 +120,7 @@ const FolderTreeNode = (props: { path: string }) => {
   } = useContext(context)!
   const emptyIconVisible = () =>
     Boolean(showEmptyIcon && children() !== undefined && !children()?.length)
-  const [loading, fetchDirs] = useFetch(() =>
-    fsDirs(props.path, forceRoot),
-  )
+  const [loading, fetchDirs] = useFetch(() => fsDirs(props.path, forceRoot))
   let isLoaded = false
   const load = async (force = false) => {
     if (!force && children()?.length) return
@@ -158,7 +156,8 @@ const FolderTreeNode = (props: { path: string }) => {
   })
 
   const isHiddenFolder = () =>
-    (hidePath?.(props.path) || isHidePath(props.path)) && !isMatchedFolder(value())
+    (hidePath?.(props.path) || isHidePath(props.path)) &&
+    !isMatchedFolder(value())
   return (
     <Show when={showHiddenFolder || !isHiddenFolder()}>
       <Box>

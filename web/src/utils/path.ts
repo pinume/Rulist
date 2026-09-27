@@ -22,11 +22,13 @@ export const joinBase = (...paths: string[]) => {
 }
 
 export const trimBase = (path: string) => {
-  const res = path.replace(base_path, "")
-  if (res.startsWith("/")) {
-    return res
+  if (base_path && path.startsWith(base_path)) {
+    path = path.slice(base_path.length)
   }
-  return "/" + res
+  if (path.startsWith("/")) {
+    return path
+  }
+  return "/" + path
 }
 
 export const pathBase = (path: string) => {

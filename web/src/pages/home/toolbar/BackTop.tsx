@@ -1,7 +1,6 @@
 import { Show, createSignal, onCleanup } from "solid-js"
 import { Box, Icon } from "@hope-ui/solid"
 import { FiArrowUp } from "solid-icons/fi"
-import { isMobile } from "~/utils"
 import { getMainColor } from "~/store"
 
 export const useScrollListener = (
@@ -14,7 +13,11 @@ export const useScrollListener = (
 }
 
 export const BackTop = () => {
-  if (isMobile) return null
+  if (
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(pointer: coarse)").matches
+  )
+    return null
 
   const [visible, setVisible] = createSignal(false)
 

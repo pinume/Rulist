@@ -4,7 +4,7 @@ use axum::response::Response;
 
 use crate::auth::{
     generate_jwt, generate_otp_secret, generate_totp_qr, matching_totp_step, parse_jwt,
-    static_hash, verify_password, verify_totp,
+    static_hash, verify_password,
 };
 use crate::db::{get_setting, get_user_by_name};
 use crate::model::{LoginReq, TwoFaGenerateReq, TwoFaVerifyReq, UpdateCurrentReq};
@@ -37,6 +37,18 @@ async fn reserve_login_attempt(
         .bind(cutoff)
         .execute(pool)
         .await?;
+
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `x_login_attempts`")
+        .fetch_one(pool)
+        .await?;
+    if total >= LOGIN_ATTEMPT_CAP {
+        sqlx::query(
+            "DELETE FROM x_login_attempts WHERE username_hash IN (SELECT username_hash FROM x_login_attempts ORDER BY window_started ASC LIMIT 100)",
+        )
+        .execute(pool)
+        .await?;
+    }
+
     let now = now_ts();
     let count: Option<i64> = sqlx::query_scalar(
         "INSERT INTO `x_login_attempts` (`username_hash`, `failed_count`, `window_started`) \
@@ -62,6 +74,11 @@ pub async fn login_handler(
     let user = match get_user_by_name(&state.pool, &req.username).await {
         Ok(Some(u)) => u,
         Ok(None) => {
+            let _ = verify_password(
+                &req.password,
+                "$argon2id$v=19$m=19456,t=2,p=1$ZHVtbXlzYWx0MTIzNDU2$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                "dummysalt123456",
+            );
             tracing::warn!(username = %req.username, "login failed: user not found");
             return api_error(
                 StatusCode::UNAUTHORIZED,
@@ -90,10 +107,9 @@ pub async fn login_handler(
         }
         Ok(Some(_)) => {}
         Ok(None) => {
-            return api_error(
-                StatusCode::TOO_MANY_REQUESTS,
-                429,
-                "Too many login attempts",
+            tracing::warn!(
+                username = %req.username,
+                "rate limit store at capacity, proceeding with credential verification"
             );
         }
         Err(err) => {
@@ -314,8 +330,7 @@ pub async fn update_current_handler(
         }
     }
 
-    if user.is_admin()
-        && let Some(new_pwd) = &req.password
+    if let Some(new_pwd) = &req.password
         && !new_pwd.is_empty()
         && !crate::auth::valid_password(new_pwd)
     {
@@ -586,9 +601,9 @@ pub async fn two_factor_verify_handler(
         );
     }
 
-    if !verify_totp(&secret, clean_code) {
+    let Some(step) = matching_totp_step(&secret, clean_code) else {
         return api_error(StatusCode::BAD_REQUEST, 400, "Invalid verification code");
-    }
+    };
 
     let mut tx = match state.pool.begin().await {
         Ok(t) => t,
@@ -603,8 +618,9 @@ pub async fn two_factor_verify_handler(
     };
 
     if let Err(err) =
-        sqlx::query("UPDATE `x_users` SET `otp_secret` = ?, `last_otp_step` = -1 WHERE `id` = ?")
+        sqlx::query("UPDATE `x_users` SET `otp_secret` = ?, `last_otp_step` = ? WHERE `id` = ?")
             .bind(&secret)
+            .bind(step)
             .bind(user.id)
             .execute(&mut *tx)
             .await
@@ -658,6 +674,13 @@ pub async fn two_factor_disable_handler(
     else {
         return api_error(StatusCode::BAD_REQUEST, 400, "2FA is not enabled");
     };
+    let current_password = req.current_password.as_deref().unwrap_or("").trim();
+    if current_password.is_empty() {
+        return api_error(StatusCode::BAD_REQUEST, 400, "Current password is required");
+    }
+    if !verify_password(current_password, &user.pwd_hash, &user.salt) {
+        return api_error(StatusCode::FORBIDDEN, 403, "Current password is incorrect");
+    }
     let Some(step) = matching_totp_step(secret, req.code.trim()) else {
         return api_error(StatusCode::BAD_REQUEST, 400, "Invalid verification code");
     };

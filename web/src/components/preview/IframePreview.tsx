@@ -1,7 +1,10 @@
 import { Box } from "@hope-ui/solid"
 import { PreviewMeta } from "~/types"
 
-export const IframePreview = (props: { meta: PreviewMeta; sandbox?: string }) => {
+export const IframePreview = (props: {
+  meta: PreviewMeta
+  sandbox?: string
+}) => {
   return (
     <Box p="$2">
       <iframe

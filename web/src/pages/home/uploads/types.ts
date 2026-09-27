@@ -16,10 +16,3 @@ export const StatusBadge = {
   error: "danger",
 } as const
 export type SetUpload = (key: keyof UploadFileProps, value: any) => void
-export type Upload = (
-  uploadPath: string,
-  file: File,
-  setUpload: SetUpload,
-  asTask: boolean,
-  overwrite: boolean,
-) => Promise<Error | undefined>

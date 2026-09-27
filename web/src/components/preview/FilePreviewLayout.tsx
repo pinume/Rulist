@@ -66,7 +66,9 @@ export const FilePreviewLayout = (props: {
               <Button
                 colorScheme="accent"
                 leftIcon={<Icon as={FiDownload} />}
-                onClick={() => startDownload(props.meta.raw_url, props.meta.name)}
+                onClick={() =>
+                  startDownload(props.meta.raw_url, props.meta.name)
+                }
               >
                 {t("home.toolbar.download") || "下载"}
               </Button>

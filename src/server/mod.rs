@@ -58,10 +58,10 @@ pub async fn run_server(
 }
 
 pub fn build_app(state: SharedState) -> Router {
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let mut cors = CorsLayer::new().allow_methods(Any).allow_headers(Any);
+    if state.config.scheme.allow_cors {
+        cors = cors.allow_origin(Any);
+    }
 
     Router::new()
         // Health, favicon, manifest, robots
@@ -421,6 +421,7 @@ mod tests {
         // 3. Verify with invalid code -> should fail
         let verify_req = TwoFaVerifyReq {
             code: "999999".to_string(),
+            current_password: None,
         };
         let resp = auth::two_factor_verify_handler(
             headers.clone(),
@@ -440,8 +441,12 @@ mod tests {
             .unwrap()
             .as_secs()
             / 30;
-        let valid_code = crate::auth::compute_totp(&secret, now_step).unwrap();
-        let verify_req = TwoFaVerifyReq { code: valid_code };
+        let setup_step = now_step.saturating_sub(1);
+        let valid_code = crate::auth::compute_totp(&secret, setup_step).unwrap();
+        let verify_req = TwoFaVerifyReq {
+            code: valid_code,
+            current_password: None,
+        };
         let resp = auth::two_factor_verify_handler(
             headers.clone(),
             State(state.clone()),
@@ -543,6 +548,7 @@ mod tests {
             State(state.clone()),
             Json(TwoFaVerifyReq {
                 code: crate::auth::compute_totp(&secret, cur_step).unwrap(),
+                current_password: Some("TestPass123!".to_string()),
             }),
         )
         .await;
@@ -555,6 +561,7 @@ mod tests {
             State(state.clone()),
             Json(TwoFaVerifyReq {
                 code: crate::auth::compute_totp(&secret, next_step).unwrap(),
+                current_password: Some("TestPass123!".to_string()),
             }),
         )
         .await;
@@ -632,7 +639,10 @@ mod tests {
 
         // Attacker computes code from their chosen secret A and calls verify -> MUST FAIL
         let code_a = crate::auth::compute_totp(&secret_a, now_step).unwrap();
-        let verify_req_a = TwoFaVerifyReq { code: code_a };
+        let verify_req_a = TwoFaVerifyReq {
+            code: code_a,
+            current_password: None,
+        };
         let resp = auth::two_factor_verify_handler(
             headers.clone(),
             State(state.clone()),
@@ -647,7 +657,10 @@ mod tests {
 
         // Verification with valid code from secret B succeeds
         let code_b = crate::auth::compute_totp(&secret_b, now_step).unwrap();
-        let verify_req_b = TwoFaVerifyReq { code: code_b };
+        let verify_req_b = TwoFaVerifyReq {
+            code: code_b,
+            current_password: None,
+        };
         let resp = auth::two_factor_verify_handler(
             headers.clone(),
             State(state.clone()),
@@ -1608,7 +1621,7 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(json["code"], 400);
 
-        // Normal-user passwords may be short.
+        // Passwords shorter than 8 characters must be rejected
         let short_pwd_req = AdminUserSaveReq {
             id: None,
             username: "short_pwd_user".to_string(),
@@ -1629,9 +1642,32 @@ mod tests {
             .await
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["code"], 400);
+
+        // Valid password succeeds
+        let valid_pwd_req = AdminUserSaveReq {
+            id: None,
+            username: "valid_pwd_user".to_string(),
+            password: Some("ValidPass123!".to_string()),
+            directory_path: None,
+            role: Some(0),
+            permission: Some(15),
+            disabled: Some(false),
+            local_path: Some("/tmp".to_string()),
+        };
+        let resp = users::admin_user_create_handler(
+            admin_headers.clone(),
+            State(state.clone()),
+            Json(valid_pwd_req),
+        )
+        .await;
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(json["code"], 200);
         assert!(
-            crate::db::get_user_by_name(&pool, "short_pwd_user")
+            crate::db::get_user_by_name(&pool, "valid_pwd_user")
                 .await
                 .unwrap()
                 .is_some()

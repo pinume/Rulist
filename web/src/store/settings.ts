@@ -41,11 +41,21 @@ export const getHideFiles = () => {
       .split(/\n/g)
       .filter((item) => !!item.trim())
       .map((item) => {
-        item = item.trim()
-        let str = item.replace(/^\/(.*)\/([a-z]*)$/, "$1")
-        let args = item.replace(/^\/(.*)\/([a-z]*)$/, "$2")
-        return new RegExp(str, args)
+        let str = item
+        let args = ""
+        const match = item.match(/^\/(.*)\/([a-z]*)$/)
+        if (match) {
+          str = match[1]
+          args = match[2]
+        }
+        try {
+          return new RegExp(str, args)
+        } catch (e) {
+          console.warn("[settings] invalid regex in hide_files:", item, e)
+          return null
+        }
       })
+      .filter((r): r is RegExp => r !== null)
   }
   return hideFiles
 }

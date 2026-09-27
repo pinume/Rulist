@@ -112,6 +112,13 @@ async fn stream_file(
         }
     }
 
+    state.storage.ensure_mounted(&clean_path).await;
+    if let Some((ms, sub)) = state.storage.find_storage(&clean_path) {
+        if !ms.driver.show_hidden && sub.split('/').any(|p| p.starts_with('.')) {
+            return (StatusCode::NOT_FOUND, "File not found").into_response();
+        }
+    }
+
     let mut file = match state.storage.open(&clean_path).await {
         Ok(f) => f,
         Err(_) => return (StatusCode::NOT_FOUND, "File not found").into_response(),
