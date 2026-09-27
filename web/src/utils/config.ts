@@ -10,13 +10,13 @@ export const setBasePath = (path: string) => {
     base_path = base_path.slice(0, -1)
   }
 }
-if (window.OPENLIST_CONFIG?.base_path) {
-  setBasePath(window.OPENLIST_CONFIG.base_path)
+if (window.RULIST_CONFIG?.base_path) {
+  setBasePath(window.RULIST_CONFIG.base_path)
 }
 
 export let api = ""
-if (window.OPENLIST_CONFIG?.api) {
-  api = window.OPENLIST_CONFIG.api
+if (window.RULIST_CONFIG?.api) {
+  api = window.RULIST_CONFIG.api
   if (api.endsWith("/")) {
     api = api.slice(0, -1)
   }
