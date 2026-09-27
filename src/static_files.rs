@@ -71,8 +71,6 @@ pub async fn render_html(pool: &crate::db::DbPool) -> String {
         serde_json::to_string(main_color).unwrap_or_else(|_| "\"#1890ff\"".to_string());
 
     raw_html
-        .replace("cdn: undefined", "cdn: ''")
-        .replace("base_path: undefined", "base_path: '/'")
         .replace(
             "main_color: undefined",
             &format!("main_color: {safe_main_color}"),
