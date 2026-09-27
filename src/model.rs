@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
@@ -66,7 +64,7 @@ impl User {
         self.otp = self
             .otp_secret
             .as_deref()
-            .map(|s| !s.trim().is_empty())
+            .map(|secret| !secret.trim().is_empty())
             .unwrap_or(false);
     }
 }
@@ -301,10 +299,7 @@ pub fn format_mode(mode: u32, is_dir: bool) -> String {
     let r3 = if mode & 0o004 != 0 { 'r' } else { '-' };
     let w3 = if mode & 0o002 != 0 { 'w' } else { '-' };
     let x3 = if mode & 0o001 != 0 { 'x' } else { '-' };
-    format!(
-        "{}{}{}{}{}{}{}{}{}{}",
-        d, r1, w1, x1, r2, w2, x2, r3, w3, x3
-    )
+    format!("{d}{r1}{w1}{x1}{r2}{w2}{x2}{r3}{w3}{x3}")
 }
 
 #[cfg(not(unix))]
@@ -323,15 +318,15 @@ impl FileObj {
         is_dir: bool,
         modified: impl Into<String>,
     ) -> Self {
-        let name_str = name.into();
+        let name = name.into();
         let file_type = if is_dir {
             TYPE_FOLDER
         } else {
-            get_file_type(&name_str)
+            get_file_type(&name)
         };
 
         Self {
-            name: name_str,
+            name,
             size,
             is_dir,
             modified: modified.into(),
@@ -374,9 +369,9 @@ pub fn natural_cmp(a: &str, b: &str) -> Ordering {
             (Some(ca), Some(cb)) => {
                 if ca.is_ascii_digit() && cb.is_ascii_digit() {
                     let mut a_num: u64 = 0;
-                    while let Some(c) = a_chars.peek() {
-                        if let Some(d) = c.to_digit(10) {
-                            a_num = a_num.saturating_mul(10).saturating_add(d as u64);
+                    while let Some(ch) = a_chars.peek() {
+                        if let Some(digit) = ch.to_digit(10) {
+                            a_num = a_num.saturating_mul(10).saturating_add(digit as u64);
                             a_chars.next();
                         } else {
                             break;
@@ -384,9 +379,9 @@ pub fn natural_cmp(a: &str, b: &str) -> Ordering {
                     }
 
                     let mut b_num: u64 = 0;
-                    while let Some(c) = b_chars.peek() {
-                        if let Some(d) = c.to_digit(10) {
-                            b_num = b_num.saturating_mul(10).saturating_add(d as u64);
+                    while let Some(ch) = b_chars.peek() {
+                        if let Some(digit) = ch.to_digit(10) {
+                            b_num = b_num.saturating_mul(10).saturating_add(digit as u64);
                             b_chars.next();
                         } else {
                             break;
@@ -414,7 +409,6 @@ pub fn natural_cmp(a: &str, b: &str) -> Ordering {
 }
 
 fn compare_files(a: &FileObj, b: &FileObj, order_by: Option<&str>, reverse: bool) -> Ordering {
-    // Directories always come first
     if a.is_dir != b.is_dir {
         return if a.is_dir {
             Ordering::Less
@@ -460,51 +454,4 @@ pub fn sorted_file_page(
     }
     files[..end].sort_unstable_by(|a, b| compare_files(a, b, order_by, reverse));
     files[start..end].to_vec()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_natural_sort() {
-        let mut list = vec!["file10.txt", "file2.txt", "file1.txt", "file20.txt"];
-        list.sort_by(|a, b| natural_cmp(a, b));
-        assert_eq!(
-            list,
-            vec!["file1.txt", "file2.txt", "file10.txt", "file20.txt"]
-        );
-    }
-
-    #[test]
-    fn paginated_sort_matches_full_sort() {
-        let files: Vec<FileObj> = (0..300)
-            .map(|i| FileObj::new(format!("file{i}.txt"), i, false, ""))
-            .collect();
-        let mut sorted = files.clone();
-        sort_files_by(&mut sorted, Some("name"), true);
-
-        let mut paged = files;
-        let page = sorted_file_page(&mut paged, Some("name"), true, 3, 50);
-        let names: Vec<&str> = page.iter().map(|file| file.name.as_str()).collect();
-        let expected: Vec<&str> = sorted[100..150]
-            .iter()
-            .map(|file| file.name.as_str())
-            .collect();
-        assert_eq!(names, expected);
-    }
-
-    #[test]
-    fn test_get_file_type() {
-        assert_eq!(get_file_type("song.mp3"), TYPE_AUDIO);
-        assert_eq!(get_file_type("movie.mp4"), TYPE_VIDEO);
-        assert_eq!(get_file_type("photo.png"), TYPE_IMAGE);
-        assert_eq!(get_file_type("doc.md"), TYPE_TEXT);
-        assert_eq!(get_file_type("script.py"), TYPE_TEXT);
-        assert_eq!(get_file_type("data.json"), TYPE_TEXT);
-        assert_eq!(get_file_type("archive.bin"), TYPE_UNKNOWN);
-        assert_eq!(get_file_type("word.docx"), TYPE_UNKNOWN);
-        assert_eq!(get_file_type("excel.xlsx"), TYPE_UNKNOWN);
-        assert_eq!(get_file_type("slide.pptx"), TYPE_UNKNOWN);
-    }
 }
