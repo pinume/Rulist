@@ -18,7 +18,7 @@ async fn cross_mount_operations_reject_storage_roots() {
     ] {
         let addition = serde_json::json!({ "root_folder_path": root }).to_string();
         sqlx::query(
-            "INSERT INTO `x_storages` (`mount_path`, `driver`, `addition`, `status`) VALUES (?, 'Local', ?, 'work')",
+            "INSERT INTO `x_storages` (`mount_path`, `addition`, `status`) VALUES (?, ?, 'work')",
         )
         .bind(mount)
         .bind(addition)
