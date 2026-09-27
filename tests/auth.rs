@@ -1,29 +1,13 @@
-use rulist::auth::{
-    ARGON2_PREFIX, base32_decode, compute_totp, encode_argon2_hash, legacy_hash, rand_string,
-    static_hash, verify_password,
-};
+use rulist::auth::{ARGON2_PREFIX, base32_decode, compute_totp, hash_password, verify_password};
 
 #[test]
 fn argon2_hash_round_trip_and_rejects_wrong_password() {
     let password = "SuperSecretPassword123!";
-    let salt = rand_string(16);
-    let static_hash = static_hash(password);
-    let encoded = encode_argon2_hash(&static_hash, &salt);
+    let encoded = hash_password(password);
 
     assert!(encoded.starts_with(ARGON2_PREFIX));
-    assert!(verify_password(password, &encoded, &salt));
-    assert!(!verify_password("wrong_password", &encoded, &salt));
-}
-
-#[test]
-fn legacy_password_hash_remains_verifiable() {
-    let password = "LegacyPassword";
-    let salt = "mysalt1234567890";
-    let static_hash = static_hash(password);
-    let encoded = legacy_hash(&static_hash, salt);
-
-    assert!(verify_password(password, &encoded, salt));
-    assert!(!verify_password("wrong", &encoded, salt));
+    assert!(verify_password(password, &encoded));
+    assert!(!verify_password("wrong_password", &encoded));
 }
 
 #[test]
