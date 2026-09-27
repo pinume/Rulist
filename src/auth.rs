@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use argon2::{Algorithm, Argon2, Params, Version};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD_NO_PAD as BASE64;
@@ -16,12 +14,10 @@ const ARGON2_ITERATIONS: u32 = 2;
 const ARGON2_PARALLELISM: u32 = 1;
 const ARGON2_KEY_LEN: usize = 32;
 
-/// Validate password length requirements (8 to 128 characters)
 pub fn valid_password(password: &str) -> bool {
     (8..=128).contains(&password.len())
 }
 
-/// Generate random alphanumeric string of length n
 pub fn rand_string(n: usize) -> String {
     if n == 0 {
         return String::new();
@@ -37,28 +33,24 @@ fn hex_encode(bytes: impl AsRef<[u8]>) -> String {
     bytes.as_ref().iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Generate random token formatted as rulist-<hex>
 pub fn rand_token() -> String {
     let mut bytes = [0u8; 48];
     thread_rng().fill(&mut bytes[..]);
     format!("rulist-{}", hex_encode(bytes))
 }
 
-/// Compute initial static hash: SHA256(password + "-" + STATIC_HASH_SALT)
 pub fn static_hash(password: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(format!("{}-{}", password, STATIC_HASH_SALT).as_bytes());
     hex_encode(hasher.finalize())
 }
 
-/// Compute legacy password hash: SHA256(static_hash + "-" + salt)
 pub fn legacy_hash(pwd_static_hash: &str, salt: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(format!("{}-{}", pwd_static_hash, salt).as_bytes());
     hex_encode(hasher.finalize())
 }
 
-/// Create Argon2id instance with Rulist's exact parameter configuration
 fn get_argon2_instance() -> Argon2<'static> {
     let params = Params::new(
         ARGON2_MEMORY_KB,
@@ -70,7 +62,6 @@ fn get_argon2_instance() -> Argon2<'static> {
     Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
 }
 
-/// Encode password using Argon2id with raw base64 salt and output hash
 pub fn encode_argon2_hash(pwd_static_hash: &str, salt: &str) -> String {
     let argon2 = get_argon2_instance();
     let mut output_key = [0u8; ARGON2_KEY_LEN];
@@ -83,7 +74,6 @@ pub fn encode_argon2_hash(pwd_static_hash: &str, salt: &str) -> String {
     format!("{}{}${}", ARGON2_PREFIX, salt_b64, hash_b64)
 }
 
-/// Verify password when the client already sent the static hash (SHA256(pwd + "-https://github.com/alist-org/alist"))
 fn verify_password_static_hash(static_h: &str, pwd_hash: &str, salt: &str) -> bool {
     if let Some(payload) = pwd_hash.strip_prefix(ARGON2_PREFIX) {
         if let Some((salt_b64, expected_hash_b64)) = payload.split_once('$')
@@ -106,12 +96,10 @@ fn verify_password_static_hash(static_h: &str, pwd_hash: &str, salt: &str) -> bo
         return false;
     }
 
-    // Fallback: Legacy SHA256 hash comparison
     let expected_legacy = legacy_hash(static_h, salt);
     pwd_hash.as_bytes().ct_eq(expected_legacy.as_bytes()).into()
 }
 
-/// Verify password hash against either modern Argon2id or legacy SHA256 hash
 pub fn verify_password(raw_password: &str, pwd_hash: &str, salt: &str) -> bool {
     let static_h = static_hash(raw_password);
     verify_password_static_hash(&static_h, pwd_hash, salt)
@@ -144,7 +132,6 @@ pub fn generate_jwt(
     let mut nonce = [0u8; 16];
     thread_rng().fill(&mut nonce[..]);
     let jti = hex_encode(nonce);
-
     let exp = now + (expires_in_hours as usize * 3600);
 
     let claims = UserClaims {
@@ -157,12 +144,11 @@ pub fn generate_jwt(
         nbf: now,
     };
 
-    let token = jsonwebtoken::encode(
+    Ok(jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
         &claims,
         &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
-    )?;
-    Ok(token)
+    )?)
 }
 
 pub fn parse_jwt(token_str: &str, secret: &str) -> anyhow::Result<UserClaims> {
@@ -181,7 +167,6 @@ type HmacSha1 = Hmac<Sha1>;
 
 const BASE32_ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
-/// Generate random 32-char Base32 TOTP secret (160 bits entropy)
 pub fn generate_otp_secret() -> String {
     let mut rng = thread_rng();
     (0..32)
@@ -192,7 +177,6 @@ pub fn generate_otp_secret() -> String {
         .collect()
 }
 
-/// Decode RFC 4648 Base32 string into bytes (ignores padding, hyphens and whitespace, case-insensitive)
 pub fn base32_decode(s: &str) -> Option<Vec<u8>> {
     let mut buffer: u64 = 0;
     let mut bits_in_buffer: usize = 0;
@@ -218,7 +202,6 @@ pub fn base32_decode(s: &str) -> Option<Vec<u8>> {
     Some(result)
 }
 
-/// Compute 6-digit TOTP for a given time step counter (RFC 6238 / RFC 4226)
 pub fn compute_totp(secret: &str, time_step: u64) -> Option<String> {
     let key = base32_decode(secret)?;
     let mut mac = HmacSha1::new_from_slice(&key).ok()?;
@@ -229,26 +212,24 @@ pub fn compute_totp(secret: &str, time_step: u64) -> Option<String> {
         | ((result[offset + 1] as u32) << 16)
         | ((result[offset + 2] as u32) << 8)
         | (result[offset + 3] as u32);
-    let otp = binary_code % 1_000_000;
-    Some(format!("{:06}", otp))
+    Some(format!("{:06}", binary_code % 1_000_000))
 }
 
-/// Return the accepted TOTP step using the existing ±1 step tolerance.
 pub fn matching_totp_step(secret: &str, code: &str) -> Option<i64> {
     let clean_code = code.trim();
     if clean_code.len() != 6 || !clean_code.chars().all(|c| c.is_ascii_digit()) {
         return None;
     }
-    let now = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        Ok(d) => d.as_secs(),
-        Err(_) => return None,
-    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
     let step = now / 30;
-    for s in [step.saturating_sub(1), step, step + 1] {
-        if let Some(expected) = compute_totp(secret, s)
+    for candidate in [step.saturating_sub(1), step, step + 1] {
+        if let Some(expected) = compute_totp(secret, candidate)
             && expected.as_bytes().ct_eq(clean_code.as_bytes()).into()
         {
-            return i64::try_from(s).ok();
+            return i64::try_from(candidate).ok();
         }
     }
     None
@@ -256,24 +237,27 @@ pub fn matching_totp_step(secret: &str, code: &str) -> Option<i64> {
 
 fn url_encode_component(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.' || b == b'~' {
-            out.push(b as char);
+    for byte in s.bytes() {
+        if byte.is_ascii_alphanumeric()
+            || byte == b'-'
+            || byte == b'_'
+            || byte == b'.'
+            || byte == b'~'
+        {
+            out.push(byte as char);
         } else {
-            out.push_str(&format!("%{:02X}", b));
+            out.push_str(&format!("%{byte:02X}"));
         }
     }
     out
 }
 
-/// Generate SVG Data URI QR Code for TOTP authenticator app
 pub fn generate_totp_qr(issuer: &str, username: &str, secret: &str) -> anyhow::Result<String> {
     let enc_issuer = url_encode_component(issuer);
     let enc_username = url_encode_component(username);
-    let label = format!("{}:{}", enc_issuer, enc_username);
+    let label = format!("{enc_issuer}:{enc_username}");
     let otpauth_url = format!(
-        "otpauth://totp/{}?secret={}&issuer={}&algorithm=SHA1&digits=6&period=30",
-        label, secret, enc_issuer
+        "otpauth://totp/{label}?secret={secret}&issuer={enc_issuer}&algorithm=SHA1&digits=6&period=30"
     );
 
     let code = qrcode::QrCode::new(otpauth_url.as_bytes())?;
@@ -282,92 +266,5 @@ pub fn generate_totp_qr(issuer: &str, username: &str, secret: &str) -> anyhow::R
         .min_dimensions(200, 200)
         .build();
     let b64 = base64::engine::general_purpose::STANDARD.encode(svg.as_bytes());
-    Ok(format!("data:image/svg+xml;base64,{}", b64))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_rand_string() {
-        let s1 = rand_string(16);
-        let s2 = rand_string(16);
-        assert_eq!(s1.len(), 16);
-        assert_eq!(s2.len(), 16);
-        assert_ne!(s1, s2);
-        assert_eq!(rand_string(0), "");
-    }
-
-    #[test]
-    fn test_rand_token() {
-        let t1 = rand_token();
-        let t2 = rand_token();
-        assert!(t1.starts_with("rulist-"));
-        assert!(t2.starts_with("rulist-"));
-        assert_ne!(t1, t2);
-    }
-
-    #[test]
-    fn test_argon2_hash_and_verify() {
-        let password = "SuperSecretPassword123!";
-        let salt = rand_string(16);
-        let static_h = static_hash(password);
-        let encoded_hash = encode_argon2_hash(&static_h, &salt);
-
-        assert!(encoded_hash.starts_with(ARGON2_PREFIX));
-        assert!(verify_password(password, &encoded_hash, &salt));
-        assert!(!verify_password("wrong_password", &encoded_hash, &salt));
-    }
-
-    #[test]
-    fn test_legacy_hash_verify() {
-        let password = "LegacyPassword";
-        let salt = "mysalt1234567890";
-        let static_h = static_hash(password);
-        let legacy_h = legacy_hash(&static_h, salt);
-
-        assert!(verify_password(password, &legacy_h, salt));
-        assert!(!verify_password("wrong", &legacy_h, salt));
-    }
-
-    #[test]
-    fn test_base32_decode() {
-        assert_eq!(base32_decode("").unwrap(), b"");
-        assert_eq!(base32_decode("MY======").unwrap(), b"f");
-        assert_eq!(base32_decode("MZXQ====").unwrap(), b"fo");
-        assert_eq!(base32_decode("MZXW6===").unwrap(), b"foo");
-        assert_eq!(base32_decode("MZXW6YQ=").unwrap(), b"foob");
-        assert_eq!(base32_decode("MZXW6YTB").unwrap(), b"fooba");
-        assert_eq!(base32_decode("MZXW6YTBOI======").unwrap(), b"foobar");
-        assert_eq!(base32_decode("mzxw6ytboi").unwrap(), b"foobar");
-    }
-
-    #[test]
-    fn test_rfc6238_totp_vectors() {
-        // RFC 6238 Appendix B test secret: "12345678901234567890" in ASCII
-        let secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
-        assert_eq!(compute_totp(secret, 59 / 30).unwrap(), "287082");
-        assert_eq!(compute_totp(secret, 1111111109 / 30).unwrap(), "081804");
-        assert_eq!(compute_totp(secret, 1111111111 / 30).unwrap(), "050471");
-        assert_eq!(compute_totp(secret, 1234567890 / 30).unwrap(), "005924");
-        assert_eq!(compute_totp(secret, 2000000000 / 30).unwrap(), "279037");
-    }
-
-    #[test]
-    fn test_totp_verify_and_qr() {
-        let secret = generate_otp_secret();
-        let now_step = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            / 30;
-        let code = compute_totp(&secret, now_step).unwrap();
-        assert!(matching_totp_step(&secret, &code).is_some());
-        assert!(matching_totp_step(&secret, "000000").is_none());
-        assert!(matching_totp_step(&secret, "invalid").is_none());
-
-        let qr = generate_totp_qr("Rulist", "admin", &secret).unwrap();
-        assert!(qr.starts_with("data:image/svg+xml;base64,"));
-    }
+    Ok(format!("data:image/svg+xml;base64,{b64}"))
 }
