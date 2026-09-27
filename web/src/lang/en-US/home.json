@@ -36,6 +36,11 @@
     "upload_folder": "Upload folder",
     "create_folder": "Create folder"
   },
+  "preview": {
+    "unsupported": "This file format cannot be previewed online.",
+    "open_raw": "Open raw file",
+    "load_failed": "Preview failed. Download the file to view it."
+  },
   "input_password": "Enter password",
   "toolbar": {
     "more": "More",
