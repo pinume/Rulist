@@ -52,7 +52,7 @@ export const Nav = () => {
               py="$0_5"
               onMouseEnter={() => setPathAs("/")}
             >
-              我的文件
+              Files
             </BreadcrumbLink>
             <BreadcrumbSeparator class="nav-separator" />
           </BreadcrumbItem>
