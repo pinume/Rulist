@@ -56,7 +56,7 @@ export const CodePreview = (props: {
       >
         <HStack spacing="$2">
           <Badge variant="subtle" colorScheme="info">
-            {lines().length} 行
+            Lines: {lines().length}
           </Badge>
           {props.content?.kind && props.content.kind !== "text" && (
             <Badge variant="outline" colorScheme="neutral">
@@ -66,7 +66,13 @@ export const CodePreview = (props: {
         </HStack>
 
         <HStack spacing="$2">
-          <Tooltip label={wrap() ? "切换为单行滚动" : "切换为自动换行"}>
+          <Tooltip
+            label={
+              wrap()
+                ? "Switch to horizontal scrolling"
+                : "Enable line wrapping"
+            }
+          >
             <Button
               size="xs"
               variant={wrap() ? "solid" : "outline"}
@@ -74,7 +80,7 @@ export const CodePreview = (props: {
               leftIcon={<Icon as={FiCornerDownLeft} />}
               onClick={() => setWrap((w) => !w)}
             >
-              {wrap() ? "取消换行" : "自动换行"}
+              {wrap() ? "No wrap" : "Wrap"}
             </Button>
           </Tooltip>
 
@@ -85,9 +91,7 @@ export const CodePreview = (props: {
             leftIcon={<Icon as={copied() ? FiCheck : FiCopy} />}
             onClick={handleCopy}
           >
-            {copied()
-              ? t("global.copied") || "已复制"
-              : t("global.copy") || "复制"}
+            {copied() ? t("global.copied") : t("global.copy")}
           </Button>
         </HStack>
       </HStack>
