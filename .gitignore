@@ -1,6 +1,8 @@
 /target
 /web/node_modules
 /web/dist
+/public/dist/*
+!/public/dist/README.md
 .DS_Store
 *.db
 *.db-*
