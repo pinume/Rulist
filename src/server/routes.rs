@@ -73,10 +73,6 @@ pub fn build_app(state: SharedState) -> Router {
             post(users::admin_user_delete_handler),
         )
         .route(
-            "/api/admin/user/cancel_2fa",
-            post(users::admin_user_cancel_2fa_handler),
-        )
-        .route(
             "/d/{*path}",
             get(stream::raw_download_handler).head(stream::raw_download_handler),
         )
