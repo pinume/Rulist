@@ -4,9 +4,17 @@ import { render } from "solid-js/web"
 
 import { Index } from "./app"
 
+type RulistRuntimeConfig = {
+  cdn?: string
+  base_path?: string
+  api?: string
+  main_color?: string
+}
+
 declare global {
   interface Window {
-    [key: string]: any
+    RULIST_CONFIG: RulistRuntimeConfig
+    __dynamic_base__?: string
   }
 }
 
