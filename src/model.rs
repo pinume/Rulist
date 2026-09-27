@@ -72,7 +72,6 @@ pub struct Storage {
     pub id: i64,
     pub mount_path: String,
     pub order: i32,
-    pub driver: String,
     pub status: Option<String>,
     pub addition: Option<String>,
     pub disabled: bool,
@@ -225,19 +224,6 @@ pub struct UserWithMount {
     pub directory_path: String,
     #[serde(default)]
     pub otp: bool,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct TwoFaGenerateReq {
-    #[serde(default)]
-    pub current_password: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct TwoFaVerifyReq {
-    pub code: String,
-    #[serde(default)]
-    pub current_password: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
