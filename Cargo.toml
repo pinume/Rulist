@@ -33,7 +33,6 @@ hmac = "0.12"
 rand = "0.8"
 base64 = "0.22"
 subtle = "2.6"
-qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 
 # Logging
 tracing = "0.1"
