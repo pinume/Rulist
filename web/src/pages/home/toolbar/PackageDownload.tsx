@@ -98,7 +98,7 @@ const PackageDownload = (props: { onClose: () => void }) => {
     }
 
     if (downFiles.length === 0) {
-      setCur("没有需要下载的文件")
+      setCur(t("home.package_download.no_files"))
       setStatus(1)
       return
     }
