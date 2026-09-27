@@ -1,44 +1,179 @@
-import { dict, i18n } from "~/app/i18n"
-import { firstUpperCase } from "~/utils"
-
-const translator = i18n.translator(dict)
-
-const resolveTranslation = (
-  key: string,
-  params?: i18n.BaseTemplateArgs,
-): string | undefined => {
-  const template = translator(key as any)
-  if (typeof template !== "string") {
-    return undefined
-  }
-
-  if (params) {
-    return i18n.resolveTemplate(template, params) || template
-  }
-
-  return template
+const TEXT: Record<string, string> = {
+  "global.refresh": "Refresh",
+  "global.add": "Add",
+  "global.edit": "Edit",
+  "global.delete": "Delete",
+  "global.save": "Save",
+  "global.update": "Update",
+  "global.undo": "Undo",
+  "global.redo": "Redo",
+  "global.increase": "Increase",
+  "global.decrease": "Decrease",
+  "global.copy": "Copy",
+  "global.paste": "Paste",
+  "global.copied": "Copied",
+  "global.clipboard_denied": "Clipboard access was denied. Allow clipboard permission in your browser settings.",
+  "global.delete_success": "Deleted successfully",
+  "global.save_success": "Saved successfully",
+  "global.update_success": "Updated successfully",
+  "global.choose": "Select",
+  "global.confirm": "Confirm",
+  "global.cancel": "Cancel",
+  "global.delete_confirm": "Delete {{name}}?",
+  "global.operations": "Actions",
+  "global.yes": "Yes",
+  "global.no": "No",
+  "global.clear": "Clear",
+  "global.choose_folder": "Select folder",
+  "global.choose_or_input_path": "Select a folder or enter a path",
+  "global.disable": "Disable",
+  "global.enable": "Enable",
+  "global.ok": "OK",
+  "global.back": "Back",
+  "global.have_account": "Already have an account?",
+  "global.go_login": "Go to login",
+  "global.close": "Close",
+  "global.no_support_now": "Not supported yet",
+  "global.empty_input": "Please enter a value",
+  "global.unsaved_changes_confirm": "You have unsaved changes. Are you sure you want to leave?",
+  "global.invalid_filename_chars": "File names cannot contain: / \\ ? < > * : | \"",
+  "global.name": "Name",
+  "global.go_to_users": "Go to user management",
+  "global.home": "Home",
+  "global.logout": "Log out",
+  "global.logout_success": "Logged out successfully",
+  "home.obj.name": "Name",
+  "home.obj.size": "Size",
+  "home.obj.modified": "Modified",
+  "home.obj.count.count": "This page: {{folders}} folders, {{files}} files",
+  "home.obj.count.count_folders": "This page: {{folders}} folders",
+  "home.obj.count.count_files": "This page: {{files}} files",
+  "home.obj.count.selected": "Selected: {{folders}} folders, {{files}} files",
+  "home.obj.count.selected_folders": "Selected: {{folders}} folders",
+  "home.obj.count.selected_files": "Selected: {{files}} files",
+  "home.search.aria_label": "Search files on this page",
+  "home.search.placeholder": "Search this page…",
+  "home.search.results": "{{count}} matches on this page",
+  "home.search.empty": "No matching files on this page",
+  "home.sidebar.open": "Open folder navigation",
+  "home.sidebar.close": "Close folder navigation",
+  "home.no_images": "No images in this folder",
+  "home.load_more": "Load more",
+  "home.no_more": "No more items",
+  "home.pagination.previous": "Previous",
+  "home.pagination.next": "Next",
+  "home.pagination.page": "Page {{page}} of {{pages}} ({{total}} items)",
+  "home.add_menu.title": "New & Upload",
+  "home.add_menu.upload_file": "Upload file",
+  "home.add_menu.upload_folder": "Upload folder",
+  "home.add_menu.create_folder": "Create folder",
+  "home.preview.unsupported": "This file format cannot be previewed online.",
+  "home.preview.open_raw": "Open raw file",
+  "home.preview.load_failed": "Preview failed. Download the file to view it.",
+  "home.input_password": "Enter password",
+  "home.toolbar.more": "More",
+  "home.toolbar.refresh": "Refresh",
+  "home.toolbar.switch_lang": "Switch language",
+  "home.toolbar.toggle_markdown_toc": "Toggle outline",
+  "home.toolbar.rename": "Rename",
+  "home.toolbar.input_new_name": "Enter a new name",
+  "home.toolbar.move": "Move",
+  "home.toolbar.copy": "Copy",
+  "home.toolbar.choose_dst_folder": "Select destination folder",
+  "home.toolbar.delete": "Delete",
+  "home.toolbar.delete-tips": "Delete the selected items?",
+  "home.toolbar.down_link": "Download link",
+  "home.toolbar.encode_down_link": "Encoded download link",
+  "home.toolbar.mkdir": "New folder",
+  "home.toolbar.input_dir_name": "Enter folder name",
+  "home.toolbar.cancel_select": "Cancel selection",
+  "home.toolbar.download": "Download",
+  "home.toolbar.package_download": "Download as archive",
+  "home.toolbar.package_download_disabled": "Archive download is disabled",
+  "home.toolbar.pre_package_download-tips": "Browser-based archive downloads use StreamSaver instead of the server and require CORS support from the storage service. Unsupported storage may cause the download to fail.",
+  "home.toolbar.package_download-tips": "Downloading. Do not close this page.",
+  "home.toolbar.upload": "Upload",
+  "home.toolbar.settings": "Settings",
+  "home.toolbar.batch_rename": "Batch rename",
+  "home.toolbar.sequential_renaming": "Sequential rename",
+  "home.toolbar.batch_rename_preview": "Renamed files",
+  "home.toolbar.batch_rename_preview_old_name": "Old name",
+  "home.toolbar.batch_rename_preview_new_name": "New name",
+  "home.toolbar.sequential_renaming_desc": "Append a sequence number to new file names. Enter the new file name on the first line and the starting number on the second line. The {number} placeholder is supported.",
+  "home.toolbar.sequential_renaming_input1_placeholder": "New file name (supports {number})",
+  "home.toolbar.sequential_renaming_input2_placeholder": "Starting number (for example, 1)",
+  "home.toolbar.sequential_renaming_input3_placeholder": "Zero-padding width (optional)",
+  "home.toolbar.find_replace": "Find and replace",
+  "home.toolbar.find_replace_desc": "Find text in the selected file names and replace it. Enter the text to find on the first line and the replacement on the second line.",
+  "home.toolbar.find_replace_input1_placeholder": "Find",
+  "home.toolbar.find_replace_input2_placeholder": "Replace with",
+  "home.upload.add_as_task": "Add as task",
+  "home.upload.upload-tips": "Drag files here to upload, or click:",
+  "home.upload.release": "Release to upload",
+  "home.upload.release_to_upload": "Drop files or folders to upload them to the current directory",
+  "home.upload.no_files_drag": "No files were dragged in.",
+  "home.upload.upload_files": "Select files",
+  "home.upload.upload_folder": "Select folder",
+  "home.upload.pending": "Pending",
+  "home.upload.uploading": "Uploading",
+  "home.upload.backending": "Uploading in background",
+  "home.upload.success": "Success",
+  "home.upload.error": "Error",
+  "home.upload.retry": "Retry",
+  "home.upload.back": "Back to upload",
+  "home.upload.clear_done": "Clear completed",
+  "home.sort": "Sort",
+  "home.sort_by": "Sort by",
+  "home.sort_order": "Sort order",
+  "home.sort_folder": "Folders",
+  "home.sort_name": "File name",
+  "home.sort_modified": "Modified",
+  "home.sort_asc": "A to Z",
+  "home.sort_desc": "Z to A",
+  "home.sort_folder_top": "On top",
+  "home.sort_folder_mixed": "Mixed with files",
+  "home.package_download.current_status": "Status",
+  "home.package_download.initializing": "Initializing",
+  "home.package_download.fetching_struct": "Fetching folder structure",
+  "home.package_download.fetching_struct_failed": "Failed to fetch folder structure",
+  "home.package_download.downloading": "Downloading files. Do not close or refresh this page.",
+  "home.package_download.no_files": "No files to download",
+  "home.package_download.failed": "Archive download failed",
+  "home.package_download.success": "Download complete",
+  "home.footer.powered_by": "Powered by Rulist",
+  "home.fetching_settings_failed": "Failed to fetch settings: ",
+  "home.get_current_user_failed": "Failed to get current user: ",
+  "home.Loading storage, please wait": "Loading storage, please wait",
+  "home.conflict_policy.cancel_if_exists": "Cancel if the file already exists",
+  "home.conflict_policy.overwrite_existing": "Overwrite existing files",
+  "home.conflict_policy.skip_existing": "Skip existing files",
+  "login.login_to": "Sign in to",
+  "login.username-tips": "Enter your username",
+  "login.password-tips": "Enter your password",
+  "login.otp-tips": "Enter your OTP code",
+  "login.username": "Username",
+  "login.password": "Password",
+  "login.otp": "Verification code",
+  "login.remember": "Remember username",
+  "login.clear": "Clear",
+  "login.login": "Sign in",
+  "login.success": "Signed in successfully",
+  "login.title": "Sign in to Rulist",
+  "index.lang": "English",
 }
-export const useT = () => {
-  return (
-    key: string,
-    params?: i18n.BaseTemplateArgs | undefined,
-    defaultValue?: string | undefined,
-  ): string => {
-    const translatedValue = resolveTranslation(key, params)
 
-    if (translatedValue) return translatedValue
-    if (defaultValue) return defaultValue
-    if (import.meta.env.DEV) return key
+type TemplateArgs = Record<string, string | number>
 
-    return formatKeyAsDisplay(key)
-  }
+const resolveTemplate = (template: string, params?: TemplateArgs) => {
+  if (!params) return template
+  return template.replace(/{{\s*([^{}]+?)\s*}}/g, (match, key: string) => {
+    const value = params[key]
+    return value === undefined ? match : String(value)
+  })
 }
 
-const formatKeyAsDisplay = (key: string): string => {
-  let lastDotIndex = key.lastIndexOf(".")
-  if (lastDotIndex === key.length - 1) {
-    lastDotIndex = key.lastIndexOf(".", lastDotIndex - 1)
+export const useT = () =>
+  (key: string, params?: TemplateArgs, defaultValue?: string): string => {
+    const text = TEXT[key] ?? defaultValue ?? key
+    return resolveTemplate(text, params)
   }
-  const last = key.slice(lastDotIndex + 1)
-  return firstUpperCase(last).split("_").join(" ")
-}
