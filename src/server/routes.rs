@@ -1,14 +1,14 @@
+use axum::Router;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::Response;
 use axum::routing::{get, post, put};
-use axum::Router;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use crate::db::get_public_settings;
 
-use super::{api_error, api_success, auth, fs, preview, stream, users, SharedState};
+use super::{SharedState, api_error, api_success, auth, fs, preview, stream, users};
 
 pub fn build_app(state: SharedState) -> Router {
     let mut cors = CorsLayer::new().allow_methods(Any).allow_headers(Any);

@@ -1,10 +1,10 @@
 pub mod auth;
 pub mod fs;
 pub mod preview;
-pub mod stream;
-pub mod users;
 mod routes;
 mod security;
+pub mod stream;
+pub mod users;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -75,16 +75,12 @@ async fn shutdown_signal() {
             .expect("failed to install Ctrl+C handler");
     };
 
-    #[cfg(unix)]
     let terminate = async {
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
             .expect("failed to install signal handler")
             .recv()
             .await;
     };
-
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
 
     tokio::select! {
         _ = ctrl_c => {},

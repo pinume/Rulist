@@ -280,7 +280,6 @@ pub struct FsLinkResp {
     pub url: String,
 }
 
-#[cfg(unix)]
 pub fn format_mode(mode: u32, is_dir: bool) -> String {
     let d = if is_dir { 'd' } else { '-' };
     let r1 = if mode & 0o400 != 0 { 'r' } else { '-' };
@@ -293,15 +292,6 @@ pub fn format_mode(mode: u32, is_dir: bool) -> String {
     let w3 = if mode & 0o002 != 0 { 'w' } else { '-' };
     let x3 = if mode & 0o001 != 0 { 'x' } else { '-' };
     format!("{d}{r1}{w1}{x1}{r2}{w2}{x2}{r3}{w3}{x3}")
-}
-
-#[cfg(not(unix))]
-pub fn format_mode(_mode: u32, is_dir: bool) -> String {
-    if is_dir {
-        "drwxr-xr-x".to_string()
-    } else {
-        "-rw-r--r--".to_string()
-    }
 }
 
 impl FileObj {

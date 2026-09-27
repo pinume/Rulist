@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -32,9 +33,7 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
         .await
         .context("failed to connect to SQLite database")?;
 
-    #[cfg(unix)]
     if db_path.exists() {
-        use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(db_path, fs::Permissions::from_mode(0o600))?;
     }
 
@@ -295,10 +294,7 @@ pub fn compute_local_path(base_path: &str, storages: &[crate::model::Storage]) -
     for storage in storages {
         if storage.driver == "Local"
             && (base_path == storage.mount_path
-                || base_path.starts_with(&format!(
-                    "{}/",
-                    storage.mount_path.trim_end_matches('/')
-                )))
+                || base_path.starts_with(&format!("{}/", storage.mount_path.trim_end_matches('/'))))
             && (matched.is_none()
                 || storage.mount_path.len() > matched.expect("matched storage").mount_path.len())
         {
@@ -406,12 +402,10 @@ pub async fn enable_user_2fa(
 
 pub async fn cancel_user_2fa(pool: &DbPool, user_id: i64) -> Result<()> {
     let mut tx = pool.begin().await?;
-    sqlx::query(
-        "UPDATE `x_users` SET `otp_secret` = '', `last_otp_step` = -1 WHERE `id` = ?",
-    )
-    .bind(user_id)
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query("UPDATE `x_users` SET `otp_secret` = '', `last_otp_step` = -1 WHERE `id` = ?")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query("DELETE FROM `x_otp_pending` WHERE `user_id` = ?")
         .bind(user_id)
         .execute(&mut *tx)

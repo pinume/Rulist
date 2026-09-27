@@ -39,12 +39,11 @@ impl StorageManager {
                         storage.mount_path,
                         error
                     );
-                    let _ = sqlx::query(
-                        "UPDATE `x_storages` SET `status` = 'invalid' WHERE `id` = ?",
-                    )
-                    .bind(storage.id)
-                    .execute(pool)
-                    .await;
+                    let _ =
+                        sqlx::query("UPDATE `x_storages` SET `status` = 'invalid' WHERE `id` = ?")
+                            .bind(storage.id)
+                            .execute(pool)
+                            .await;
                 }
             }
         }
@@ -75,13 +74,12 @@ impl StorageManager {
                 storages.iter().any(|storage| {
                     storage.storage.mount_path == clean
                         || (clean.starts_with(&storage.storage.mount_path)
-                            && clean.as_bytes().get(storage.storage.mount_path.len()) == Some(&b'/')
+                            && clean.as_bytes().get(storage.storage.mount_path.len())
+                                == Some(&b'/')
                             && storage.storage.mount_path != "/")
                 })
             };
-            if !has_mount
-                && let Some(ref pool) = self.pool
-            {
+            if !has_mount && let Some(ref pool) = self.pool {
                 let _ = self.reload_from_db(pool).await;
             }
         }
@@ -115,10 +113,7 @@ impl StorageManager {
             {
                 max_prefix_len = mount.len();
                 let subpath = &clean_path[mount.len()..];
-                matched = Some((
-                    mounted.clone(),
-                    subpath.trim_start_matches('/').to_string(),
-                ));
+                matched = Some((mounted.clone(), subpath.trim_start_matches('/').to_string()));
             }
         }
 
@@ -254,9 +249,9 @@ impl StorageManager {
         pairs: &[(String, String)],
     ) -> Result<(), RenameError> {
         self.ensure_mounted(src_dir).await;
-        let (storage, subpath) = self.find_storage(src_dir).ok_or_else(|| {
-            RenameError::NotFound(format!("target storage not found: {src_dir}"))
-        })?;
+        let (storage, subpath) = self
+            .find_storage(src_dir)
+            .ok_or_else(|| RenameError::NotFound(format!("target storage not found: {src_dir}")))?;
         storage.driver.batch_rename(&subpath, pairs).await
     }
 

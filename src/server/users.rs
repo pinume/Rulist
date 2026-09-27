@@ -376,8 +376,8 @@ pub async fn admin_user_update_handler(
     }
 
     let next_permission = req.permission.unwrap_or(target.permission);
-    let allow_empty = !target.is_admin()
-        && next_permission & (1 << crate::model::PERM_ALLOW_EMPTY_PASSWORD) != 0;
+    let allow_empty =
+        !target.is_admin() && next_permission & (1 << crate::model::PERM_ALLOW_EMPTY_PASSWORD) != 0;
     if let Some(password) = req.password.as_deref()
         && (!target.is_admin() || !password.is_empty())
     {
@@ -452,23 +452,22 @@ pub async fn admin_user_update_handler(
     {
         let mount_path = format!("/.users/{target_id}");
         let addition = serde_json::json!({ "root_folder_path": local_path }).to_string();
-        let exists: Option<i64> = match sqlx::query_scalar(
-            "SELECT `id` FROM `x_storages` WHERE `mount_path` = ?",
-        )
-        .bind(&mount_path)
-        .fetch_optional(&mut *tx)
-        .await
-        {
-            Ok(value) => value,
-            Err(err) => {
-                tracing::error!(error = %err, "failed to query user storage");
-                return api_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    500,
-                    "Internal server error",
-                );
-            }
-        };
+        let exists: Option<i64> =
+            match sqlx::query_scalar("SELECT `id` FROM `x_storages` WHERE `mount_path` = ?")
+                .bind(&mount_path)
+                .fetch_optional(&mut *tx)
+                .await
+            {
+                Ok(value) => value,
+                Err(err) => {
+                    tracing::error!(error = %err, "failed to query user storage");
+                    return api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        500,
+                        "Internal server error",
+                    );
+                }
+            };
 
         let storage_result = if exists.is_some() {
             sqlx::query("UPDATE `x_storages` SET `addition` = ? WHERE `mount_path` = ?")

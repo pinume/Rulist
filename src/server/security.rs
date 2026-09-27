@@ -85,11 +85,7 @@ pub(crate) fn permitted(user: &User, bit: i32) -> bool {
 }
 
 pub(crate) fn valid_name(name: &str) -> bool {
-    !name.is_empty()
-        && name != "."
-        && name != ".."
-        && !name.contains('/')
-        && !name.contains('\\')
+    !name.is_empty() && name != "." && name != ".." && !name.contains('/') && !name.contains('\\')
 }
 
 pub(crate) fn encode_url_path(path: &str) -> String {

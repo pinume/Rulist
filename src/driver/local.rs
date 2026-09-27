@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 use tokio::fs;
 
@@ -48,8 +49,8 @@ impl LocalDriver {
         if addition_json.is_empty() {
             return Err(anyhow!("storage configuration is empty"));
         }
-        let addition: LocalAddition = serde_json::from_str(addition_json)
-            .context("failed to parse storage configuration")?;
+        let addition: LocalAddition =
+            serde_json::from_str(addition_json).context("failed to parse storage configuration")?;
 
         let root_str = addition.root_folder_path.trim();
         if root_str.is_empty() {
@@ -85,7 +86,7 @@ impl LocalDriver {
                         "access denied: parent directory traversal is forbidden"
                     ));
                 }
-                Component::RootDir | Component::Prefix(_) => {
+                _ => {
                     return Err(anyhow!(
                         "access denied: absolute path components are forbidden"
                     ));
@@ -170,13 +171,7 @@ impl LocalDriver {
                     .map(|time| DateTime::<Utc>::from(time).to_rfc3339())
                     .unwrap_or_default();
 
-                #[cfg(unix)]
-                let permissions = {
-                    use std::os::unix::fs::PermissionsExt;
-                    crate::model::format_mode(meta.permissions().mode(), is_dir)
-                };
-                #[cfg(not(unix))]
-                let permissions = crate::model::format_mode(0, is_dir);
+                let permissions = crate::model::format_mode(meta.permissions().mode(), is_dir);
 
                 let mut item = FileObj::new(file_name, size, is_dir, modified);
                 item.permissions = Some(permissions);
@@ -206,13 +201,7 @@ impl LocalDriver {
             .map(|time| DateTime::<Utc>::from(time).to_rfc3339())
             .unwrap_or_default();
 
-        #[cfg(unix)]
-        let permissions = {
-            use std::os::unix::fs::PermissionsExt;
-            crate::model::format_mode(meta.permissions().mode(), is_dir)
-        };
-        #[cfg(not(unix))]
-        let permissions = crate::model::format_mode(0, is_dir);
+        let permissions = crate::model::format_mode(meta.permissions().mode(), is_dir);
 
         let mut item = FileObj::new(file_name, size, is_dir, modified);
         item.permissions = Some(permissions);
@@ -297,9 +286,7 @@ impl LocalDriver {
         }
 
         if !overwrite {
-            return Err(RenameError::Conflict(format!(
-                "file [{new_name}] exists"
-            )));
+            return Err(RenameError::Conflict(format!("file [{new_name}] exists")));
         }
 
         let backup = parent.join(format!(

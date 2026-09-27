@@ -50,9 +50,7 @@ pub(super) async fn copy_path_safe(src: &Path, dst: &Path, overwrite: bool) -> R
     }
 
     if let Err(error) = fs::rename(&stage, dst).await {
-        if dst_exists
-            && let Err(restore_error) = fs::rename(&backup, dst).await
-        {
+        if dst_exists && let Err(restore_error) = fs::rename(&backup, dst).await {
             tracing::error!(
                 error = %restore_error,
                 "CRITICAL: failed to restore backup after copy promotion failure"
@@ -62,9 +60,7 @@ pub(super) async fn copy_path_safe(src: &Path, dst: &Path, overwrite: bool) -> R
         return Err(anyhow!("failed to replace destination with stage: {error}"));
     }
 
-    if dst_exists
-        && let Err(error) = remove_path_recursive(&backup).await
-    {
+    if dst_exists && let Err(error) = remove_path_recursive(&backup).await {
         tracing::warn!(
             error = %error,
             path = ?backup,
@@ -104,8 +100,9 @@ pub(super) async fn move_path_safe(src: &Path, dst: &Path, overwrite: bool) -> R
             Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => {
                 move_cross_device_safe(src, dst, overwrite).await
             }
-            Err(error) => Err(error)
-                .with_context(|| format!("failed to move {:?} to {:?}", src, dst)),
+            Err(error) => {
+                Err(error).with_context(|| format!("failed to move {:?} to {:?}", src, dst))
+            }
         };
     }
 
@@ -131,10 +128,7 @@ pub(super) async fn move_path_safe(src: &Path, dst: &Path, overwrite: bool) -> R
         return Ok(());
     }
 
-    let backup = parent.join(format!(
-        ".rulist-backup-{}",
-        crate::auth::rand_string(24)
-    ));
+    let backup = parent.join(format!(".rulist-backup-{}", crate::auth::rand_string(24)));
     fs::rename(dst, &backup)
         .await
         .with_context(|| format!("failed to backup existing destination {:?}", dst))?;
@@ -200,9 +194,7 @@ async fn move_cross_device_safe(src: &Path, dst: &Path, overwrite: bool) -> Resu
     }
 
     if let Err(error) = fs::rename(&stage, dst).await {
-        if had_destination
-            && let Err(restore_error) = fs::rename(&backup, dst).await
-        {
+        if had_destination && let Err(restore_error) = fs::rename(&backup, dst).await {
             tracing::error!(
                 error = %restore_error,
                 backup = ?backup,
@@ -225,9 +217,7 @@ async fn move_cross_device_safe(src: &Path, dst: &Path, overwrite: bool) -> Resu
         return Err(error.context("destination was copied successfully but source cleanup failed"));
     }
 
-    if had_destination
-        && let Err(error) = remove_path_recursive(&backup).await
-    {
+    if had_destination && let Err(error) = remove_path_recursive(&backup).await {
         tracing::warn!(
             error = %error,
             backup = ?backup,

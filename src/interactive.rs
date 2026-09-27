@@ -119,7 +119,8 @@ fn resolve_storage_path(input: &str, default_home: &str) -> PathBuf {
         return PathBuf::from(trimmed);
     }
     if trimmed.starts_with('~') {
-        return PathBuf::from(default_home).join(trimmed.trim_start_matches('~').trim_start_matches('/'));
+        return PathBuf::from(default_home)
+            .join(trimmed.trim_start_matches('~').trim_start_matches('/'));
     }
     let path = Path::new(trimmed);
     if path.is_absolute() {
@@ -131,7 +132,11 @@ fn resolve_storage_path(input: &str, default_home: &str) -> PathBuf {
 fn parse_perm_input(input: &str) -> Option<i32> {
     let trimmed = input.trim();
     if trimmed.eq_ignore_ascii_case("all") {
-        return Some(PERM_ITEMS.iter().fold(0, |perm, item| perm | (1 << item.bit)));
+        return Some(
+            PERM_ITEMS
+                .iter()
+                .fold(0, |perm, item| perm | (1 << item.bit)),
+        );
     }
     if trimmed.eq_ignore_ascii_case("none") || trimmed == "0" {
         return Some(0);
@@ -285,7 +290,11 @@ async fn select_user(pool: &DbPool, general_only: bool) -> Result<Option<model::
             " {}. {} ({}, 2FA: {})",
             index + 1,
             user.username,
-            if user.is_admin() { "管理员" } else { "普通用户" },
+            if user.is_admin() {
+                "管理员"
+            } else {
+                "普通用户"
+            },
             if user.otp { "已启用" } else { "未启用" }
         );
     }

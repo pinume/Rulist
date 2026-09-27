@@ -23,7 +23,6 @@ async fn rejects_traversal_and_storage_root_removal() {
     assert!(temp.path().exists());
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn rejects_symlink_escape() {
     let root = tempfile::tempdir().unwrap();
@@ -87,7 +86,9 @@ async fn overwrite_is_explicit_for_copy_and_rename() {
             .is_err()
     );
     assert_eq!(
-        tokio::fs::read(temp.path().join("target.txt")).await.unwrap(),
+        tokio::fs::read(temp.path().join("target.txt"))
+            .await
+            .unwrap(),
         b"old"
     );
 
@@ -96,7 +97,9 @@ async fn overwrite_is_explicit_for_copy_and_rename() {
         .await
         .unwrap();
     assert_eq!(
-        tokio::fs::read(temp.path().join("target.txt")).await.unwrap(),
+        tokio::fs::read(temp.path().join("target.txt"))
+            .await
+            .unwrap(),
         b"new"
     );
 
@@ -114,7 +117,9 @@ async fn overwrite_is_explicit_for_copy_and_rename() {
         .await
         .unwrap();
     assert_eq!(
-        tokio::fs::read(temp.path().join("target.txt")).await.unwrap(),
+        tokio::fs::read(temp.path().join("target.txt"))
+            .await
+            .unwrap(),
         b"renamed"
     );
 }

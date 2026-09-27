@@ -1,3 +1,6 @@
+#[cfg(not(target_os = "linux"))]
+compile_error!("Rulist only supports Linux.");
+
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 use std::{io, path::PathBuf};
@@ -116,11 +119,6 @@ pub async fn run() -> Result<()> {
         }
         Commands::Version => {
             println!("Version: v{}", env!("CARGO_PKG_VERSION"));
-            println!(
-                "OS/Arch: {}/{}",
-                std::env::consts::OS,
-                std::env::consts::ARCH
-            );
         }
         Commands::Server(server_args) => {
             let (mut config, config_path) = config::Config::load_or_create(&data_dir)?;

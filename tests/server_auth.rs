@@ -40,9 +40,7 @@ async fn json_request(
 async fn two_factor_lifecycle_is_enforced_and_replay_safe() {
     let temp = tempfile::tempdir().unwrap();
     let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
-    db::set_admin_password(&pool, "TestPass123!")
-        .await
-        .unwrap();
+    db::set_admin_password(&pool, "TestPass123!").await.unwrap();
 
     let master_token = db::get_setting(&pool, "token").await.unwrap().unwrap();
     let storage = StorageManager::load_from_db(&pool).await.unwrap();
