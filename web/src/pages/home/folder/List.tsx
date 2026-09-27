@@ -125,14 +125,14 @@ export const ListTitle = (props: {
                 color="$neutral9"
                 display={{ "@initial": "none", "@md": "inline" }}
               >
-                {t("home.sort") || "排序"}
+                {t("home.sort")}
               </Text>
             </HStack>
           </MenuTrigger>
           <MenuContent minW="160px" shadow="$md" zIndex={100}>
             <MenuGroup>
               <MenuLabel fontSize="$xs" color="$neutral9" px="$3" py="$1">
-                {t("home.sort_by") || "排序依据"}
+                {t("home.sort_by")}
               </MenuLabel>
               <MenuItem
                 cursor="pointer"
@@ -152,7 +152,7 @@ export const ListTitle = (props: {
                       objStore.orderBy === "name" ? "semibold" : "normal"
                     }
                   >
-                    {t("home.sort_name") || "文件名称"}
+                    {t("home.sort_name")}
                   </Text>
                   <Show when={objStore.orderBy === "name"}>
                     <Icon as={FiCheck} color={getMainColor()} />
@@ -179,7 +179,7 @@ export const ListTitle = (props: {
                       objStore.orderBy === "modified" ? "semibold" : "normal"
                     }
                   >
-                    {t("home.sort_modified") || "修改时间"}
+                    {t("home.sort_modified")}
                   </Text>
                   <Show when={objStore.orderBy === "modified"}>
                     <Icon as={FiCheck} color={getMainColor()} />
@@ -192,7 +192,7 @@ export const ListTitle = (props: {
 
             <MenuGroup>
               <MenuLabel fontSize="$xs" color="$neutral9" px="$3" py="$1">
-                {t("home.sort_order") || "排序方向"}
+                {t("home.sort_order")}
               </MenuLabel>
               <MenuItem
                 cursor="pointer"
@@ -208,7 +208,7 @@ export const ListTitle = (props: {
                     color={!objStore.reverse ? getMainColor() : undefined}
                     fontWeight={!objStore.reverse ? "semibold" : "normal"}
                   >
-                    {t("home.sort_asc") || "A 至 Z"}
+                    {t("home.sort_asc")}
                   </Text>
                   <Show when={!objStore.reverse}>
                     <Icon as={FiCheck} color={getMainColor()} />
@@ -229,7 +229,7 @@ export const ListTitle = (props: {
                     color={objStore.reverse ? getMainColor() : undefined}
                     fontWeight={objStore.reverse ? "semibold" : "normal"}
                   >
-                    {t("home.sort_desc") || "Z 至 A"}
+                    {t("home.sort_desc")}
                   </Text>
                   <Show when={objStore.reverse}>
                     <Icon as={FiCheck} color={getMainColor()} />
@@ -242,7 +242,7 @@ export const ListTitle = (props: {
 
             <MenuGroup>
               <MenuLabel fontSize="$xs" color="$neutral9" px="$3" py="$1">
-                {t("home.sort_folder") || "文件夹"}
+                {t("home.sort_folder")}
               </MenuLabel>
               <MenuItem
                 cursor="pointer"
@@ -269,7 +269,7 @@ export const ListTitle = (props: {
                         : "normal"
                     }
                   >
-                    {t("home.sort_folder_top") || "顶部"}
+                    {t("home.sort_folder_top")}
                   </Text>
                   <Show
                     when={(local["folder_sort_position"] || "top") === "top"}
@@ -303,7 +303,7 @@ export const ListTitle = (props: {
                         : "normal"
                     }
                   >
-                    {t("home.sort_folder_mixed") || "与文件混合"}
+                    {t("home.sort_folder_mixed")}
                   </Text>
                   <Show when={local["folder_sort_position"] === "mixed"}>
                     <Icon as={FiCheck} color={getMainColor()} />
