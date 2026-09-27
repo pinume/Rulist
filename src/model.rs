@@ -38,8 +38,6 @@ pub struct User {
     pub pwd_hash: String,
     #[serde(skip_serializing)]
     pub pwd_ts: i64,
-    #[serde(skip_serializing)]
-    pub salt: String,
     pub base_path: String,
     pub role: i32,
     pub disabled: bool,
@@ -75,14 +73,9 @@ pub struct Storage {
     pub mount_path: String,
     pub order: i32,
     pub driver: String,
-    pub cache_expiration: i32,
     pub status: Option<String>,
     pub addition: Option<String>,
-    pub remark: Option<String>,
     pub disabled: bool,
-    pub enable_sign: bool,
-    pub order_by: Option<String>,
-    pub order_direction: Option<String>,
 }
 
 pub const TYPE_UNKNOWN: i32 = 0;
