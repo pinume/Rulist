@@ -3,16 +3,13 @@ CREATE TABLE IF NOT EXISTS `x_users` (
     `username` TEXT NOT NULL UNIQUE,
     `pwd_hash` TEXT NOT NULL,
     `pwd_ts` INTEGER NOT NULL,
-    `salt` TEXT NOT NULL,
-    `password` TEXT,
     `base_path` TEXT NOT NULL DEFAULT '/',
     `role` INTEGER NOT NULL DEFAULT 0,
     `disabled` NUMERIC NOT NULL DEFAULT 0,
     `permission` INTEGER NOT NULL DEFAULT 0,
     `password_unset` NUMERIC NOT NULL DEFAULT 0,
     `otp_secret` TEXT,
-    `last_otp_step` INTEGER NOT NULL DEFAULT -1,
-    `sso_id` TEXT
+    `last_otp_step` INTEGER NOT NULL DEFAULT -1
 );
 
 CREATE TABLE IF NOT EXISTS `x_setting_items` (
@@ -31,14 +28,9 @@ CREATE TABLE IF NOT EXISTS `x_storages` (
     `mount_path` TEXT NOT NULL UNIQUE,
     `order` INTEGER NOT NULL DEFAULT 0,
     `driver` TEXT NOT NULL,
-    `cache_expiration` INTEGER NOT NULL DEFAULT 0,
     `status` TEXT,
     `addition` TEXT,
-    `remark` TEXT,
-    `disabled` NUMERIC NOT NULL DEFAULT 0,
-    `enable_sign` NUMERIC NOT NULL DEFAULT 0,
-    `order_by` TEXT,
-    `order_direction` TEXT
+    `disabled` NUMERIC NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS `x_otp_pending` (
