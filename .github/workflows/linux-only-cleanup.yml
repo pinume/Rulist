@@ -1,0 +1,122 @@
+name: Linux-only cleanup
+
+on:
+  push:
+    branches:
+      - refactor/quality-cleanup
+    paths:
+      - .github/workflows/linux-only-cleanup.yml
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/quality-cleanup
+
+      - name: Remove cross-platform compatibility
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, count=None):
+              p = Path(path)
+              text = p.read_text()
+              found = text.count(old)
+              expected = 1 if count is None else count
+              if found != expected:
+                  raise SystemExit(f"{path}: expected {expected} occurrence(s), found {found}: {old[:80]!r}")
+              p.write_text(text.replace(old, new))
+
+          # Explicitly reject non-Linux targets.
+          p = Path("src/lib.rs")
+          text = p.read_text()
+          guard = '#[cfg(not(target_os = "linux"))]\ncompile_error!("Rulist only supports Linux.");\n\n'
+          if not text.startswith(guard):
+              p.write_text(guard + text)
+
+          replace(
+              "src/lib.rs",
+              '''        Commands::Version => {\n            println!("Version: v{}", env!("CARGO_PKG_VERSION"));\n            println!(\n                "OS/Arch: {}/{}",\n                std::env::consts::OS,\n                std::env::consts::ARCH\n            );\n        }''',
+              '''        Commands::Version => {\n            println!("Version: v{}", env!("CARGO_PKG_VERSION"));\n        }''',
+          )
+
+          # Linux file permissions are part of the normal code path.
+          p = Path("src/config.rs")
+          text = p.read_text()
+          text = text.replace("use std::fs;\n", "use std::fs;\nuse std::os::unix::fs::{OpenOptionsExt, PermissionsExt};\n", 1)
+          text = text.replace('''        #[cfg(unix)]\n        fs::set_permissions(data_dir, {\n            use std::os::unix::fs::PermissionsExt;\n            fs::Permissions::from_mode(0o700)\n        })?;''', '''        fs::set_permissions(data_dir, fs::Permissions::from_mode(0o700))?;''')
+          text = text.replace('''            #[cfg(unix)]\n            fs::set_permissions(&config_path, {\n                use std::os::unix::fs::PermissionsExt;\n                fs::Permissions::from_mode(0o600)\n            })?;''', '''            fs::set_permissions(&config_path, fs::Permissions::from_mode(0o600))?;''')
+          text = text.replace('''            #[cfg(unix)]\n            {\n                use std::os::unix::fs::OpenOptionsExt;\n                options.mode(0o600);\n            }''', '''            options.mode(0o600);''')
+          text = text.replace('''            #[cfg(unix)]\n            fs::set_permissions(&config_path, {\n                use std::os::unix::fs::PermissionsExt;\n                fs::Permissions::from_mode(0o600)\n            })?;''', '''            fs::set_permissions(&config_path, fs::Permissions::from_mode(0o600))?;''')
+          p.write_text(text)
+
+          p = Path("src/db.rs")
+          text = p.read_text()
+          text = text.replace("use std::fs;\n", "use std::fs;\nuse std::os::unix::fs::PermissionsExt;\n", 1)
+          text = text.replace('''    #[cfg(unix)]\n    if db_path.exists() {\n        use std::os::unix::fs::PermissionsExt;\n        fs::set_permissions(db_path, fs::Permissions::from_mode(0o600))?;\n    }''', '''    if db_path.exists() {\n        fs::set_permissions(db_path, fs::Permissions::from_mode(0o600))?;\n    }''')
+          p.write_text(text)
+
+          p = Path("src/driver/local.rs")
+          text = p.read_text()
+          text = text.replace("use std::path::{Component, Path, PathBuf};\n", "use std::os::unix::fs::PermissionsExt;\nuse std::path::{Component, Path, PathBuf};\n", 1)
+          text = text.replace('''                Component::RootDir | Component::Prefix(_) => {\n                    return Err(anyhow!(\n                        "access denied: absolute path components are forbidden"\n                    ));\n                }''', '''                _ => {\n                    return Err(anyhow!(\n                        "access denied: absolute path components are forbidden"\n                    ));\n                }''')
+          old_permissions = '''                #[cfg(unix)]\n                let permissions = {\n                    use std::os::unix::fs::PermissionsExt;\n                    crate::model::format_mode(meta.permissions().mode(), is_dir)\n                };\n                #[cfg(not(unix))]\n                let permissions = crate::model::format_mode(0, is_dir);'''
+          new_permissions = '''                let permissions =\n                    crate::model::format_mode(meta.permissions().mode(), is_dir);'''
+          if text.count(old_permissions) != 1:
+              raise SystemExit(f"src/driver/local.rs: expected first permission compatibility block once, found {text.count(old_permissions)}")
+          text = text.replace(old_permissions, new_permissions)
+          old_permissions_2 = '''        #[cfg(unix)]\n        let permissions = {\n            use std::os::unix::fs::PermissionsExt;\n            crate::model::format_mode(meta.permissions().mode(), is_dir)\n        };\n        #[cfg(not(unix))]\n        let permissions = crate::model::format_mode(0, is_dir);'''
+          new_permissions_2 = '''        let permissions = crate::model::format_mode(meta.permissions().mode(), is_dir);'''
+          if text.count(old_permissions_2) != 1:
+              raise SystemExit(f"src/driver/local.rs: expected second permission compatibility block once, found {text.count(old_permissions_2)}")
+          text = text.replace(old_permissions_2, new_permissions_2)
+          p.write_text(text)
+
+          p = Path("src/server/mod.rs")
+          text = p.read_text()
+          old = '''    #[cfg(unix)]\n    let terminate = async {\n        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())\n            .expect("failed to install signal handler")\n            .recv()\n            .await;\n    };\n\n    #[cfg(not(unix))]\n    let terminate = std::future::pending::<()>();'''
+          new = '''    let terminate = async {\n        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())\n            .expect("failed to install signal handler")\n            .recv()\n            .await;\n    };'''
+          if text.count(old) != 1:
+              raise SystemExit(f"src/server/mod.rs: expected shutdown compatibility block once, found {text.count(old)}")
+          p.write_text(text.replace(old, new))
+          PY
+
+      - name: Format
+        run: cargo fmt
+
+      - name: Check platform leftovers
+        run: |
+          echo "Platform conditionals / Windows-specific code:"
+          matches="$(grep -RInE 'cfg\((not\()?unix|cfg\([^)]*windows|target_family|target_os *= *"windows"|std::os::windows|Component::Prefix|cfg!\(windows\)' src tests || true)"
+          if [ -n "$matches" ]; then
+            echo "$matches"
+            exit 1
+          fi
+          linux_guards="$(grep -RIn 'target_os = "linux"' src tests || true)"
+          echo "$linux_guards"
+          if ! grep -Fq '#[cfg(not(target_os = "linux"))]' src/lib.rs; then
+            echo "Missing Linux-only compile guard"
+            exit 1
+          fi
+
+      - name: Cargo check
+        run: cargo check --locked
+
+      - name: Cargo test
+        run: cargo test --locked
+
+      - name: Commit cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src tests
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "refactor: make Rulist Linux-only"
+          git push origin HEAD:refactor/quality-cleanup
