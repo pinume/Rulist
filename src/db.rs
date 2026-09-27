@@ -13,6 +13,8 @@ use crate::model::{ROLE_ADMIN, User};
 
 pub type DbPool = Pool<Sqlite>;
 
+static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+
 pub async fn init_db(db_path: &Path) -> Result<DbPool> {
     if let Some(parent) = db_path.parent() {
         fs::create_dir_all(parent)?;
@@ -29,79 +31,23 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
         .connect_with(opts)
         .await
         .context("failed to connect to SQLite database")?;
+
     #[cfg(unix)]
     if db_path.exists() {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(db_path, fs::Permissions::from_mode(0o600))?;
     }
 
-    // Create tables
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS `x_users` (
-            `id` INTEGER PRIMARY KEY AUTOINCREMENT,
-            `username` TEXT NOT NULL UNIQUE,
-            `pwd_hash` TEXT NOT NULL,
-            `pwd_ts` INTEGER NOT NULL,
-            `salt` TEXT NOT NULL,
-            `password` TEXT,
-            `base_path` TEXT NOT NULL DEFAULT '/',
-            `role` INTEGER NOT NULL DEFAULT 0,
-            `disabled` NUMERIC NOT NULL DEFAULT 0,
-            `permission` INTEGER NOT NULL DEFAULT 0,
-            `password_unset` NUMERIC NOT NULL DEFAULT 0,
-            `otp_secret` TEXT,
-            `last_otp_step` INTEGER NOT NULL DEFAULT -1,
-            `sso_id` TEXT
-        );
+    // Older Rulist databases may predate these two columns. This narrow bridge
+    // exists only so SQLx can take over migration tracking without discarding
+    // persisted user data. New databases never enter this path.
+    ensure_legacy_user_columns(&pool).await?;
+    validate_admin_invariants(&pool).await?;
 
-        CREATE TABLE IF NOT EXISTS `x_setting_items` (
-            `key` TEXT PRIMARY KEY,
-            `value` TEXT NOT NULL,
-            `help` TEXT,
-            `type` TEXT NOT NULL DEFAULT 'string',
-            `options` TEXT,
-            `group` INTEGER NOT NULL DEFAULT 0,
-            `flag` INTEGER NOT NULL DEFAULT 0,
-            `index` INTEGER
-        );
-
-        CREATE TABLE IF NOT EXISTS `x_storages` (
-            `id` INTEGER PRIMARY KEY AUTOINCREMENT,
-            `mount_path` TEXT NOT NULL UNIQUE,
-            `order` INTEGER NOT NULL DEFAULT 0,
-            `driver` TEXT NOT NULL,
-            `cache_expiration` INTEGER NOT NULL DEFAULT 0,
-            `status` TEXT,
-            `addition` TEXT,
-            `remark` TEXT,
-            `disabled` NUMERIC NOT NULL DEFAULT 0,
-            `enable_sign` NUMERIC NOT NULL DEFAULT 0,
-            `order_by` TEXT,
-            `order_direction` TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS `x_otp_pending` (
-            `user_id` INTEGER PRIMARY KEY,
-            `secret` TEXT NOT NULL,
-            `expires_at` INTEGER NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS `x_login_attempts` (
-            `username_hash` TEXT PRIMARY KEY,
-            `failed_count` INTEGER NOT NULL,
-            `window_started` INTEGER NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS `x_revoked_tokens` (
-            `jti` TEXT PRIMARY KEY,
-            `expires_at` INTEGER NOT NULL
-        );
-        "#,
-    )
-    .execute(&pool)
-    .await
-    .context("failed to initialize SQLite schema")?;
+    MIGRATOR
+        .run(&pool)
+        .await
+        .context("failed to run SQLite migrations")?;
 
     let now_ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -112,24 +58,47 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
         .execute(&pool)
         .await?;
 
+    validate_admin_invariants(&pool).await?;
+    seed_settings(&pool).await?;
+    seed_admin(&pool).await?;
+
+    Ok(pool)
+}
+
+async fn table_exists(pool: &DbPool, name: &str) -> Result<bool> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
+    )
+    .bind(name)
+    .fetch_one(pool)
+    .await?;
+    Ok(count > 0)
+}
+
+async fn ensure_legacy_user_columns(pool: &DbPool) -> Result<()> {
+    if !table_exists(pool, "x_users").await? {
+        return Ok(());
+    }
+
     let has_password_unset: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM pragma_table_info('x_users') WHERE name = 'password_unset'",
     )
-    .fetch_one(&pool)
+    .fetch_one(pool)
     .await?;
     if has_password_unset == 0 {
         sqlx::query("ALTER TABLE `x_users` ADD COLUMN `password_unset` NUMERIC NOT NULL DEFAULT 0")
-            .execute(&pool)
+            .execute(pool)
             .await?;
+
         let users: Vec<(i64, String, String)> =
             sqlx::query_as("SELECT `id`, `pwd_hash`, `salt` FROM `x_users`")
-                .fetch_all(&pool)
+                .fetch_all(pool)
                 .await?;
         for (id, pwd_hash, salt) in users {
             if verify_password("", &pwd_hash, &salt) {
                 sqlx::query("UPDATE `x_users` SET `password_unset` = 1 WHERE `id` = ?")
                     .bind(id)
-                    .execute(&pool)
+                    .execute(pool)
                     .await?;
             }
         }
@@ -138,94 +107,42 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
     let has_last_otp_step: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM pragma_table_info('x_users') WHERE name = 'last_otp_step'",
     )
-    .fetch_one(&pool)
+    .fetch_one(pool)
     .await?;
     if has_last_otp_step == 0 {
         sqlx::query("ALTER TABLE `x_users` ADD COLUMN `last_otp_step` INTEGER NOT NULL DEFAULT -1")
-            .execute(&pool)
+            .execute(pool)
             .await?;
+    }
+
+    Ok(())
+}
+
+async fn validate_admin_invariants(pool: &DbPool) -> Result<()> {
+    if !table_exists(pool, "x_users").await? {
+        return Ok(());
     }
 
     let invalid_admins: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM `x_users` WHERE `role` = ? AND (`username` != 'admin' OR `disabled` != 0)",
     )
     .bind(ROLE_ADMIN)
-    .fetch_one(&pool)
+    .fetch_one(pool)
     .await?;
     let admin_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `x_users` WHERE `role` = ?")
         .bind(ROLE_ADMIN)
-        .fetch_one(&pool)
+        .fetch_one(pool)
         .await?;
+
     if invalid_admins > 0 || admin_count > 1 {
         bail!(
             "database must contain at most one enabled administrator named admin; resolve legacy accounts before startup"
         );
     }
-    if admin_count == 0 && get_user_by_name(&pool, "admin").await?.is_some() {
+    if admin_count == 0 && get_user_by_name(pool, "admin").await?.is_some() {
         bail!("username admin is already assigned to a non-administrator");
     }
 
-    seed_settings(&pool).await?;
-    seed_admin(&pool).await?;
-    migrate_overwrite_permission(&pool).await?;
-    sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS `x_users_single_admin` ON `x_users` (`role`) WHERE `role` = 2")
-        .execute(&pool)
-        .await?;
-
-    let result = sqlx::query(
-        "UPDATE `x_users`
-         SET `base_path` = '/.users/' || `id`,
-             `disabled` = 1
-         WHERE `role` != ?
-           AND `base_path` = '/'",
-    )
-    .bind(ROLE_ADMIN)
-    .execute(&pool)
-    .await?;
-
-    if result.rows_affected() > 0 {
-        tracing::warn!(
-            users = result.rows_affected(),
-            "disabled legacy non-admin users with unsafe root access"
-        );
-    }
-
-    let admin_fix = sqlx::query(
-        "UPDATE `x_users`
-         SET `base_path` = '/'
-         WHERE `role` = ?
-           AND `base_path` LIKE '/.users/%'",
-    )
-    .bind(ROLE_ADMIN)
-    .execute(&pool)
-    .await?;
-
-    if admin_fix.rows_affected() > 0 {
-        tracing::info!(
-            admins = admin_fix.rows_affected(),
-            "restored base_path='/' for admin users"
-        );
-    }
-
-    Ok(pool)
-}
-
-async fn migrate_overwrite_permission(pool: &DbPool) -> Result<()> {
-    let mut tx = pool.begin().await?;
-    let marker = sqlx::query(
-        "INSERT OR IGNORE INTO `x_setting_items` (`key`, `value`, `type`, `group`, `flag`) VALUES ('permission_overwrite_v1_migrated', 'true', 'bool', 0, 1)",
-    )
-    .execute(&mut *tx)
-    .await?;
-    if marker.rows_affected() > 0 {
-        sqlx::query(
-            "UPDATE `x_users` SET `permission` = `permission` | (1 << 8) WHERE `role` != ? AND (`permission` & 120) != 0",
-        )
-        .bind(ROLE_ADMIN)
-        .execute(&mut *tx)
-        .await?;
-    }
-    tx.commit().await?;
     Ok(())
 }
 
@@ -301,8 +218,8 @@ async fn seed_admin(pool: &DbPool) -> Result<()> {
              Initial admin user created:\n\
              Username: admin\n\
              Password: {}\n\
-             Please save this password or change it in the Web UI.\n\
-             You can also reset it anytime using: rulist admin random-password\n\
+             Save this password and change it after first login.\n\
+             You can reset it later from the Rulist interactive console.\n\
              ==================================================================\n",
             initial_pwd
         );
@@ -316,8 +233,8 @@ pub async fn get_admin(pool: &DbPool) -> Result<Option<User>> {
         .bind(ROLE_ADMIN)
         .fetch_optional(pool)
         .await?;
-    if let Some(ref mut u) = user {
-        u.update_otp();
+    if let Some(ref mut user) = user {
+        user.update_otp();
     }
     Ok(user)
 }
@@ -326,7 +243,7 @@ pub async fn set_user_password(
     pool: &DbPool,
     username: &str,
     new_password: &str,
-    reset: bool,
+    clear_2fa: bool,
 ) -> Result<()> {
     let user = get_user_by_name(pool, username)
         .await?
@@ -338,18 +255,22 @@ pub async fn set_user_password(
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64;
+
     let mut tx = pool.begin().await?;
-    sqlx::query("UPDATE `x_users` SET `pwd_hash` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?), `salt` = ?, `password_unset` = ?, `otp_secret` = CASE WHEN ? THEN '' ELSE `otp_secret` END, `last_otp_step` = CASE WHEN ? THEN -1 ELSE `last_otp_step` END WHERE `id` = ?")
-        .bind(encoded_pwd)
-        .bind(now_ts)
-        .bind(salt)
-        .bind(new_password.is_empty())
-        .bind(reset)
-        .bind(reset)
-        .bind(user.id)
-        .execute(&mut *tx)
-        .await?;
-    if reset {
+    sqlx::query(
+        "UPDATE `x_users` SET `pwd_hash` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?), `salt` = ?, `password_unset` = ?, `otp_secret` = CASE WHEN ? THEN '' ELSE `otp_secret` END, `last_otp_step` = CASE WHEN ? THEN -1 ELSE `last_otp_step` END WHERE `id` = ?",
+    )
+    .bind(encoded_pwd)
+    .bind(now_ts)
+    .bind(salt)
+    .bind(new_password.is_empty())
+    .bind(clear_2fa)
+    .bind(clear_2fa)
+    .bind(user.id)
+    .execute(&mut *tx)
+    .await?;
+
+    if clear_2fa {
         sqlx::query("DELETE FROM `x_otp_pending` WHERE `user_id` = ?")
             .bind(user.id)
             .execute(&mut *tx)
@@ -361,28 +282,26 @@ pub async fn set_user_password(
                 .await?;
         }
     }
-    tx.commit().await?;
 
+    tx.commit().await?;
     Ok(())
 }
 
-#[allow(dead_code)]
 pub async fn set_admin_password(pool: &DbPool, new_password: &str) -> Result<()> {
     set_user_password(pool, "admin", new_password, false).await
 }
 
-#[allow(dead_code)]
 pub async fn reset_admin_password(pool: &DbPool, new_password: &str) -> Result<()> {
     set_user_password(pool, "admin", new_password, true).await
 }
 
 pub async fn get_setting(pool: &DbPool, key: &str) -> Result<Option<String>> {
-    let val: Option<String> =
+    let value: Option<String> =
         sqlx::query_scalar("SELECT `value` FROM `x_setting_items` WHERE `key` = ?")
             .bind(key)
             .fetch_optional(pool)
             .await?;
-    Ok(val)
+    Ok(value)
 }
 
 pub async fn get_public_settings(pool: &DbPool) -> Result<HashMap<String, String>> {
@@ -406,8 +325,8 @@ pub async fn get_user_by_name(pool: &DbPool, username: &str) -> Result<Option<Us
             .bind(username)
             .fetch_optional(pool)
             .await?;
-    if let Some(ref mut u) = user {
-        u.update_otp();
+    if let Some(ref mut user) = user {
+        user.update_otp();
     }
     Ok(user)
 }
@@ -416,8 +335,8 @@ pub async fn get_all_users(pool: &DbPool) -> Result<Vec<User>> {
     let mut users = sqlx::query_as::<_, User>("SELECT * FROM `x_users` ORDER BY `id` ASC")
         .fetch_all(pool)
         .await?;
-    for u in &mut users {
-        u.update_otp();
+    for user in &mut users {
+        user.update_otp();
     }
     Ok(users)
 }
@@ -427,8 +346,8 @@ pub async fn get_user_by_id(pool: &DbPool, id: i64) -> Result<Option<User>> {
         .bind(id)
         .fetch_optional(pool)
         .await?;
-    if let Some(ref mut u) = user {
-        u.update_otp();
+    if let Some(ref mut user) = user {
+        user.update_otp();
     }
     Ok(user)
 }
@@ -444,36 +363,40 @@ pub async fn get_storages(pool: &DbPool) -> Result<Vec<crate::model::Storage>> {
 
 pub fn compute_local_path(base_path: &str, storages: &[crate::model::Storage]) -> String {
     let mut matched: Option<&crate::model::Storage> = None;
-    for s in storages {
-        if s.driver == "Local"
-            && (base_path == s.mount_path
-                || base_path.starts_with(&format!("{}/", s.mount_path.trim_end_matches('/'))))
-            && (matched.is_none() || s.mount_path.len() > matched.unwrap().mount_path.len())
+    for storage in storages {
+        if storage.driver == "Local"
+            && (base_path == storage.mount_path
+                || base_path.starts_with(&format!(
+                    "{}/",
+                    storage.mount_path.trim_end_matches('/')
+                )))
+            && (matched.is_none()
+                || storage.mount_path.len() > matched.expect("matched storage").mount_path.len())
         {
-            matched = Some(s);
+            matched = Some(storage);
         }
     }
 
-    if let Some(s) = matched
-        && let Some(ref addition_str) = s.addition
-        && let Ok(val) = serde_json::from_str::<serde_json::Value>(addition_str)
+    if let Some(storage) = matched
+        && let Some(ref addition) = storage.addition
+        && let Ok(value) = serde_json::from_str::<serde_json::Value>(addition)
     {
-        let root = val
+        let root = value
             .get("root_folder_path")
-            .or_else(|| val.get("root_folder"))
-            .and_then(|v| v.as_str())
+            .or_else(|| value.get("root_folder"))
+            .and_then(|value| value.as_str())
             .unwrap_or("");
         if !root.is_empty() {
             let sub = base_path
-                .trim_start_matches(&s.mount_path)
+                .trim_start_matches(&storage.mount_path)
                 .trim_start_matches('/');
             if sub.is_empty() {
                 return root.to_string();
-            } else {
-                return format!("{}/{}", root.trim_end_matches('/'), sub);
             }
+            return format!("{}/{}", root.trim_end_matches('/'), sub);
         }
     }
+
     String::new()
 }
 
@@ -486,7 +409,6 @@ pub async fn get_all_storages(pool: &DbPool) -> Result<Vec<crate::model::Storage
     Ok(storages)
 }
 
-#[allow(dead_code)]
 pub async fn get_all_settings(pool: &DbPool) -> Result<Vec<(String, String, String)>> {
     let rows = sqlx::query_as::<_, (String, String, String)>(
         "SELECT `key`, `value`, `type` FROM `x_setting_items` ORDER BY `group` ASC, `key` ASC",
@@ -496,7 +418,6 @@ pub async fn get_all_settings(pool: &DbPool) -> Result<Vec<(String, String, Stri
     Ok(rows)
 }
 
-#[allow(dead_code)]
 pub async fn set_setting(pool: &DbPool, key: &str, value: &str) -> Result<()> {
     sqlx::query(
         "INSERT INTO `x_setting_items` (`key`, `value`, `type`, `group`, `flag`) VALUES (?, ?, 'string', 0, 0)
@@ -519,9 +440,36 @@ pub async fn delete_user(pool: &DbPool, user_id: i64) -> Result<()> {
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
-    let user_mount = format!("/.users/{user_id}");
     sqlx::query("DELETE FROM `x_storages` WHERE `mount_path` = ?")
-        .bind(&user_mount)
+        .bind(format!("/.users/{user_id}"))
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn enable_user_2fa(
+    pool: &DbPool,
+    user_id: i64,
+    secret: &str,
+    accepted_step: i64,
+) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    let result = sqlx::query(
+        "UPDATE `x_users` SET `otp_secret` = ?, `last_otp_step` = ? WHERE `id` = ? AND (`otp_secret` IS NULL OR TRIM(`otp_secret`) = '')",
+    )
+    .bind(secret)
+    .bind(accepted_step)
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await?;
+
+    if result.rows_affected() != 1 {
+        bail!("user not found or 2FA is already enabled");
+    }
+
+    sqlx::query("DELETE FROM `x_otp_pending` WHERE `user_id` = ?")
+        .bind(user_id)
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
@@ -530,10 +478,12 @@ pub async fn delete_user(pool: &DbPool, user_id: i64) -> Result<()> {
 
 pub async fn cancel_user_2fa(pool: &DbPool, user_id: i64) -> Result<()> {
     let mut tx = pool.begin().await?;
-    sqlx::query("UPDATE `x_users` SET `otp_secret` = '', `last_otp_step` = -1 WHERE `id` = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "UPDATE `x_users` SET `otp_secret` = '', `last_otp_step` = -1 WHERE `id` = ?",
+    )
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await?;
     sqlx::query("DELETE FROM `x_otp_pending` WHERE `user_id` = ?")
         .bind(user_id)
         .execute(&mut *tx)
@@ -563,10 +513,7 @@ pub async fn set_user_permission(pool: &DbPool, user_id: i64, permission: i32) -
 
 pub async fn set_user_dir(pool: &DbPool, user_id: i64, local_path: &str) -> Result<()> {
     let user_mount = format!("/.users/{user_id}");
-    let addition = serde_json::json!({
-        "root_folder_path": local_path
-    })
-    .to_string();
+    let addition = serde_json::json!({ "root_folder_path": local_path }).to_string();
 
     let mut tx = pool.begin().await?;
     let exists: Option<i64> =
@@ -619,8 +566,8 @@ pub async fn create_user_direct(
         .as_secs() as i64;
 
     let mut tx = pool.begin().await?;
-    let res = sqlx::query(
-        "INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `salt`, `base_path`, `role`, `disabled`, `permission`, `password_unset`) VALUES (?, ?, ?, ?, '/', ?, ?, ?, ?)"
+    let result = sqlx::query(
+        "INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `salt`, `base_path`, `role`, `disabled`, `permission`, `password_unset`) VALUES (?, ?, ?, ?, '/', ?, ?, ?, ?)",
     )
     .bind(username)
     .bind(&encoded_pwd)
@@ -629,11 +576,11 @@ pub async fn create_user_direct(
     .bind(role)
     .bind(if disabled { 1 } else { 0 })
     .bind(permission)
-    .bind(0)
+    .bind(password.is_empty())
     .execute(&mut *tx)
     .await?;
 
-    let new_id = res.last_insert_rowid();
+    let new_id = result.last_insert_rowid();
 
     if role != ROLE_ADMIN {
         let user_mount = format!("/.users/{new_id}");
@@ -644,11 +591,7 @@ pub async fn create_user_direct(
             .await?;
 
         if let Some(local_path) = local_path {
-            let addition = serde_json::json!({
-                "root_folder_path": local_path
-            })
-            .to_string();
-
+            let addition = serde_json::json!({ "root_folder_path": local_path }).to_string();
             sqlx::query(
                 "INSERT INTO `x_storages` (`mount_path`, `order`, `driver`, `addition`, `status`, `disabled`) VALUES (?, 0, 'Local', ?, 'work', 0)",
             )
