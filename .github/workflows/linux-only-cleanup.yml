@@ -32,7 +32,6 @@ jobs:
                   raise SystemExit(f"{path}: expected {expected} occurrence(s), found {found}: {old[:80]!r}")
               p.write_text(text.replace(old, new))
 
-          # Explicitly reject non-Linux targets.
           p = Path("src/lib.rs")
           text = p.read_text()
           guard = '#[cfg(not(target_os = "linux"))]\ncompile_error!("Rulist only supports Linux.");\n\n'
@@ -45,7 +44,6 @@ jobs:
               '''        Commands::Version => {\n            println!("Version: v{}", env!("CARGO_PKG_VERSION"));\n        }''',
           )
 
-          # Linux file permissions are part of the normal code path.
           p = Path("src/config.rs")
           text = p.read_text()
           text = text.replace("use std::fs;\n", "use std::fs;\nuse std::os::unix::fs::{OpenOptionsExt, PermissionsExt};\n", 1)
@@ -84,6 +82,20 @@ jobs:
           if text.count(old) != 1:
               raise SystemExit(f"src/server/mod.rs: expected shutdown compatibility block once, found {text.count(old)}")
           p.write_text(text.replace(old, new))
+
+          p = Path("src/model.rs")
+          text = p.read_text()
+          text = text.replace("#[cfg(unix)]\npub fn format_mode", "pub fn format_mode", 1)
+          non_unix = '''\n#[cfg(not(unix))]\npub fn format_mode(_mode: u32, is_dir: bool) -> String {\n    if is_dir {\n        "drwxr-xr-x".to_string()\n    } else {\n        "-rw-r--r--".to_string()\n    }\n}\n'''
+          if text.count(non_unix) != 1:
+              raise SystemExit(f"src/model.rs: expected non-Unix format_mode fallback once, found {text.count(non_unix)}")
+          p.write_text(text.replace(non_unix, "\n"))
+
+          p = Path("tests/local_driver.rs")
+          text = p.read_text()
+          if text.count("#[cfg(unix)]\n") != 1:
+              raise SystemExit("tests/local_driver.rs: expected one Unix-only test guard")
+          p.write_text(text.replace("#[cfg(unix)]\n", "", 1))
           PY
 
       - name: Format
@@ -91,14 +103,11 @@ jobs:
 
       - name: Check platform leftovers
         run: |
-          echo "Platform conditionals / Windows-specific code:"
           matches="$(grep -RInE 'cfg\((not\()?unix|cfg\([^)]*windows|target_family|target_os *= *"windows"|std::os::windows|Component::Prefix|cfg!\(windows\)' src tests || true)"
           if [ -n "$matches" ]; then
             echo "$matches"
             exit 1
           fi
-          linux_guards="$(grep -RIn 'target_os = "linux"' src tests || true)"
-          echo "$linux_guards"
           if ! grep -Fq '#[cfg(not(target_os = "linux"))]' src/lib.rs; then
             echo "Missing Linux-only compile guard"
             exit 1
