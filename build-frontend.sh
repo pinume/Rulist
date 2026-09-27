@@ -7,20 +7,8 @@ web_root="$repo_root/web"
 
 (
   cd "$web_root"
-  if command -v corepack >/dev/null 2>&1; then
-    CI=true corepack pnpm install --frozen-lockfile
-    CI=true corepack pnpm build
-  elif command -v pnpm >/dev/null 2>&1; then
-    CI=true pnpm install --frozen-lockfile
-    CI=true pnpm build
-  elif command -v bun >/dev/null 2>&1; then
-    NODE_ENV=production bun run build
-  elif [[ -x "$HOME/.bun/bin/bun" ]]; then
-    NODE_ENV=production "$HOME/.bun/bin/bun" run build
-  else
-    echo "No suitable package manager (corepack/pnpm/bun) found." >&2
-    exit 1
-  fi
+  CI=true pnpm install --frozen-lockfile
+  CI=true pnpm build
 )
 
 mkdir -p "$repo_root/public/dist"
