@@ -3,8 +3,8 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 
 use crate::auth::{
-    generate_jwt, generate_otp_secret, generate_totp_qr, matching_totp_step, parse_jwt,
-    static_hash, verify_password,
+    generate_jwt, generate_otp_secret, generate_totp_qr, hash_identifier, hash_password,
+    matching_totp_step, parse_jwt, verify_password,
 };
 use crate::db::{get_setting, get_user_by_name};
 use crate::model::{LoginReq, TwoFaGenerateReq, TwoFaVerifyReq, UpdateCurrentReq};
@@ -12,13 +12,13 @@ use crate::server::{
     SharedState, api_error, api_success, authenticate_user, authenticate_user_with_setup,
 };
 
-const LOGIN_FAILURE_LIMIT: i64 = 5; // per username in the window below
+const LOGIN_FAILURE_LIMIT: i64 = 5;
 const LOGIN_FAILURE_WINDOW_SECS: i64 = 15 * 60;
-// ponytail: 10k active usernames; use a bounded external rate-limit store if this ceiling is abused.
 const LOGIN_ATTEMPT_CAP: i64 = 10_000;
+const DUMMY_PASSWORD_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$ZHVtbXlzYWx0MTIzNDU2$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 fn login_attempt_key(username: &str) -> String {
-    static_hash(username.trim())
+    hash_identifier(username.trim())
 }
 
 fn now_ts() -> i64 {
@@ -50,12 +50,11 @@ async fn reserve_login_attempt(
     }
 
     let now = now_ts();
-    let count: Option<i64> = sqlx::query_scalar(
+    sqlx::query_scalar(
         "INSERT INTO `x_login_attempts` (`username_hash`, `failed_count`, `window_started`) \
          SELECT ?, 1, ? WHERE EXISTS (SELECT 1 FROM `x_login_attempts` WHERE `username_hash` = ?) \
              OR (SELECT COUNT(*) FROM `x_login_attempts`) < ? \
-         ON CONFLICT(`username_hash`) DO UPDATE SET \
-             `failed_count` = `failed_count` + 1 \
+         ON CONFLICT(`username_hash`) DO UPDATE SET `failed_count` = `failed_count` + 1 \
          RETURNING `failed_count`",
     )
     .bind(key)
@@ -63,8 +62,7 @@ async fn reserve_login_attempt(
     .bind(key)
     .bind(LOGIN_ATTEMPT_CAP)
     .fetch_optional(pool)
-    .await?;
-    Ok(count)
+    .await
 }
 
 pub async fn login_handler(
@@ -72,13 +70,9 @@ pub async fn login_handler(
     Json(req): Json<LoginReq>,
 ) -> Response {
     let user = match get_user_by_name(&state.pool, &req.username).await {
-        Ok(Some(u)) => u,
+        Ok(Some(user)) => user,
         Ok(None) => {
-            let _ = verify_password(
-                &req.password,
-                "$argon2id$v=19$m=19456,t=2,p=1$ZHVtbXlzYWx0MTIzNDU2$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-                "dummysalt123456",
-            );
+            let _ = verify_password(&req.password, DUMMY_PASSWORD_HASH);
             tracing::warn!(username = %req.username, "login failed: user not found");
             return api_error(
                 StatusCode::UNAUTHORIZED,
@@ -131,7 +125,7 @@ pub async fn login_handler(
         );
     }
 
-    if !verify_password(&req.password, &user.pwd_hash, &user.salt) {
+    if !verify_password(&req.password, &user.pwd_hash) {
         tracing::warn!(username = %user.username, "login failed: invalid password");
         return api_error(
             StatusCode::UNAUTHORIZED,
@@ -140,7 +134,6 @@ pub async fn login_handler(
         );
     }
 
-    // Check 2FA if enabled
     if let Some(ref secret) = user.otp_secret
         && !secret.trim().is_empty()
     {
@@ -217,6 +210,7 @@ pub async fn logout_handler(State(state): State<SharedState>, headers: HeaderMap
         return api_success(());
     };
     let token = auth_header.strip_prefix("Bearer ").unwrap_or(auth_header);
+
     match get_setting(&state.pool, "token").await {
         Ok(Some(master))
             if !master.is_empty()
@@ -238,6 +232,7 @@ pub async fn logout_handler(State(state): State<SharedState>, headers: HeaderMap
             );
         }
     }
+
     if let Ok(claims) = parse_jwt(token, &state.config.jwt_secret) {
         let now = now_ts();
         if let Err(err) = sqlx::query("DELETE FROM `x_revoked_tokens` WHERE `expires_at` < ?")
@@ -268,6 +263,7 @@ pub async fn logout_handler(State(state): State<SharedState>, headers: HeaderMap
             );
         }
     }
+
     api_success(())
 }
 
@@ -288,7 +284,7 @@ pub async fn update_current_handler(
     Json(req): Json<UpdateCurrentReq>,
 ) -> Response {
     let user = match authenticate_user_with_setup(&headers, &state, true).await {
-        Some(u) => u,
+        Some(user) => user,
         None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
     };
 
@@ -315,33 +311,29 @@ pub async fn update_current_handler(
         let Some(current_password) = req.current_password.as_deref() else {
             return api_error(StatusCode::BAD_REQUEST, 400, "Current password is required");
         };
-        if !verify_password(current_password, &user.pwd_hash, &user.salt) {
+        if !verify_password(current_password, &user.pwd_hash) {
             return api_error(StatusCode::FORBIDDEN, 403, "Current password is incorrect");
         }
     }
 
-    if let Some(new_pwd) = &req.password {
-        if new_pwd.is_empty() {
+    if let Some(new_password) = &req.password {
+        if new_password.is_empty() {
             return api_error(
                 StatusCode::BAD_REQUEST,
                 400,
                 "Password cannot be empty in personal profile",
             );
         }
+        if !crate::auth::valid_password(new_password) {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                400,
+                "Password length must be between 8 and 128 characters",
+            );
+        }
     }
 
-    if let Some(new_pwd) = &req.password
-        && !new_pwd.is_empty()
-        && !crate::auth::valid_password(new_pwd)
-    {
-        return api_error(
-            StatusCode::BAD_REQUEST,
-            400,
-            "Password length must be between 8 and 128 characters",
-        );
-    }
-
-    let clean_name = req.username.as_deref().map(|n| n.trim()).unwrap_or("");
+    let clean_name = req.username.as_deref().map(str::trim).unwrap_or("");
     if username_changed {
         if clean_name.len() > 64 {
             return api_error(
@@ -350,18 +342,17 @@ pub async fn update_current_handler(
                 "Username length cannot exceed 64 characters",
             );
         }
-
-        let exists_res: Result<Option<i64>, _> =
+        let exists: Result<Option<i64>, _> =
             sqlx::query_scalar("SELECT `id` FROM `x_users` WHERE `username` = ? AND `id` != ?")
                 .bind(clean_name)
                 .bind(user.id)
                 .fetch_optional(&state.pool)
                 .await;
-
-        match exists_res {
+        match exists {
             Ok(Some(_)) => {
                 return api_error(StatusCode::CONFLICT, 409, "Username already exists");
             }
+            Ok(None) => {}
             Err(err) => {
                 tracing::error!(error = %err, "failed to check existing username");
                 return api_error(
@@ -370,7 +361,6 @@ pub async fn update_current_handler(
                     "Internal server error",
                 );
             }
-            Ok(None) => {}
         }
     }
 
@@ -390,30 +380,23 @@ pub async fn update_current_handler(
         }
     };
 
-    if let Some(new_pwd) = &req.password
+    if let Some(new_password) = &req.password
         && password_changed
     {
-        let salt = crate::auth::rand_string(16);
-        let s_hash = crate::auth::static_hash(new_pwd);
-        let encoded_pwd = crate::auth::encode_argon2_hash(&s_hash, &salt);
-        let now_ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-
-        let update_res = sqlx::query(
-            "UPDATE `x_users` SET `pwd_hash` = ?, `salt` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?), `password_unset` = 0 WHERE `id` = ? AND `pwd_ts` = ?",
+        let encoded_pwd = hash_password(new_password);
+        let now = now_ts();
+        let update = sqlx::query(
+            "UPDATE `x_users` SET `pwd_hash` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?), `password_unset` = 0 WHERE `id` = ? AND `pwd_ts` = ?",
         )
         .bind(&encoded_pwd)
-        .bind(&salt)
-        .bind(now_ts)
+        .bind(now)
         .bind(user.id)
         .bind(user.pwd_ts)
         .execute(&mut *tx)
         .await;
 
-        match update_res {
-            Ok(res) if res.rows_affected() == 0 => {
+        match update {
+            Ok(result) if result.rows_affected() == 0 => {
                 let _ = tx.rollback().await;
                 return api_error(
                     StatusCode::CONFLICT,
@@ -422,8 +405,8 @@ pub async fn update_current_handler(
                 );
             }
             Ok(_) => {}
-            Err(e) => {
-                tracing::error!(error = %e, "failed to update user password in transaction");
+            Err(err) => {
+                tracing::error!(error = %err, "failed to update user password in transaction");
                 return api_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     500,
@@ -434,21 +417,18 @@ pub async fn update_current_handler(
     }
 
     if username_changed {
-        match sqlx::query("UPDATE `x_users` SET `username` = ? WHERE `id` = ?")
+        if let Err(err) = sqlx::query("UPDATE `x_users` SET `username` = ? WHERE `id` = ?")
             .bind(clean_name)
             .bind(user.id)
             .execute(&mut *tx)
             .await
         {
-            Ok(_) => {}
-            Err(e) => {
-                tracing::error!(error = %e, "failed to update username in transaction");
-                return api_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    500,
-                    "Internal server error",
-                );
-            }
+            tracing::error!(error = %err, "failed to update username in transaction");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
         }
     }
 
@@ -470,23 +450,17 @@ pub async fn two_factor_generate_handler(
     Json(req): Json<TwoFaGenerateReq>,
 ) -> Response {
     let user = match authenticate_user(&headers, &state).await {
-        Some(u) => u,
+        Some(user) => user,
         None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
     };
 
-    let current_password = if user.is_admin() {
-        req.current_password.trim()
-    } else {
-        &req.current_password
-    };
+    let current_password = req.current_password.trim();
     if user.is_admin() && current_password.is_empty() {
         return api_error(StatusCode::BAD_REQUEST, 400, "Current password is required");
     }
-
-    if !verify_password(current_password, &user.pwd_hash, &user.salt) {
+    if !verify_password(current_password, &user.pwd_hash) {
         return api_error(StatusCode::FORBIDDEN, 403, "Current password is incorrect");
     }
-
     if user.otp {
         return api_error(StatusCode::BAD_REQUEST, 400, "2FA is already enabled");
     }
@@ -496,13 +470,8 @@ pub async fn two_factor_generate_handler(
         .ok()
         .flatten()
         .unwrap_or_else(|| "Rulist".to_string());
-
     let secret = generate_otp_secret();
-    let expires_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
-        + 600;
+    let expires_at = now_ts() + 600;
 
     if let Err(err) = sqlx::query(
         "INSERT OR REPLACE INTO `x_otp_pending` (`user_id`, `secret`, `expires_at`) VALUES (?, ?, ?)",
@@ -522,7 +491,7 @@ pub async fn two_factor_generate_handler(
     }
 
     let qr = match generate_totp_qr(&site_title, &user.username, &secret) {
-        Ok(data_uri) => data_uri,
+        Ok(qr) => qr,
         Err(err) => {
             tracing::error!(error = %err, "failed to generate totp qr");
             return api_error(
@@ -533,10 +502,7 @@ pub async fn two_factor_generate_handler(
         }
     };
 
-    api_success(serde_json::json!({
-        "qr": qr,
-        "secret": secret,
-    }))
+    api_success(serde_json::json!({ "qr": qr, "secret": secret }))
 }
 
 pub async fn two_factor_verify_handler(
@@ -545,7 +511,7 @@ pub async fn two_factor_verify_handler(
     Json(req): Json<TwoFaVerifyReq>,
 ) -> Response {
     let user = match authenticate_user(&headers, &state).await {
-        Some(u) => u,
+        Some(user) => user,
         None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
     };
 
@@ -565,7 +531,7 @@ pub async fn two_factor_verify_handler(
     .fetch_optional(&state.pool)
     .await
     {
-        Ok(p) => p,
+        Ok(pending) => pending,
         Err(err) => {
             tracing::error!(error = %err, "failed to query pending 2fa session");
             return api_error(
@@ -583,13 +549,7 @@ pub async fn two_factor_verify_handler(
             "No pending 2FA session. Please generate a new secret.",
         );
     };
-
-    let now_ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
-
-    if now_ts > expires_at {
+    if now_ts() > expires_at {
         let _ = sqlx::query("DELETE FROM `x_otp_pending` WHERE `user_id` = ?")
             .bind(user.id)
             .execute(&state.pool)
@@ -606,7 +566,7 @@ pub async fn two_factor_verify_handler(
     };
 
     let mut tx = match state.pool.begin().await {
-        Ok(t) => t,
+        Ok(tx) => tx,
         Err(err) => {
             tracing::error!(error = %err, "failed to begin 2fa verify transaction");
             return api_error(
@@ -664,7 +624,7 @@ pub async fn two_factor_disable_handler(
     Json(req): Json<TwoFaVerifyReq>,
 ) -> Response {
     let user = match authenticate_user(&headers, &state).await {
-        Some(u) => u,
+        Some(user) => user,
         None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
     };
     let Some(secret) = user
@@ -674,13 +634,15 @@ pub async fn two_factor_disable_handler(
     else {
         return api_error(StatusCode::BAD_REQUEST, 400, "2FA is not enabled");
     };
+
     let current_password = req.current_password.as_deref().unwrap_or("").trim();
     if current_password.is_empty() {
         return api_error(StatusCode::BAD_REQUEST, 400, "Current password is required");
     }
-    if !verify_password(current_password, &user.pwd_hash, &user.salt) {
+    if !verify_password(current_password, &user.pwd_hash) {
         return api_error(StatusCode::FORBIDDEN, 403, "Current password is incorrect");
     }
+
     let Some(step) = matching_totp_step(secret, req.code.trim()) else {
         return api_error(StatusCode::BAD_REQUEST, 400, "Invalid verification code");
     };
@@ -691,6 +653,7 @@ pub async fn two_factor_disable_handler(
             "Verification code has already been used",
         );
     }
+
     let mut tx = match state.pool.begin().await {
         Ok(tx) => tx,
         Err(err) => {
@@ -702,7 +665,8 @@ pub async fn two_factor_disable_handler(
             );
         }
     };
-    let update_res = match sqlx::query(
+
+    let updated = match sqlx::query(
         "UPDATE `x_users` SET `otp_secret` = '', `last_otp_step` = -1 WHERE `id` = ? AND `last_otp_step` < ?",
     )
     .bind(user.id)
@@ -710,7 +674,7 @@ pub async fn two_factor_disable_handler(
     .execute(&mut *tx)
     .await
     {
-        Ok(res) => res.rows_affected() > 0,
+        Ok(result) => result.rows_affected() > 0,
         Err(err) => {
             tracing::error!(error = %err, "failed to disable 2fa");
             return api_error(
@@ -720,7 +684,7 @@ pub async fn two_factor_disable_handler(
             );
         }
     };
-    if !update_res {
+    if !updated {
         let _ = tx.rollback().await;
         return api_error(
             StatusCode::BAD_REQUEST,
@@ -728,6 +692,7 @@ pub async fn two_factor_disable_handler(
             "Verification code has already been used",
         );
     }
+
     if let Err(err) = sqlx::query("DELETE FROM `x_otp_pending` WHERE `user_id` = ?")
         .bind(user.id)
         .execute(&mut *tx)
@@ -748,5 +713,6 @@ pub async fn two_factor_disable_handler(
             "Failed to disable 2FA",
         );
     }
+
     api_success(())
 }
