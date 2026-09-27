@@ -61,7 +61,7 @@ export const FilePreviewLayout = (props: {
                 fontWeight="$medium"
                 fontSize="$sm"
               >
-                {props.error || "预览加载失败，请下载后查看。"}
+                {props.error || t("home.preview.load_failed")}
               </Text>
               <Button
                 colorScheme="accent"
@@ -70,7 +70,7 @@ export const FilePreviewLayout = (props: {
                   startDownload(props.meta.raw_url, props.meta.name)
                 }
               >
-                {t("home.toolbar.download") || "下载"}
+                {t("home.toolbar.download")}
               </Button>
             </VStack>
           </Box>
