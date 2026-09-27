@@ -27,8 +27,8 @@ export const getSettingBool = (key: string) => {
   return value === "true" || value === "1"
 }
 export const getMainColor = (): string => {
-  if (window.OPENLIST_CONFIG.main_color) {
-    return window.OPENLIST_CONFIG.main_color
+  if (window.RULIST_CONFIG.main_color) {
+    return window.RULIST_CONFIG.main_color
   }
   return getSetting("main_color") || "#1890ff"
 }
