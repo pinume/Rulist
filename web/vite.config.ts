@@ -29,14 +29,6 @@ export default defineConfig({
     // target: "es2015", //next
     // polyfillDynamicImport: false,
   },
-  // experimental: {
-  //   renderBuiltUrl: (filename, { type, hostId, hostType }) => {
-  //     if (type === "asset") {
-  //       return { runtime: `window.OPENLIST_CONFIG.cdn/${filename}` };
-  //     }
-  //     return { relative: true };
-  //   },
-  // },
   server: {
     host: "0.0.0.0",
     proxy: {
