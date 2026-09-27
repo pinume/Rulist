@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 
-pub const STATIC_HASH_SALT: &str = "https://github.com/alist-org/alist";
 pub const ARGON2_PREFIX: &str = "$argon2id$v=19$m=19456,t=2,p=1$";
 const ARGON2_MEMORY_KB: u32 = 19 * 1024;
 const ARGON2_ITERATIONS: u32 = 2;
@@ -39,15 +38,9 @@ pub fn rand_token() -> String {
     format!("rulist-{}", hex_encode(bytes))
 }
 
-pub fn static_hash(password: &str) -> String {
+pub fn hash_identifier(value: &str) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(format!("{}-{}", password, STATIC_HASH_SALT).as_bytes());
-    hex_encode(hasher.finalize())
-}
-
-pub fn legacy_hash(pwd_static_hash: &str, salt: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(format!("{}-{}", pwd_static_hash, salt).as_bytes());
+    hasher.update(value.as_bytes());
     hex_encode(hasher.finalize())
 }
 
@@ -62,11 +55,12 @@ fn get_argon2_instance() -> Argon2<'static> {
     Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
 }
 
-pub fn encode_argon2_hash(pwd_static_hash: &str, salt: &str) -> String {
+pub fn hash_password(password: &str) -> String {
+    let salt = rand_string(16);
     let argon2 = get_argon2_instance();
     let mut output_key = [0u8; ARGON2_KEY_LEN];
     argon2
-        .hash_password_into(pwd_static_hash.as_bytes(), salt.as_bytes(), &mut output_key)
+        .hash_password_into(password.as_bytes(), salt.as_bytes(), &mut output_key)
         .expect("argon2 hash computation");
 
     let salt_b64 = BASE64.encode(salt.as_bytes());
@@ -74,35 +68,35 @@ pub fn encode_argon2_hash(pwd_static_hash: &str, salt: &str) -> String {
     format!("{}{}${}", ARGON2_PREFIX, salt_b64, hash_b64)
 }
 
-fn verify_password_static_hash(static_h: &str, pwd_hash: &str, salt: &str) -> bool {
-    if let Some(payload) = pwd_hash.strip_prefix(ARGON2_PREFIX) {
-        if let Some((salt_b64, expected_hash_b64)) = payload.split_once('$')
-            && let (Ok(decoded_salt), Ok(expected_hash)) =
-                (BASE64.decode(salt_b64), BASE64.decode(expected_hash_b64))
-            && expected_hash.len() == ARGON2_KEY_LEN
-        {
-            let argon2 = get_argon2_instance();
-            let mut actual_hash = [0u8; ARGON2_KEY_LEN];
-            if argon2
-                .hash_password_into(static_h.as_bytes(), &decoded_salt, &mut actual_hash)
-                .is_ok()
-            {
-                return actual_hash
-                    .as_slice()
-                    .ct_eq(expected_hash.as_slice())
-                    .into();
-            }
-        }
+pub fn verify_password(password: &str, pwd_hash: &str) -> bool {
+    let Some(payload) = pwd_hash.strip_prefix(ARGON2_PREFIX) else {
+        return false;
+    };
+    let Some((salt_b64, expected_hash_b64)) = payload.split_once('$') else {
+        return false;
+    };
+    let (Ok(decoded_salt), Ok(expected_hash)) =
+        (BASE64.decode(salt_b64), BASE64.decode(expected_hash_b64))
+    else {
+        return false;
+    };
+    if expected_hash.len() != ARGON2_KEY_LEN {
         return false;
     }
 
-    let expected_legacy = legacy_hash(static_h, salt);
-    pwd_hash.as_bytes().ct_eq(expected_legacy.as_bytes()).into()
-}
+    let argon2 = get_argon2_instance();
+    let mut actual_hash = [0u8; ARGON2_KEY_LEN];
+    if argon2
+        .hash_password_into(password.as_bytes(), &decoded_salt, &mut actual_hash)
+        .is_err()
+    {
+        return false;
+    }
 
-pub fn verify_password(raw_password: &str, pwd_hash: &str, salt: &str) -> bool {
-    let static_h = static_hash(raw_password);
-    verify_password_static_hash(&static_h, pwd_hash, salt)
+    actual_hash
+        .as_slice()
+        .ct_eq(expected_hash.as_slice())
+        .into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
