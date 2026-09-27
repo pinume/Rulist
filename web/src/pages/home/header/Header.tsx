@@ -4,7 +4,6 @@ import {
   Image,
   Center,
   Input,
-  Icon,
   IconButton,
   Tooltip,
 } from "@hope-ui/solid"
@@ -86,7 +85,6 @@ export const Header = () => {
       h="60px"
       class="header"
       w="$full"
-      // shadow="$md"
     >
       <Container>
         <HStack
@@ -99,7 +97,7 @@ export const Header = () => {
           <HStack
             as={LinkWithBase}
             href="/"
-            aria-label="返回首页"
+            aria-label={t("global.home")}
             class="header-left"
             h="44px"
             w="44px"
@@ -129,13 +127,9 @@ export const Header = () => {
               />
             </Show>
             <AddMenu />
-            <Tooltip
-              placement="bottom"
-              withArrow
-              label={t("global.logout") || "退出登录"}
-            >
+            <Tooltip placement="bottom" withArrow label={t("global.logout")}>
               <IconButton
-                aria-label={t("global.logout") || "退出登录"}
+                aria-label={t("global.logout")}
                 icon={
                   <svg
                     viewBox="0 0 24 24"
@@ -178,7 +172,7 @@ export const Header = () => {
                 onClick={async () => {
                   handleResp(await authLogout(), () => {
                     changeToken()
-                    notify.success(t("global.logout_success") || "登出成功")
+                    notify.success(t("global.logout_success"))
                     to("/@login?redirect=%2F")
                   })
                 }}
