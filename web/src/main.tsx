@@ -5,8 +5,6 @@ import { render } from "solid-js/web"
 import { Index } from "./app"
 
 type RulistRuntimeConfig = {
-  cdn?: string
-  base_path?: string
   api?: string
   main_color?: string
 }
@@ -14,7 +12,6 @@ type RulistRuntimeConfig = {
 declare global {
   interface Window {
     RULIST_CONFIG: RulistRuntimeConfig
-    __dynamic_base__?: string
   }
 }
 
