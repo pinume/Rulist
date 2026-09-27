@@ -51,35 +51,22 @@ pub fn serve_dist_asset(path: &str) -> Option<Response<Body>> {
 
 pub async fn render_html(pool: &crate::db::DbPool) -> String {
     let raw_html = match DistAssets::get("index.html") {
-        Some(f) => String::from_utf8_lossy(&f.data).to_string(),
+        Some(file) => String::from_utf8_lossy(&file.data).to_string(),
         None => return "Rulist frontend not found".to_string(),
     };
 
     let settings = crate::db::get_public_settings(pool)
         .await
         .unwrap_or_default();
-
     let site_title = settings
         .get("site_title")
-        .map(|s| s.as_str())
+        .map(String::as_str)
         .unwrap_or("Rulist");
     let safe_site_title = escape_html(site_title);
     let main_color = settings
         .get("main_color")
-        .map(|s| s.as_str())
+        .map(String::as_str)
         .unwrap_or("#1890ff");
-    let logo = settings
-        .get("logo")
-        .map(|s| s.as_str())
-        .unwrap_or("favicon.ico");
-    let favicon = settings.get("favicon").map(|s| s.as_str()).unwrap_or("");
-    let logo_first = logo.lines().next().unwrap_or(logo);
-    let fav = if favicon.is_empty() {
-        "favicon.ico"
-    } else {
-        favicon
-    };
-
     let safe_main_color =
         serde_json::to_string(main_color).unwrap_or_else(|_| "\"#1890ff\"".to_string());
 
@@ -88,16 +75,11 @@ pub async fn render_html(pool: &crate::db::DbPool) -> String {
         .replace("base_path: undefined", "base_path: '/'")
         .replace(
             "main_color: undefined",
-            &format!("main_color: {}", safe_main_color),
-        )
-        .replace("https://res.oplist.org/logo/logo.svg", &escape_html(fav))
-        .replace(
-            "https://res.oplist.org/logo/logo.png",
-            &escape_html(logo_first),
+            &format!("main_color: {safe_main_color}"),
         )
         .replace(
             "<title>Rulist</title>",
-            &format!("<title>{}</title>", safe_site_title),
+            &format!("<title>{safe_site_title}</title>"),
         )
         .replace("Loading...", &safe_site_title)
 }
@@ -132,28 +114,29 @@ pub async fn manifest_handler(State(state): State<Arc<AppState>>) -> impl IntoRe
         "icons": icons
     });
 
-    let mut res = axum::Json(manifest).into_response();
-    res.headers_mut().insert(
+    let mut response = axum::Json(manifest).into_response();
+    response.headers_mut().insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("public, max-age=3600"),
     );
-    res
+    response
 }
 
 pub async fn favicon_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let favicon_url = crate::db::get_setting(&state.pool, "favicon")
         .await
         .unwrap_or_default();
-    if let Some(fav) = favicon_url
-        && !fav.trim().is_empty()
+    if let Some(favicon) = favicon_url
+        && !favicon.trim().is_empty()
     {
-        return Redirect::temporary(&fav).into_response();
+        return Redirect::temporary(&favicon).into_response();
     }
 
-    if let Some(mut res) = serve_dist_asset("favicon.ico") {
-        res.headers_mut()
+    if let Some(mut response) = serve_dist_asset("favicon.ico") {
+        response
+            .headers_mut()
             .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
-        return res;
+        return response;
     }
     StatusCode::NOT_FOUND.into_response()
 }
@@ -178,8 +161,8 @@ pub async fn ping_handler() -> impl IntoResponse {
 
 pub async fn dist_assets_handler(uri: Uri) -> impl IntoResponse {
     let path = uri.path();
-    if let Some(res) = serve_dist_asset(path) {
-        res
+    if let Some(response) = serve_dist_asset(path) {
+        response
     } else {
         StatusCode::NOT_FOUND.into_response()
     }
@@ -196,15 +179,11 @@ pub async fn spa_fallback_handler(
     }
 
     let path = uri.path().trim_start_matches('/');
-
-    // 1. Direct match in embedded assets
-    if let Some(res) = serve_dist_asset(path) {
-        return res;
+    if let Some(response) = serve_dist_asset(path) {
+        return response;
     }
 
-    // 2. Otherwise serve SPA HTML
     let html = render_html(&state.pool).await;
-
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
@@ -213,8 +192,9 @@ pub async fn spa_fallback_handler(
         .unwrap()
 }
 
-fn escape_html(s: &str) -> String {
-    s.replace('&', "&amp;")
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
