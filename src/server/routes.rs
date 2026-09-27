@@ -33,30 +33,11 @@ pub fn build_app(state: SharedState) -> Router {
             "/streamer/{*path}",
             get(crate::static_files::dist_assets_handler),
         )
-        .route(
-            "/api/public/settings",
-            get(public_settings_handler).post(public_settings_handler),
-        )
+        .route("/api/public/settings", get(public_settings_handler))
         .route("/api/auth/login", post(auth::login_handler))
-        .route("/api/auth/me", get(auth::current_user_handler))
         .route("/api/me", get(auth::current_user_handler))
         .route("/api/me/update", post(auth::update_current_handler))
-        .route(
-            "/api/auth/logout",
-            get(auth::logout_handler).post(auth::logout_handler),
-        )
-        .route(
-            "/api/auth/2fa/generate",
-            post(auth::two_factor_generate_handler),
-        )
-        .route(
-            "/api/auth/2fa/verify",
-            post(auth::two_factor_verify_handler),
-        )
-        .route(
-            "/api/auth/2fa/disable",
-            post(auth::two_factor_disable_handler),
-        )
+        .route("/api/auth/logout", get(auth::logout_handler))
         .route("/api/fs/list", post(fs::fs_list_handler))
         .route("/api/fs/get", post(fs::fs_get_handler))
         .route("/api/fs/dirs", post(fs::fs_dirs_handler))
