@@ -1,7 +1,6 @@
 <!doctype html>
 <html lang="en-US" translate="no">
   <head>
-    <!-- customize head -->
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="same-origin" />
@@ -21,19 +20,14 @@
     <title>Rulist</title>
     <script>
       window.RULIST_CONFIG = {
-        cdn: undefined,
-        base_path: undefined,
         api: undefined,
         main_color: undefined,
       }
-      window.__dynamic_base__ = window.RULIST_CONFIG.cdn || ""
     </script>
   </head>
   <body>
     <noscript>Please enable JavaScript to use this application.</noscript>
     <div id="root"></div>
-
     <script src="/src/main.tsx" type="module"></script>
-    <!-- customize body -->
   </body>
 </html>
