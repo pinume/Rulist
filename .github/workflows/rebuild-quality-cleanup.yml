@@ -22,12 +22,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22.16.0"
-      - name: Enable pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@12.5.1 --activate
+      - name: Install pnpm
+        run: npm install --global pnpm@12.5.1
       - name: Build frontend
-        run: ./build-frontend.sh
+        run: |
+          cd web
+          pnpm install --frozen-lockfile
+          pnpm build
+          cd ..
+          mkdir -p public/dist
+          find public/dist -mindepth 1 ! -name README.md -delete
+          cp -a web/dist/. public/dist/
       - name: Commit generated assets
         run: |
           git config user.name "github-actions[bot]"
