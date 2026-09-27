@@ -113,6 +113,7 @@
     "fetching_struct": "Fetching folder structure",
     "fetching_struct_failed": "Failed to fetch folder structure",
     "downloading": "Downloading files. Do not close or refresh this page.",
+    "no_files": "No files to download",
     "failed": "Archive download failed",
     "success": "Download complete"
   },
