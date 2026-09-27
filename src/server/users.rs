@@ -5,8 +5,8 @@ use serde::Deserialize;
 use std::path::Path;
 
 use crate::db::{
-    cancel_user_2fa, compute_local_path, create_user_direct, delete_user, get_all_users,
-    get_storages, get_user_by_id,
+    compute_local_path, create_user_direct, delete_user, get_all_users, get_storages,
+    get_user_by_id,
 };
 use crate::model::{AdminUserSaveReq, ROLE_ADMIN, User, UserWithMount};
 use crate::server::{SharedState, api_error, api_success, authenticate_user};
@@ -51,10 +51,7 @@ fn directory_path_for_local_path(
     let mut best: Option<(usize, String)> = None;
 
     for storage in storages {
-        if storage.driver != "Local"
-            || storage.mount_path == "/.users"
-            || storage.mount_path.starts_with("/.users/")
-        {
+        if storage.mount_path == "/.users" || storage.mount_path.starts_with("/.users/") {
             continue;
         }
         let Ok(driver) =
@@ -477,7 +474,7 @@ pub async fn admin_user_update_handler(
                 .await
         } else {
             sqlx::query(
-                "INSERT INTO `x_storages` (`mount_path`, `order`, `driver`, `addition`, `status`, `disabled`) VALUES (?, 0, 'Local', ?, 'work', 0)",
+                "INSERT INTO `x_storages` (`mount_path`, `order`, `addition`, `status`, `disabled`) VALUES (?, 0, ?, 'work', 0)",
             )
             .bind(&mount_path)
             .bind(&addition)
@@ -583,49 +580,6 @@ pub async fn admin_user_delete_handler(
             StatusCode::INTERNAL_SERVER_ERROR,
             500,
             "Storage configuration was saved but failed to reload",
-        );
-    }
-
-    api_success(())
-}
-
-pub async fn admin_user_cancel_2fa_handler(
-    headers: HeaderMap,
-    Query(query): Query<IdQuery>,
-    State(state): State<SharedState>,
-) -> Response {
-    if let Err(response) = require_admin(&headers, &state).await {
-        return *response;
-    }
-    let Some(id) = query.id else {
-        return api_error(StatusCode::BAD_REQUEST, 400, "missing id");
-    };
-    let target = match get_user_by_id(&state.pool, id).await {
-        Ok(Some(user)) => user,
-        Ok(None) => return api_error(StatusCode::NOT_FOUND, 404, "user not found"),
-        Err(err) => {
-            tracing::error!(error = %err, "failed to get user for 2fa cancellation");
-            return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Failed to cancel 2FA",
-            );
-        }
-    };
-    if target.is_admin() {
-        return api_error(
-            StatusCode::BAD_REQUEST,
-            400,
-            "admin 2FA must be cancelled by its owner",
-        );
-    }
-
-    if let Err(err) = cancel_user_2fa(&state.pool, id).await {
-        tracing::error!(error = %err, "failed to cancel 2fa");
-        return api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            500,
-            "Failed to cancel 2FA",
         );
     }
 
