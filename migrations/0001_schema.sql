@@ -27,16 +27,9 @@ CREATE TABLE IF NOT EXISTS `x_storages` (
     `id` INTEGER PRIMARY KEY AUTOINCREMENT,
     `mount_path` TEXT NOT NULL UNIQUE,
     `order` INTEGER NOT NULL DEFAULT 0,
-    `driver` TEXT NOT NULL,
     `status` TEXT,
     `addition` TEXT,
     `disabled` NUMERIC NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS `x_otp_pending` (
-    `user_id` INTEGER PRIMARY KEY,
-    `secret` TEXT NOT NULL,
-    `expires_at` INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS `x_login_attempts` (
