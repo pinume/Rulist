@@ -198,17 +198,11 @@ pub async fn set_user_password(
     .execute(&mut *tx)
     .await?;
 
-    if clear_2fa {
-        sqlx::query("DELETE FROM `x_otp_pending` WHERE `user_id` = ?")
-            .bind(user.id)
+    if clear_2fa && user.is_admin() {
+        sqlx::query("UPDATE `x_setting_items` SET `value` = ? WHERE `key` = 'token'")
+            .bind(rand_token())
             .execute(&mut *tx)
             .await?;
-        if user.is_admin() {
-            sqlx::query("UPDATE `x_setting_items` SET `value` = ? WHERE `key` = 'token'")
-                .bind(rand_token())
-                .execute(&mut *tx)
-                .await?;
-        }
     }
 
     tx.commit().await?;
@@ -292,9 +286,8 @@ pub async fn get_storages(pool: &DbPool) -> Result<Vec<crate::model::Storage>> {
 pub fn compute_local_path(base_path: &str, storages: &[crate::model::Storage]) -> String {
     let mut matched: Option<&crate::model::Storage> = None;
     for storage in storages {
-        if storage.driver == "Local"
-            && (base_path == storage.mount_path
-                || base_path.starts_with(&format!("{}/", storage.mount_path.trim_end_matches('/'))))
+        if (base_path == storage.mount_path
+            || base_path.starts_with(&format!("{}/", storage.mount_path.trim_end_matches('/'))))
             && (matched.is_none()
                 || storage.mount_path.len() > matched.expect("matched storage").mount_path.len())
         {
@@ -344,8 +337,7 @@ pub async fn get_all_settings(pool: &DbPool) -> Result<Vec<(String, String, Stri
 
 pub async fn set_setting(pool: &DbPool, key: &str, value: &str) -> Result<()> {
     sqlx::query(
-        "INSERT INTO `x_setting_items` (`key`, `value`, `type`, `group`, `flag`) VALUES (?, ?, 'string', 0, 0)
-         ON CONFLICT(`key`) DO UPDATE SET `value` = excluded.`value`",
+        "INSERT INTO `x_setting_items` (`key`, `value`, `type`, `group`, `flag`) VALUES (?, ?, 'string', 0, 0)\n         ON CONFLICT(`key`) DO UPDATE SET `value` = excluded.`value`",
     )
     .bind(key)
     .bind(value)
@@ -356,10 +348,6 @@ pub async fn set_setting(pool: &DbPool, key: &str, value: &str) -> Result<()> {
 
 pub async fn delete_user(pool: &DbPool, user_id: i64) -> Result<()> {
     let mut tx = pool.begin().await?;
-    sqlx::query("DELETE FROM `x_otp_pending` WHERE `user_id` = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
     sqlx::query("DELETE FROM `x_users` WHERE `id` = ?")
         .bind(user_id)
         .execute(&mut *tx)
@@ -378,39 +366,26 @@ pub async fn enable_user_2fa(
     secret: &str,
     accepted_step: i64,
 ) -> Result<()> {
-    let mut tx = pool.begin().await?;
     let result = sqlx::query(
         "UPDATE `x_users` SET `otp_secret` = ?, `last_otp_step` = ? WHERE `id` = ? AND (`otp_secret` IS NULL OR TRIM(`otp_secret`) = '')",
     )
     .bind(secret)
     .bind(accepted_step)
     .bind(user_id)
-    .execute(&mut *tx)
+    .execute(pool)
     .await?;
 
     if result.rows_affected() != 1 {
         bail!("user not found or 2FA is already enabled");
     }
-
-    sqlx::query("DELETE FROM `x_otp_pending` WHERE `user_id` = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-    tx.commit().await?;
     Ok(())
 }
 
 pub async fn cancel_user_2fa(pool: &DbPool, user_id: i64) -> Result<()> {
-    let mut tx = pool.begin().await?;
     sqlx::query("UPDATE `x_users` SET `otp_secret` = '', `last_otp_step` = -1 WHERE `id` = ?")
         .bind(user_id)
-        .execute(&mut *tx)
+        .execute(pool)
         .await?;
-    sqlx::query("DELETE FROM `x_otp_pending` WHERE `user_id` = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-    tx.commit().await?;
     Ok(())
 }
 
@@ -452,7 +427,7 @@ pub async fn set_user_dir(pool: &DbPool, user_id: i64, local_path: &str) -> Resu
             .await?;
     } else {
         sqlx::query(
-            "INSERT INTO `x_storages` (`mount_path`, `order`, `driver`, `addition`, `status`, `disabled`) VALUES (?, 0, 'Local', ?, 'work', 0)",
+            "INSERT INTO `x_storages` (`mount_path`, `order`, `addition`, `status`, `disabled`) VALUES (?, 0, ?, 'work', 0)",
         )
         .bind(&user_mount)
         .bind(&addition)
@@ -512,7 +487,7 @@ pub async fn create_user_direct(
         if let Some(local_path) = local_path {
             let addition = serde_json::json!({ "root_folder_path": local_path }).to_string();
             sqlx::query(
-                "INSERT INTO `x_storages` (`mount_path`, `order`, `driver`, `addition`, `status`, `disabled`) VALUES (?, 0, 'Local', ?, 'work', 0)",
+                "INSERT INTO `x_storages` (`mount_path`, `order`, `addition`, `status`, `disabled`) VALUES (?, 0, ?, 'work', 0)",
             )
             .bind(&user_mount)
             .bind(&addition)
