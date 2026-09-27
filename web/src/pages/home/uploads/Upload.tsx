@@ -81,7 +81,6 @@ const UploadFile = (props: UploadFileProps & { onRetry?: () => void }) => {
         size="sm"
       >
         <ProgressIndicator color={getMainColor()} rounded="$md" />
-        {/* <ProgressLabel /> */}
       </Progress>
       <Text color="$danger10">{props.msg}</Text>
     </VStack>
@@ -108,7 +107,7 @@ const Upload = () => {
   }
   let fileInput!: HTMLInputElement
   let folderInput!: HTMLInputElement
-  // keep the File handles around so a failed row can be retried in place
+  // Keep the File handles around so a failed row can be retried in place.
   const fileMap = new Map<number, File>()
   let nextUploadId = 0
   const handleAddFiles = async (files: File[]) => {
@@ -126,7 +125,7 @@ const Upload = () => {
       console.log(ms)
     }
     refresh()
-    // 再次延迟刷新一次，以便能看到后端异步生成的 BT 文件（如 189/189pc 驱动的 .cas.torrent）
+    // Refresh again after a delay so asynchronously generated backend files can appear.
     setTimeout(() => refresh(undefined, true), 5000)
   }
 
