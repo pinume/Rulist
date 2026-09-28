@@ -454,66 +454,7 @@ pub async fn admin_user_update_handler(
         );
     }
 
-    if !target.is_admin()
-        && let Some(local_path) = local_path
-    {
-        let mount_path = format!("/.users/{target_id}");
-        let addition = serde_json::json!({ "root_folder_path": local_path }).to_string();
-        let exists: Option<i64> =
-            match sqlx::query_scalar("SELECT `id` FROM `x_storages` WHERE `mount_path` = ?")
-                .bind(&mount_path)
-                .fetch_optional(&mut *tx)
-                .await
-            {
-                Ok(value) => value,
-                Err(err) => {
-                    tracing::error!(error = %err, "failed to query user storage");
-                    return api_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        500,
-                        "Internal server error",
-                    );
-                }
-            };
-
-        let storage_result = if exists.is_some() {
-            sqlx::query("UPDATE `x_storages` SET `addition` = ? WHERE `mount_path` = ?")
-                .bind(&addition)
-                .bind(&mount_path)
-                .execute(&mut *tx)
-                .await
-        } else {
-            sqlx::query(
-                "INSERT INTO `x_storages` (`mount_path`, `order`, `addition`, `status`, `disabled`) VALUES (?, 0, ?, 'work', 0)",
-            )
-            .bind(&mount_path)
-            .bind(&addition)
-            .execute(&mut *tx)
-            .await
-        };
-        if let Err(err) = storage_result {
-            tracing::error!(error = %err, "failed to save user storage");
-            return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Internal server error",
-            );
-        }
-
-        if let Err(err) = sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
-            .bind(&mount_path)
-            .bind(target_id)
-            .execute(&mut *tx)
-            .await
-        {
-            tracing::error!(error = %err, "failed to update user mount path");
-            return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Internal server error",
-            );
-        }
-    } else if target.is_admin()
+    if target.is_admin()
         && target.base_path != "/"
         && let Err(err) = sqlx::query("UPDATE `x_users` SET `base_path` = '/' WHERE `id` = ?")
             .bind(target_id)
@@ -521,6 +462,19 @@ pub async fn admin_user_update_handler(
             .await
     {
         tracing::error!(error = %err, "failed to restore admin base path");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Internal server error",
+        );
+    }
+
+    if !target.is_admin()
+        && let Some(local_path) = local_path
+        && let Err(err) =
+            crate::db::set_user_dir_on_connection(&mut tx, target_id, &local_path).await
+    {
+        tracing::error!(error = %err, "failed to update user storage");
         return api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             500,

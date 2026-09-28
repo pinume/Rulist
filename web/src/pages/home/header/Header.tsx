@@ -25,7 +25,7 @@ import {
 } from "~/store"
 import { Container } from "../Container"
 import { LinkWithBase } from "~/components"
-import { authLogout, changeToken, handleResp, joinBase, notify } from "~/utils"
+import { authLogout, changeToken, handleResp, notify, pathJoin } from "~/utils"
 import { useRouter } from "~/hooks"
 import { AddMenu } from "./AddMenu"
 
@@ -40,7 +40,7 @@ export const Header = () => {
     if (/^(?:https?:)?\/\//.test(value) || /^(?:data|blob):/.test(value)) {
       return value
     }
-    return joinBase(value)
+    return pathJoin(value)
   })
 
   createEffect(on(pathname, () => clearDirectoryFilter()))
@@ -106,7 +106,7 @@ export const Header = () => {
               src={logoSrc()}
               h="32px"
               w="auto"
-              fallback={<Image src={joinBase("favicon.ico")} h="32px" w="auto" />}
+              fallback={<Image src={pathJoin("favicon.ico")} h="32px" w="auto" />}
             />
           </HStack>
           <HStack spacing="$2" alignItems="center">

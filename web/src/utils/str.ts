@@ -1,9 +1,4 @@
-export const firstUpperCase = (str: string) => {
-  if (!str || str.length === 0) {
-    return ""
-  }
-  return str.charAt(0).toUpperCase() + str.slice(1)
-}
+export const firstUpperCase = (str: string) => str.charAt(0).toUpperCase() + str.slice(1)
 
 export function getFileSize(size: number) {
   if (!size) return "-"

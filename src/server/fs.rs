@@ -1,7 +1,6 @@
 use axum::extract::{Json, Request, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
-use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
 
 use crate::db::get_setting;
@@ -699,7 +698,7 @@ pub async fn fs_put_handler(
         return permission_denied();
     }
 
-    let body = request.into_body();
+    let mut body = request.into_body();
     // Stream body to file
     state.storage.ensure_mounted(&file_path).await;
     let (ms, sub) = match state.storage.find_storage(&file_path) {
@@ -752,33 +751,42 @@ pub async fn fs_put_handler(
 
     let max_upload_bytes: u64 = 100 * 1024 * 1024 * 1024; // 100 GB default safety limit
     let mut uploaded_bytes: u64 = 0;
-    let mut stream = body.into_data_stream();
-    while let Some(chunk) = stream.next().await {
-        match chunk {
-            Ok(bytes) => {
-                uploaded_bytes += bytes.len() as u64;
-                if uploaded_bytes > max_upload_bytes {
-                    let _ = tokio::fs::remove_file(&temp).await;
-                    return api_error(
-                        StatusCode::PAYLOAD_TOO_LARGE,
-                        413,
-                        "payload too large: maximum upload size exceeded",
-                    );
-                }
-                if let Err(err) = file.write_all(&bytes).await {
-                    let _ = tokio::fs::remove_file(&temp).await;
-                    tracing::error!(error = %err, "failed to write chunk to upload temp file");
-                    return api_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        500,
-                        "Internal server error",
-                    );
+    use axum::body::HttpBody;
+    use std::future::poll_fn;
+    use std::pin::Pin;
+
+    while let Some(frame) = poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)).await {
+        match frame {
+            Ok(frame) => {
+                if let Ok(bytes) = frame.into_data() {
+                    uploaded_bytes += bytes.len() as u64;
+                    if uploaded_bytes > max_upload_bytes {
+                        let _ = tokio::fs::remove_file(&temp).await;
+                        return api_error(
+                            StatusCode::PAYLOAD_TOO_LARGE,
+                            413,
+                            "payload too large: maximum upload size exceeded",
+                        );
+                    }
+                    if let Err(err) = file.write_all(&bytes).await {
+                        let _ = tokio::fs::remove_file(&temp).await;
+                        tracing::error!(error = %err, "failed to write chunk to upload temp file");
+                        return api_error(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            500,
+                            "Internal server error",
+                        );
+                    }
                 }
             }
             Err(err) => {
                 let _ = tokio::fs::remove_file(&temp).await;
-                tracing::warn!(error = %err, "failed to read stream chunk during upload");
-                return api_error(StatusCode::BAD_REQUEST, 400, "Failed to read upload data");
+                tracing::error!(error = %err, "failed to read chunk from upload stream");
+                return api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    500,
+                    "Internal server error",
+                );
             }
         }
     }

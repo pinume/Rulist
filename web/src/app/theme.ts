@@ -192,15 +192,6 @@ export const globalStyles = globalCss({
     flexWrap: "wrap",
     rowGap: "0 !important",
   },
-  ".viselect-container": {
-    userSelect: "none",
-    "& .viselect-item": {
-      "-webkit-user-drag": "none",
-      "& img": {
-        "-webkit-user-drag": "none",
-      },
-    },
-  },
 })
 
 export { theme }

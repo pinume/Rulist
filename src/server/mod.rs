@@ -6,7 +6,7 @@ mod security;
 pub mod stream;
 pub mod users;
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 
 use axum::http::StatusCode;
@@ -43,8 +43,16 @@ pub async fn run_server(
     });
     let app = build_app(state);
 
-    let addr: SocketAddr =
-        format!("{}:{}", config.scheme.address, config.scheme.http_port).parse()?;
+    let ip: IpAddr = config.scheme.address.parse()?;
+    let addr = SocketAddr::new(ip, config.scheme.http_port);
+    if addr.ip() != IpAddr::V4(Ipv4Addr::LOCALHOST)
+        && addr.ip() != IpAddr::V6(Ipv6Addr::LOCALHOST)
+    {
+        anyhow::bail!(
+            "security restriction: only 127.0.0.1 or ::1 is permitted, got {}",
+            addr.ip()
+        );
+    }
     info!("start HTTP server @ {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;

@@ -25,7 +25,6 @@ export const recordHistory = (path: string) => {
     scroll: window.scrollY,
   }
   HistoryMap.set(key, history)
-  console.log(`record history: [${key}]`)
 }
 
 export const recoverHistory = async (path: string) => {
@@ -48,7 +47,6 @@ export const clearHistory = (path: string) => {
   const key = getHistoryKey(path)
   if (hasHistory(path)) {
     HistoryMap.delete(key)
-    console.log(`clear history: [${key}]`)
   }
 }
 

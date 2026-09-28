@@ -7,7 +7,7 @@ import {
   _mergeSearchString,
 } from "@solidjs/router"
 import { createMemo, untrack } from "solid-js"
-import { encodePath, joinBase, pathDir, pathJoin, trimBase } from "~/utils"
+import { encodePath, pathDir, pathJoin } from "~/utils"
 import { clearHistory } from "~/store"
 
 const useRouter = () => {
@@ -15,7 +15,9 @@ const useRouter = () => {
   const location = useLocation()
   const params = useParams()
   const pathname = createMemo(() => {
-    return trimBase(decodeURIComponent(location.pathname))
+    return decodeURIComponent(location.pathname).startsWith("/")
+      ? decodeURIComponent(location.pathname)
+      : "/" + decodeURIComponent(location.pathname)
   })
   return {
     to: (
@@ -24,14 +26,13 @@ const useRouter = () => {
       options?: Partial<NavigateOptions>,
     ) => {
       if (!ignore_root && path.startsWith("/")) {
-        path = joinBase(path)
+        path = pathJoin(path)
       }
-      console.log("to:", path)
       clearHistory(decodeURIComponent(path))
       navigate(path, options)
     },
     replace: (to: string) => {
-      const path = joinBase(encodePath(pathJoin(pathDir(pathname()), to), true))
+      const path = pathJoin(encodePath(pathJoin(pathDir(pathname()), to), true))
       clearHistory(decodeURIComponent(path))
       navigate(path)
     },

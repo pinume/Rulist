@@ -1,5 +1,5 @@
 import { Center, Spinner } from "@hope-ui/solid"
-import { JSXElement, mergeProps, Show } from "solid-js"
+import { mergeProps } from "solid-js"
 import { getMainColor } from "~/store"
 export const FullScreenLoading = () => {
   return (
@@ -39,16 +39,5 @@ export const FullLoading = (props: {
         size={merged.size as any}
       />
     </Center>
-  )
-}
-
-export const MaybeLoading = (props: {
-  children?: JSXElement
-  loading?: boolean
-}) => {
-  return (
-    <Show when={!props.loading} fallback={<FullLoading />}>
-      {props.children}
-    </Show>
   )
 }

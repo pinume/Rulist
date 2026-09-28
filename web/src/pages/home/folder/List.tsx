@@ -257,7 +257,7 @@ const ListLayout = () => {
   const { handleFolder } = usePath()
 
   return (
-    <VStack class="list viselect-container" w="$full" spacing="$0">
+    <VStack class="list" w="$full" spacing="$0">
       <ListTitle
         sortCallback={(orderBy, reverse) => {
           ObjStore.setSort(orderBy, reverse)

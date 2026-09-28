@@ -1,5 +1,6 @@
 import axios from "axios"
-import { api } from "."
+
+export const api = window.location.origin
 
 const instance = axios.create({
   baseURL: api + "/api",

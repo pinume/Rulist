@@ -31,7 +31,7 @@ pub struct SchemeConfig {
     pub allow_cors: bool,
 }
 fn default_address() -> String {
-    "0.0.0.0".to_string()
+    "127.0.0.1".to_string()
 }
 const fn default_http_port() -> u16 {
     5244

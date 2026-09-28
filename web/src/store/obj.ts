@@ -127,16 +127,7 @@ export const selectAll = (checked: boolean) => {
 }
 
 export const selectedObjs = () => objStore.objs.filter((obj) => obj.selected)
-export const allChecked = () => {
-  const indexes = visibleObjIndexes()
-  return indexes.length > 0 && indexes.every((index) => objStore.objs[index].selected)
-}
 export const oneChecked = () => selectedNum() === 1
-export const haveSelected = () => selectedNum() > 0
-export const isIndeterminate = () => {
-  const selected = visibleObjIndexes().filter((index) => objStore.objs[index].selected)
-  return selected.length > 0 && selected.length < visibleObjIndexes().length
-}
 
 const selectedNum = createMemo(() => selectedObjs().length)
 export { objStore }

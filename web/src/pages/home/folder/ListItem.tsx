@@ -72,7 +72,7 @@ export const ListItem = (props: { obj: StoreObj; index: number }) => {
     <div style={{ width: "100%" }}>
       <HStack
         classList={{ selected: !!props.obj.selected }}
-        class="list-item viselect-item"
+        class="list-item"
         data-index={props.index}
         w="$full"
         px={{ "@initial": "$3", "@md": "$4" }}

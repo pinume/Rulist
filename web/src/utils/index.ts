@@ -1,4 +1,3 @@
-export * from "./config"
 export * from "./bus"
 export * from "./notify"
 export * from "./path"

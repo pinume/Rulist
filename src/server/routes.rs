@@ -1,6 +1,8 @@
 use axum::Router;
-use axum::extract::State;
+use axum::extract::{Request, State};
 use axum::http::StatusCode;
+use axum::http::header::{HeaderName, HeaderValue, X_CONTENT_TYPE_OPTIONS};
+use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::routing::{get, post, put};
 use tower_http::cors::{Any, CorsLayer};
@@ -84,6 +86,7 @@ pub fn build_app(state: SharedState) -> Router {
         .layer(tower_http::compression::CompressionLayer::new())
         .layer(cors)
         .layer(TraceLayer::new_for_http())
+        .layer(middleware::from_fn(security_headers_middleware))
         .with_state(state)
 }
 
@@ -99,4 +102,15 @@ async fn public_settings_handler(State(state): State<SharedState>) -> Response {
             )
         }
     }
+}
+
+async fn security_headers_middleware(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    headers.insert(
+        HeaderName::from_static("x-frame-options"),
+        HeaderValue::from_static("SAMEORIGIN"),
+    );
+    response
 }

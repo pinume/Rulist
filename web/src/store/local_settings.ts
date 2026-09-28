@@ -1,9 +1,16 @@
-import { createLocalStorage } from "@solid-primitives/storage"
+import { createSignal } from "solid-js"
 
-const [local, setLocal] = createLocalStorage()
+const [sortPos, setSortPos] = createSignal(
+  localStorage.getItem("folder_sort_position") || "top",
+)
 
-if (!local["folder_sort_position"]) {
-  setLocal("folder_sort_position", "top")
+export const local = {
+  get folder_sort_position() {
+    return sortPos()
+  },
 }
 
-export { local, setLocal }
+export const setLocal = (_key: string, val: string) => {
+  localStorage.setItem("folder_sort_position", val)
+  setSortPos(val)
+}

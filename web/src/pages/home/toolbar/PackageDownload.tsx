@@ -1,7 +1,7 @@
 import "~/utils/zip-stream.js"
 import streamSaver from "streamsaver"
 import { useRouter } from "~/hooks"
-import { api, fsLink, fsList, joinBase, pathBase, pathJoin } from "~/utils"
+import { api, fsLink, fsList, pathBase, pathJoin } from "~/utils"
 import { selectedObjs as _selectedObjs } from "~/store"
 import { createSignal, For, Show } from "solid-js"
 import {
@@ -17,7 +17,7 @@ import {
 } from "@hope-ui/solid"
 import { Obj } from "~/types"
 
-streamSaver.mitm = joinBase("streamer", "mitm.html")
+streamSaver.mitm = "/streamer/mitm.html"
 const trimSlash = (str: string) => str.replace(/^\/+|\/+$/g, "")
 
 interface FileItem {

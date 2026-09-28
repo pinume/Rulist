@@ -8,7 +8,7 @@ import {
 import { Link } from "@solidjs/router"
 import { createMemo, For, Show } from "solid-js"
 import { usePath, useRouter } from "~/hooks"
-import { encodePath, joinBase } from "~/utils"
+import { encodePath, pathJoin } from "~/utils"
 
 export const Nav = () => {
   const { pathname } = useRouter()
@@ -44,7 +44,7 @@ export const Nav = () => {
             <BreadcrumbLink
               class="nav-link"
               as={Link}
-              href={joinBase("/")}
+              href={pathJoin("/")}
               color="$neutral10"
               _hover={{ color: "$neutral12" }}
               cursor="pointer"
@@ -77,7 +77,7 @@ export const Nav = () => {
                     py="$0_5"
                     currentPage={isLast()}
                     as={isLast() ? undefined : Link}
-                    href={joinBase(href)}
+                    href={pathJoin(href)}
                     onMouseEnter={() => setPathAs(path)}
                   >
                     {name}

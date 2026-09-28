@@ -6,11 +6,6 @@ export interface Resp<T> {
   data: T
 }
 
-export type PageResp<T> = Resp<{
-  content: T[]
-  total: number
-}>
-
 export type FsListResp = Resp<{
   content: Obj[]
   total: number
@@ -34,5 +29,4 @@ export type FsGetResp = Resp<
 export type EmptyResp = Resp<{}>
 
 export type PResp<T> = Promise<Resp<T>>
-export type PPageResp<T> = Promise<PageResp<T>>
 export type PEmptyResp = Promise<EmptyResp>

@@ -15,14 +15,6 @@ export const pathJoin = (...paths: string[]) => {
   return paths.join("/").replace(/\/{2,}/g, "/")
 }
 
-export const joinBase = (...paths: string[]) => pathJoin(...paths)
-
-export const trimBase = (path: string) => {
-  if (path.startsWith("/")) {
-    return path
-  }
-  return "/" + path
-}
 
 export const pathBase = (path: string) => {
   return path.split("/").pop()

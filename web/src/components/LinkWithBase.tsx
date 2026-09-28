@@ -1,5 +1,5 @@
 import { Link } from "@solidjs/router"
-import { joinBase, encodePath } from "~/utils"
+import { pathJoin, encodePath } from "~/utils"
 import { useRouter } from "~/hooks"
 import { ComponentProps } from "solid-js"
 
@@ -8,7 +8,7 @@ export const LinkWithBase = (
 ) => (
   <Link
     {...props}
-    href={joinBase(props.encode ? encodePath(props.href) : props.href)}
+    href={pathJoin(props.encode ? encodePath(props.href) : props.href)}
   />
 )
 

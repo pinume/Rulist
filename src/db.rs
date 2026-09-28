@@ -6,7 +6,7 @@ use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection, SqlitePoolOptions};
 use sqlx::{Pool, Sqlite};
 
 use crate::auth::{hash_password, rand_string, rand_token};
@@ -306,26 +306,6 @@ pub async fn get_all_storages(pool: &DbPool) -> Result<Vec<crate::model::Storage
     Ok(storages)
 }
 
-pub async fn get_all_settings(pool: &DbPool) -> Result<Vec<(String, String, String)>> {
-    let rows = sqlx::query_as::<_, (String, String, String)>(
-        "SELECT `key`, `value`, `type` FROM `x_setting_items` ORDER BY `group` ASC, `key` ASC",
-    )
-    .fetch_all(pool)
-    .await?;
-    Ok(rows)
-}
-
-pub async fn set_setting(pool: &DbPool, key: &str, value: &str) -> Result<()> {
-    sqlx::query(
-        "INSERT INTO `x_setting_items` (`key`, `value`, `type`, `group`, `flag`) VALUES (?, ?, 'string', 0, 0)\n         ON CONFLICT(`key`) DO UPDATE SET `value` = excluded.`value`",
-    )
-    .bind(key)
-    .bind(value)
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
 pub async fn delete_user(pool: &DbPool, user_id: i64) -> Result<()> {
     let mut tx = pool.begin().await?;
     sqlx::query("DELETE FROM `x_users` WHERE `id` = ?")
@@ -369,16 +349,6 @@ pub async fn cancel_user_2fa(pool: &DbPool, user_id: i64) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-pub async fn set_user_disabled(pool: &DbPool, user_id: i64, disabled: bool) -> Result<()> {
-    sqlx::query("UPDATE `x_users` SET `disabled` = ? WHERE `id` = ?")
-        .bind(if disabled { 1 } else { 0 })
-        .bind(user_id)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
 pub async fn set_user_permission(pool: &DbPool, user_id: i64, permission: i32) -> Result<()> {
     sqlx::query("UPDATE `x_users` SET `permission` = ? WHERE `id` = ?")
         .bind(permission)
@@ -389,21 +359,31 @@ pub async fn set_user_permission(pool: &DbPool, user_id: i64, permission: i32) -
 }
 
 pub async fn set_user_dir(pool: &DbPool, user_id: i64, local_path: &str) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    set_user_dir_on_connection(&mut tx, user_id, local_path).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub(crate) async fn set_user_dir_on_connection(
+    conn: &mut SqliteConnection,
+    user_id: i64,
+    local_path: &str,
+) -> Result<()> {
     let user_mount = format!("/.users/{user_id}");
     let addition = serde_json::json!({ "root_folder_path": local_path }).to_string();
 
-    let mut tx = pool.begin().await?;
     let exists: Option<i64> =
         sqlx::query_scalar("SELECT `id` FROM `x_storages` WHERE `mount_path` = ? LIMIT 1")
             .bind(&user_mount)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut *conn)
             .await?;
 
     if exists.is_some() {
         sqlx::query("UPDATE `x_storages` SET `addition` = ? WHERE `mount_path` = ?")
             .bind(&addition)
             .bind(&user_mount)
-            .execute(&mut *tx)
+            .execute(&mut *conn)
             .await?;
     } else {
         sqlx::query(
@@ -411,17 +391,16 @@ pub async fn set_user_dir(pool: &DbPool, user_id: i64, local_path: &str) -> Resu
         )
         .bind(&user_mount)
         .bind(&addition)
-        .execute(&mut *tx)
+        .execute(&mut *conn)
         .await?;
     }
 
     sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
         .bind(&user_mount)
         .bind(user_id)
-        .execute(&mut *tx)
+        .execute(&mut *conn)
         .await?;
 
-    tx.commit().await?;
     Ok(())
 }
 

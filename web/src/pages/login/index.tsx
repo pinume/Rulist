@@ -23,9 +23,8 @@ import {
 } from "~/utils"
 import { Resp } from "~/types"
 import LoginBg from "./LoginBg"
-import { createStorageSignal } from "@solid-primitives/storage"
-import { getLogo, getSetting } from "~/store"
-import { joinBase } from "~/utils"
+import { getLogo } from "~/store"
+import { pathJoin } from "~/utils"
 
 const Login = () => {
   const [lightLogo, darkLogo] = getLogo()
@@ -35,9 +34,9 @@ const Login = () => {
     if (/^(?:https?:)?\/\//.test(value) || /^(?:data|blob):/.test(value)) {
       return value
     }
-    return joinBase(value)
+    return pathJoin(value)
   })
-  const title = createMemo(() => `Sign in to ${getSetting("site_title")}`)
+  const title = "Sign in"
   useTitle(title)
   const bgColor = useColorModeValue("white", "$neutral3")
   const [username, setUsername] = createSignal(
@@ -45,7 +44,13 @@ const Login = () => {
   )
   const [password, setPassword] = createSignal("")
   const [opt, setOpt] = createSignal("")
-  const [remember, setRemember] = createStorageSignal("remember-pwd", "false")
+  const [remember, _setRemember] = createSignal(
+    localStorage.getItem("remember-pwd") || "false",
+  )
+  const setRemember = (v: string) => {
+    localStorage.setItem("remember-pwd", v)
+    _setRemember(v)
+  }
   const [loading, data] = useLoading(
     async (): Promise<Resp<{ token: string }>> => {
       return r.post("/auth/login", {
@@ -102,7 +107,7 @@ const Login = () => {
         <Flex alignItems="center" justifyContent="space-around">
           <Image mr="$2" boxSize="$12" src={logoSrc()} />
           <Heading color="$info9" fontSize="$2xl">
-            {title()}
+            {title}
           </Heading>
         </Flex>
         <Show

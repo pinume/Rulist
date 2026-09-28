@@ -319,3 +319,95 @@ async fn admin_password_update_keeps_pwd_ts_monotonic() {
     let after = db::get_admin(&pool).await.unwrap().unwrap();
     assert_eq!(after.pwd_ts, old_pwd_ts + 1);
 }
+
+#[tokio::test]
+async fn user_update_rolls_back_when_storage_update_fails() {
+    let temp = tempfile::tempdir().unwrap();
+    let old_root = temp.path().join("old-root");
+    let new_root = temp.path().join("new-root");
+    tokio::fs::create_dir_all(&old_root).await.unwrap();
+    tokio::fs::create_dir_all(&new_root).await.unwrap();
+
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+    db::set_admin_password(&pool, "AdminPass123!")
+        .await
+        .unwrap();
+    let user_id = db::create_user_direct(
+        &pool,
+        "rollback-guest",
+        "GuestPass123!",
+        0,
+        Some(old_root.to_str().unwrap()),
+        0,
+        false,
+    )
+    .await
+    .unwrap();
+    let before = db::get_user_by_id(&pool, user_id).await.unwrap().unwrap();
+    let old_addition: String =
+        sqlx::query_scalar("SELECT `addition` FROM `x_storages` WHERE `mount_path` = ?")
+            .bind(format!("/.users/{user_id}"))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    sqlx::query(
+        "CREATE TRIGGER fail_user_storage_update BEFORE UPDATE OF `addition` ON `x_storages` BEGIN SELECT RAISE(FAIL, 'forced storage update failure'); END",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let app = app_for(&pool).await;
+    let admin_token = login_token(&app, "admin", "AdminPass123!").await;
+    let (status, body) = json_request(
+        &app,
+        "POST",
+        "/api/admin/user/update",
+        Some(&admin_token),
+        json!({
+            "id": user_id,
+            "username": "changed-guest",
+            "password": "ChangedPass123!",
+            "permission": 7,
+            "disabled": true,
+            "local_path": new_root,
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(body["code"], 500);
+
+    let after = db::get_user_by_id(&pool, user_id).await.unwrap().unwrap();
+    assert_eq!(after.username, before.username);
+    assert_eq!(after.pwd_hash, before.pwd_hash);
+    assert_eq!(after.pwd_ts, before.pwd_ts);
+    assert_eq!(after.permission, before.permission);
+    assert_eq!(after.disabled, before.disabled);
+    assert_eq!(after.base_path, before.base_path);
+    let addition: String =
+        sqlx::query_scalar("SELECT `addition` FROM `x_storages` WHERE `mount_path` = ?")
+            .bind(format!("/.users/{user_id}"))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(addition, old_addition);
+}
+
+#[tokio::test]
+async fn server_rejects_addresses_other_than_exact_localhost() {
+    let temp = tempfile::tempdir().unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+
+    for host in ["127.0.0.2", "0.0.0.0"] {
+        let mut config = Config::default();
+        config.scheme.address = host.to_string();
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            rulist::server::run_server(config, pool.clone(), StorageManager::default()),
+        )
+        .await
+        .expect("server should reject the address before binding");
+        let error = result.expect_err("non-localhost address must be rejected");
+        assert!(error.to_string().contains("only 127.0.0.1 or ::1 is permitted"));
+    }
+}
