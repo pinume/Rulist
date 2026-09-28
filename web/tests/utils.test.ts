@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { getSafeRedirect, validateFilename } from "../src/utils/str"
+import { getSafeRedirect, validateFilename } from "../src/utils/str.ts"
 
 test("getSafeRedirect accepts only local absolute paths", () => {
   assert.equal(getSafeRedirect("/files/report.pdf"), "/files/report.pdf")
