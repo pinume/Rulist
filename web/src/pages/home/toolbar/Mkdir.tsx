@@ -10,17 +10,13 @@ export const Mkdir = () => {
   const { pathname } = useRouter()
   const { refresh } = usePath()
   const handler = (name: string) => {
-    if (name === "mkdir") {
-      onOpen()
-    }
+    if (name === "mkdir") onOpen()
   }
   bus.on("tool", handler)
-  onCleanup(() => {
-    bus.off("tool", handler)
-  })
+  onCleanup(() => bus.off("tool", handler))
   return (
     <ModalInput
-      title="home.toolbar.input_dir_name"
+      title="Enter folder name"
       validateFilename={true}
       opened={isOpen()}
       onClose={onClose}
