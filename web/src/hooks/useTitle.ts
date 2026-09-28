@@ -2,7 +2,6 @@ import { createEffect } from "solid-js"
 import { getSetting } from "~/store"
 import { pathBase } from "~/utils"
 import { useRouter } from "./useRouter"
-import { useT } from "./useT"
 
 export const useTitle = (title: string | (() => string)) => {
   if (typeof title === "function") {
@@ -15,12 +14,9 @@ export const useTitle = (title: string | (() => string)) => {
 }
 
 export const useObjTitle = () => {
-  const t = useT()
   const { pathname } = useRouter()
   useTitle(
     () =>
-      `${
-        pathname() === "/" ? t("global.home") : pathBase(pathname())
-      } | ${getSetting("site_title")}`,
+      `${pathname() === "/" ? "Home" : pathBase(pathname())} | ${getSetting("site_title")}`,
   )
 }
