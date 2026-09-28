@@ -58,7 +58,7 @@ async fn hidden_paths_follow_show_hidden_policy() {
     assert!(hidden.rename_safe("visible.txt", ".renamed", false).await.is_err());
     assert!(
         hidden
-            .batch_rename(&[("visible.txt".to_string(), ".batch".to_string())])
+            .batch_rename("", &[("visible.txt".to_string(), ".batch".to_string())])
             .await
             .is_err()
     );
