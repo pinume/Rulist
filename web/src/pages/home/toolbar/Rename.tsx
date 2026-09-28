@@ -1,12 +1,11 @@
 import { Checkbox, createDisclosure } from "@hope-ui/solid"
 import { createSignal, onCleanup, Show } from "solid-js"
 import { ModalInput } from "~/components"
-import { useFetch, usePath, useRouter, useT } from "~/hooks"
+import { useFetch, usePath, useRouter } from "~/hooks"
 import { oneChecked, selectedObjs } from "~/store"
 import { bus, fsRename, handleRespWithNotifySuccess, pathJoin } from "~/utils"
 
 export const Rename = () => {
-  const t = useT()
   const { isOpen, onOpen, onClose } = createDisclosure()
   const [loading, ok] = useFetch(fsRename)
   const { pathname } = useRouter()
@@ -23,23 +22,15 @@ export const Rename = () => {
     }
   }
   bus.on("tool", handler)
-  onCleanup(() => {
-    bus.off("tool", handler)
-  })
+  onCleanup(() => bus.off("tool", handler))
   return (
     <Show when={isOpen()}>
       <ModalInput
-        title="home.toolbar.input_new_name"
+        title="Enter a new name"
         validateFilename={true}
         footerSlot={
-          <Checkbox
-            mr="auto"
-            checked={overwrite()}
-            onChange={() => {
-              setOverwrite(!overwrite())
-            }}
-          >
-            {t("home.conflict_policy.overwrite_existing")}
+          <Checkbox mr="auto" checked={overwrite()} onChange={() => setOverwrite(!overwrite())}>
+            Overwrite existing files
           </Checkbox>
         }
         isRenamingFile={!selectedObjs()[0].is_dir}
