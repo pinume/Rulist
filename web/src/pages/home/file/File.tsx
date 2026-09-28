@@ -1,7 +1,7 @@
 import { Button, Spinner, Text, VStack } from "@hope-ui/solid"
 import { createResource, Match, Switch } from "solid-js"
 import { FilePreviewLayout } from "~/components/preview"
-import { useRouter, useT } from "~/hooks"
+import { useRouter } from "~/hooks"
 import { objStore } from "~/store"
 import { PreviewResponse, Resp } from "~/types"
 import { getFileSize, r, startDownload } from "~/utils"
@@ -10,9 +10,7 @@ const fetchPreview = async (path: string): Promise<PreviewResponse | null> => {
   if (!path) return null
   try {
     const resp: Resp<PreviewResponse> = await r.post("/fs/preview", { path })
-    if (resp.code === 200 && resp.data?.meta) {
-      return resp.data
-    }
+    if (resp.code === 200 && resp.data?.meta) return resp.data
   } catch (e) {
     console.error("Failed to load file preview:", e)
   }
@@ -25,7 +23,6 @@ const isOfficeFile = (path: string) =>
   )
 
 const File = () => {
-  const t = useT()
   const { pathname } = useRouter()
   const [preview] = createResource(pathname, fetchPreview)
 
@@ -73,7 +70,7 @@ const File = () => {
               )
             }
           >
-            {t("home.toolbar.download")}
+            Download
           </Button>
         </VStack>
       </Match>
