@@ -1,12 +1,11 @@
 import { Button, HStack, Text } from "@hope-ui/solid"
 import { lazy, Show } from "solid-js"
-import { usePath, useRouter, useT } from "~/hooks"
+import { usePath, useRouter } from "~/hooks"
 import { LIST_PAGE_SIZE, objStore, selectAll } from "~/store"
 
 const ListLayout = lazy(() => import("./List"))
 
 const Pager = () => {
-  const t = useT()
   const { pathname } = useRouter()
   const { handleFolder } = usePath()
   const pageCount = () => Math.ceil(objStore.total / LIST_PAGE_SIZE)
@@ -29,34 +28,28 @@ const Pager = () => {
           disabled={objStore.page <= 1}
           onClick={() => go(objStore.page - 1)}
         >
-          {t("home.pagination.previous")}
+          Previous
         </Button>
         <Text size="sm">
-          {t("home.pagination.page", {
-            page: objStore.page,
-            pages: pageCount(),
-            total: objStore.total,
-          })}
+          Page {objStore.page} of {pageCount()} ({objStore.total} items)
         </Text>
         <Button
           size="sm"
           disabled={objStore.page >= pageCount()}
           onClick={() => go(objStore.page + 1)}
         >
-          {t("home.pagination.next")}
+          Next
         </Button>
       </HStack>
     </Show>
   )
 }
 
-const Folder = () => {
-  return (
-    <>
-      <ListLayout />
-      <Pager />
-    </>
-  )
-}
+const Folder = () => (
+  <>
+    <ListLayout />
+    <Pager />
+  </>
+)
 
 export default Folder
