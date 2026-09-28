@@ -11,10 +11,10 @@ import {
 } from "solid-js"
 import { Portal } from "solid-js/web"
 import { Error, FullScreenLoading } from "~/components"
-import { useLoading, useRouter, useT } from "~/hooks"
+import { useLoading, useRouter } from "~/hooks"
 import { setSettings } from "~/store"
 import { Resp } from "~/types"
-import { base_path, bus, handleRespWithoutAuthAndNotify, r } from "~/utils"
+import { bus, handleRespWithoutAuthAndNotify, r } from "~/utils"
 import { MustUser } from "./MustUser"
 import "./index.css"
 import { globalStyles } from "./theme"
@@ -23,21 +23,14 @@ const Home = lazy(() => import("~/pages/home/Layout"))
 const Login = lazy(() => import("~/pages/login"))
 
 const App: Component = () => {
-  const t = useT()
   globalStyles()
   const isRouting = useIsRouting()
   const { to, pathname } = useRouter()
-  const onTo = (path: string) => {
-    to(path)
-  }
+  const onTo = (path: string) => to(path)
   bus.on("to", onTo)
-  onCleanup(() => {
-    bus.off("to", onTo)
-  })
+  onCleanup(() => bus.off("to", onTo))
 
-  createEffect(() => {
-    bus.emit("pathname", pathname())
-  })
+  createEffect(() => bus.emit("pathname", pathname()))
 
   const [err, setErr] = createSignal<string[]>([])
   const [loading, data] = useLoading(async () => {
@@ -66,7 +59,7 @@ const App: Component = () => {
       </Portal>
       <Switch
         fallback={
-          <Routes base={base_path}>
+          <Routes>
             <Route path="/@login" component={Login} />
             <Route
               path="*"
@@ -80,15 +73,7 @@ const App: Component = () => {
         }
       >
         <Match when={err().length > 0}>
-          <Error
-            h="100vh"
-            msg={
-              t("home.fetching_settings_failed") +
-              err()
-                .map((e) => t("home." + e))
-                .join(", ")
-            }
-          />
+          <Error h="100vh" msg={`Failed to fetch settings: ${err().join(", ")}`} />
         </Match>
         <Match when={loading()}>
           <FullScreenLoading />
