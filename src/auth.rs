@@ -138,18 +138,20 @@ pub fn generate_jwt(
         nbf: now,
     };
 
+    let header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
     Ok(jsonwebtoken::encode(
-        &jsonwebtoken::Header::default(),
+        &header,
         &claims,
         &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
     )?)
 }
 
 pub fn parse_jwt(token_str: &str, secret: &str) -> anyhow::Result<UserClaims> {
+    let validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
     let token_data = jsonwebtoken::decode::<UserClaims>(
         token_str,
         &jsonwebtoken::DecodingKey::from_secret(secret.as_bytes()),
-        &jsonwebtoken::Validation::default(),
+        &validation,
     )?;
     Ok(token_data.claims)
 }
