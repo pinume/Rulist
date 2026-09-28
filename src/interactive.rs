@@ -432,7 +432,7 @@ async fn action_change_password(pool: &DbPool) -> Result<()> {
         break password;
     };
 
-    db::set_user_password(pool, &user.username, &password, false).await?;
+    db::set_user_password(pool, &user.username, &password).await?;
     println!("用户 '{}' 的密码已更新。", user.username);
     Ok(())
 }
@@ -508,7 +508,7 @@ async fn action_reset_password(pool: &DbPool) -> Result<()> {
     }
 
     let password = auth::rand_string(16);
-    db::set_user_password(pool, &user.username, &password, false).await?;
+    db::set_user_password(pool, &user.username, &password).await?;
     println!("密码已重置。2FA 状态保持不变。");
     println!("用户名: {}", user.username);
     println!("新密码: {password}");
