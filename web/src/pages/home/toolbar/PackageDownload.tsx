@@ -1,6 +1,6 @@
 import "~/utils/zip-stream.js"
 import streamSaver from "streamsaver"
-import { useRouter, useT } from "~/hooks"
+import { useRouter } from "~/hooks"
 import { api, fsLink, fsList, joinBase, pathBase, pathJoin } from "~/utils"
 import { selectedObjs as _selectedObjs } from "~/store"
 import { createSignal, For, Show } from "solid-js"
@@ -18,18 +18,14 @@ import {
 import { Obj } from "~/types"
 
 streamSaver.mitm = joinBase("streamer", "mitm.html")
-const trimSlash = (str: string) => {
-  return str.replace(/^\/+|\/+$/g, "")
-}
+const trimSlash = (str: string) => str.replace(/^\/+|\/+$/g, "")
 
 interface FileItem {
   path: string
 }
 
 const PackageDownload = (props: { onClose: () => void }) => {
-  const t = useT()
-  const [cur, setCur] = createSignal(t("home.package_download.initializing"))
-  // 0: init, 1: error, 2: fetching structure, 3: fetching files, 4: success
+  const [cur, setCur] = createSignal("Initializing")
   const [status, setStatus] = createSignal(0)
   const [progress, setProgress] = createSignal({ current: 0, total: 0 })
   const { pathname } = useRouter()
@@ -39,27 +35,17 @@ const PackageDownload = (props: { onClose: () => void }) => {
     pre: string,
     obj: Obj,
   ): Promise<FileItem[] | string> => {
-    if (!obj.is_dir) {
-      return [
-        {
-          path: pathJoin(pre, obj.name),
-        },
-      ]
-    }
+    if (!obj.is_dir) return [{ path: pathJoin(pre, obj.name) }]
     const dirPath = pathJoin(pathname(), pre, obj.name)
     const resp = await fsList(dirPath)
-    if (resp.code !== 200) {
-      return resp.message
-    }
+    if (resp.code !== 200) return resp.message
     const files: FileItem[] = []
     const subTasks: Promise<FileItem[] | string>[] = []
     for (const item of resp.data.content ?? []) {
       if (item.is_dir) {
         subTasks.push(fetchFolderStructure(pathJoin(pre, obj.name), item))
       } else {
-        files.push({
-          path: pathJoin(pre, obj.name, item.name),
-        })
+        files.push({ path: pathJoin(pre, obj.name, item.name) })
       }
     }
     if (subTasks.length > 0) {
@@ -76,21 +62,18 @@ const PackageDownload = (props: { onClose: () => void }) => {
 
   const run = async () => {
     let saveName = pathBase(pathname())
-    if (selectedObjs.length === 1) {
-      saveName = selectedObjs[0].name
-    }
-    if (!saveName) {
-      saveName = t("global.home")
-    }
+    if (selectedObjs.length === 1) saveName = selectedObjs[0].name
+    if (!saveName) saveName = "Home"
 
-    setCur(t("home.package_download.fetching_struct"))
+    setCur("Fetching folder structure")
     setStatus(2)
     const downFiles: FileItem[] = []
-    const rootTasks = selectedObjs.map((obj) => fetchFolderStructure("", obj))
-    const rootResults = await Promise.all(rootTasks)
+    const rootResults = await Promise.all(
+      selectedObjs.map((obj) => fetchFolderStructure("", obj)),
+    )
     for (const res of rootResults) {
       if (typeof res === "string") {
-        setCur(`${t("home.package_download.fetching_struct_failed")}: ${res}`)
+        setCur(`Failed to fetch folder structure: ${res}`)
         setStatus(1)
         return res
       }
@@ -98,24 +81,24 @@ const PackageDownload = (props: { onClose: () => void }) => {
     }
 
     if (downFiles.length === 0) {
-      setCur(t("home.package_download.no_files"))
+      setCur("No files to download")
       setStatus(1)
       return
     }
 
     const fileStream = streamSaver.createWriteStream(`${saveName}.zip`)
-    setCur(t("home.package_download.downloading"))
+    setCur("Downloading files. Do not close or refresh this page.")
     setStatus(3)
     setProgress({ current: 0, total: downFiles.length })
 
-    const CONCURRENCY = 4
+    const concurrency = 4
     const fetchMap = new Map<number, Promise<Response>>()
 
     const getFileResponse = (index: number): Promise<Response> => {
-      let p = fetchMap.get(index)
-      if (!p) {
+      let request = fetchMap.get(index)
+      if (!request) {
         const file = downFiles[index]
-        p = (async () => {
+        request = (async () => {
           const filePath = pathJoin(pathname(), file.path)
           const linkResp = await fsLink(filePath)
           if (linkResp.code !== 200) {
@@ -136,18 +119,17 @@ const PackageDownload = (props: { onClose: () => void }) => {
           }
           return res
         })()
-        fetchMap.set(index, p)
+        fetchMap.set(index, request)
       }
-      return p
+      return request
     }
 
-    // Pre-start fetching the first few files
-    for (let i = 0; i < Math.min(CONCURRENCY, downFiles.length); i++) {
+    for (let i = 0; i < Math.min(concurrency, downFiles.length); i++) {
       getFileResponse(i)
     }
 
     let currentIndex = 0
-    let readableZipStream = new (window as any).ZIP({
+    const readableZipStream = new (window as any).ZIP({
       async pull(ctrl: any) {
         if (currentIndex >= downFiles.length) {
           ctrl.close()
@@ -156,33 +138,26 @@ const PackageDownload = (props: { onClose: () => void }) => {
         const fileIdx = currentIndex++
         const file = downFiles[fileIdx]
 
-        // Keep the prefetch pipeline filled
         for (
           let i = fileIdx + 1;
-          i < Math.min(fileIdx + 1 + CONCURRENCY, downFiles.length);
+          i < Math.min(fileIdx + 1 + concurrency, downFiles.length);
           i++
         ) {
           getFileResponse(i)
         }
 
         let name = trimSlash(file.path)
-        if (selectedObjs.length === 1) {
-          name = name.replace(`${saveName}/`, "")
-        }
+        if (selectedObjs.length === 1) name = name.replace(`${saveName}/`, "")
 
         setProgress({ current: fileIdx + 1, total: downFiles.length })
         setCur(
-          `${t("home.package_download.downloading")} (${fileIdx + 1}/${downFiles.length})`,
+          `Downloading files. Do not close or refresh this page. (${fileIdx + 1}/${downFiles.length})`,
         )
         setFetchings((prev) => [...prev.slice(-3), name])
 
         const res = await getFileResponse(fileIdx)
         fetchMap.delete(fileIdx)
-
-        ctrl.enqueue({
-          name,
-          stream: res.body,
-        })
+        ctrl.enqueue({ name, stream: res.body })
       },
     })
 
@@ -190,11 +165,11 @@ const PackageDownload = (props: { onClose: () => void }) => {
       return readableZipStream
         .pipeTo(fileStream)
         .then(() => {
-          setCur(`${t("home.package_download.success")}`)
+          setCur("Download complete")
           setStatus(4)
         })
         .catch((err: any) => {
-          setCur(`${t("home.package_download.failed")}: ${err}`)
+          setCur(`Archive download failed: ${err}`)
           setStatus(1)
         })
     }
@@ -206,7 +181,6 @@ const PackageDownload = (props: { onClose: () => void }) => {
       <ModalBody>
         <VStack w="$full" alignItems="stretch" spacing="$3">
           <Heading size="base">{cur()}</Heading>
-
           <Show when={status() === 3 && progress().total > 0}>
             <Box w="$full">
               <Progress
@@ -220,17 +194,10 @@ const PackageDownload = (props: { onClose: () => void }) => {
               </Progress>
             </Box>
           </Show>
-
           <VStack w="$full" alignItems="start" spacing="$1">
             <For each={fetchings()}>
               {(name) => (
-                <Text
-                  size="xs"
-                  color="$neutral10"
-                  css={{
-                    wordBreak: "break-all",
-                  }}
-                >
+                <Text size="xs" color="$neutral10" css={{ wordBreak: "break-all" }}>
                   {name}
                 </Text>
               )}
@@ -240,9 +207,7 @@ const PackageDownload = (props: { onClose: () => void }) => {
       </ModalBody>
       <Show when={[1, 4].includes(status())}>
         <ModalFooter>
-          <Button colorScheme="info" onClick={props.onClose}>
-            {t("global.close")}
-          </Button>
+          <Button colorScheme="info" onClick={props.onClose}>Close</Button>
         </ModalFooter>
       </Show>
     </>
