@@ -1,5 +1,3 @@
-import { base_path } from "."
-
 export const standardizePath = (path: string, noRootSlash?: boolean) => {
   if (path.endsWith("/")) {
     path = path.slice(0, -1)
@@ -17,14 +15,9 @@ export const pathJoin = (...paths: string[]) => {
   return paths.join("/").replace(/\/{2,}/g, "/")
 }
 
-export const joinBase = (...paths: string[]) => {
-  return pathJoin(base_path, ...paths)
-}
+export const joinBase = (...paths: string[]) => pathJoin(...paths)
 
 export const trimBase = (path: string) => {
-  if (base_path && path.startsWith(base_path)) {
-    path = path.slice(base_path.length)
-  }
   if (path.startsWith("/")) {
     return path
   }
