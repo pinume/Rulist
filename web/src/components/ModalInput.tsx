@@ -10,15 +10,9 @@ import {
   Textarea,
   FormHelperText,
 } from "@hope-ui/solid"
-import {
-  createSignal,
-  JSXElement,
-  Show,
-  createEffect,
-  onCleanup,
-} from "solid-js"
-import { useT } from "~/hooks"
+import { createSignal, JSXElement, Show, createEffect, onCleanup } from "solid-js"
 import { notify, validateFilename } from "~/utils"
+
 export type ModalInputProps = {
   opened: boolean
   onClose: () => void
@@ -35,27 +29,26 @@ export type ModalInputProps = {
   onDrop?: (e: DragEvent, setValue: (value: string) => void) => void
   validateFilename?: boolean
 }
+
+const validationMessage = (error?: string) =>
+  error === "invalid_filename_chars"
+    ? 'File names cannot contain: / \\ ? < > * : | "'
+    : "Please enter a value"
+
 export const ModalInput = (props: ModalInputProps) => {
   const [value, setValue] = createSignal(props.defaultValue ?? "")
   const [validationError, setValidationError] = createSignal<string>("")
-  const t = useT()
-
   let inputRef: HTMLInputElement | HTMLTextAreaElement
 
   const handleFocus = () => {
-    // Find the position of the first dot (".") in the value
     const dotIndex = value().lastIndexOf(".")
-
     setTimeout(() => {
-      // If a dot exists and it is not the first character, select from start to dotIndex
-      // And it must be a file, not a folder
       if (dotIndex > 0 && props.isRenamingFile) {
         inputRef.setSelectionRange(0, dotIndex)
       } else {
-        // If there's no dot or it's the first character, select the entire value
         inputRef.select()
       }
-    }, 10) // To prevent default select behavior from interfering
+    }, 10)
   }
 
   createEffect(() => {
@@ -63,33 +56,25 @@ export const ModalInput = (props: ModalInputProps) => {
       inputRef.focus()
       handleFocus()
     }
-
-    // Cleanup function to clear the selection range before unmounting
     onCleanup(() => {
-      if (inputRef) {
-        inputRef.setSelectionRange(0, 0)
-      }
+      if (inputRef) inputRef.setSelectionRange(0, 0)
     })
   })
 
   createEffect(() => {
-    if (!props.opened) {
-      setValue("")
-    }
+    if (!props.opened) setValue("")
   })
 
   const submit = () => {
     if (props.validateFilename) {
       const validation = validateFilename(value())
       if (!validation.valid) {
-        notify.warning(t(`global.${validation.error}`))
+        notify.warning(validationMessage(validation.error))
         return
       }
-    } else {
-      if (!value() || value().trim().length === 0) {
-        notify.warning(t("global.empty_input"))
-        return
-      }
+    } else if (!value() || value().trim().length === 0) {
+      notify.warning("Please enter a value")
+      return
     }
     props.onSubmit?.(value())
   }
@@ -113,8 +98,7 @@ export const ModalInput = (props: ModalInputProps) => {
     >
       <ModalOverlay />
       <ModalContent onDrop={(e: DragEvent) => props.onDrop?.(e, setValue)}>
-        {/* <ModalCloseButton /> */}
-        <ModalHeader>{t(props.title)}</ModalHeader>
+        <ModalHeader>{props.title}</ModalHeader>
         <ModalBody>
           <Show when={props.topSlot}>{props.topSlot}</Show>
           <Show
@@ -126,14 +110,10 @@ export const ModalInput = (props: ModalInputProps) => {
                 value={value()}
                 ref={(el) => (inputRef = el)}
                 invalid={!!validationError()}
-                onInput={(e) => {
-                  handleInput(e.currentTarget.value)
-                }}
+                onInput={(e) => handleInput(e.currentTarget.value)}
                 onFocus={handleFocus}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    submit()
-                  }
+                  if (e.key === "Enter") submit()
                 }}
               />
             }
@@ -143,15 +123,13 @@ export const ModalInput = (props: ModalInputProps) => {
               value={value()}
               ref={(el) => (inputRef = el)}
               invalid={!!validationError()}
-              onInput={(e) => {
-                handleInput(e.currentTarget.value)
-              }}
+              onInput={(e) => handleInput(e.currentTarget.value)}
               onFocus={handleFocus}
             />
           </Show>
           <Show when={validationError()}>
             <FormHelperText color="$danger9">
-              {t(`global.${validationError()}`)}
+              {validationMessage(validationError())}
             </FormHelperText>
           </Show>
           <Show when={props.tips}>
@@ -161,12 +139,8 @@ export const ModalInput = (props: ModalInputProps) => {
         </ModalBody>
         <ModalFooter display="flex" gap="$2">
           <Show when={props.footerSlot}>{props.footerSlot}</Show>
-          <Button onClick={props.onClose} colorScheme="neutral">
-            {t("global.cancel")}
-          </Button>
-          <Button loading={props.loading} onClick={() => submit()}>
-            {t("global.ok")}
-          </Button>
+          <Button onClick={props.onClose} colorScheme="neutral">Cancel</Button>
+          <Button loading={props.loading} onClick={submit}>OK</Button>
         </ModalFooter>
       </ModalContent>
     </Modal>
