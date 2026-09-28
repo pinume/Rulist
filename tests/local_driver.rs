@@ -1,14 +1,18 @@
 use rulist::driver::local::LocalDriver;
 
-fn driver(root: &std::path::Path) -> LocalDriver {
+fn driver_with_hidden(root: &std::path::Path, show_hidden: bool) -> LocalDriver {
     LocalDriver::new(
         &serde_json::json!({
             "root_folder_path": root,
-            "show_hidden": false
+            "show_hidden": show_hidden
         })
         .to_string(),
     )
     .unwrap()
+}
+
+fn driver(root: &std::path::Path) -> LocalDriver {
+    driver_with_hidden(root, false)
 }
 
 #[tokio::test]
@@ -32,6 +36,38 @@ async fn rejects_symlink_escape() {
 
     assert!(driver.safe_resolve("escape/secret.txt").is_err());
     assert!(driver.open("escape/secret.txt").await.is_err());
+}
+
+#[tokio::test]
+async fn hidden_paths_follow_show_hidden_policy() {
+    let temp = tempfile::tempdir().unwrap();
+    tokio::fs::create_dir_all(temp.path().join(".secret"))
+        .await
+        .unwrap();
+    tokio::fs::write(temp.path().join(".secret/file.txt"), b"secret")
+        .await
+        .unwrap();
+    tokio::fs::write(temp.path().join("visible.txt"), b"visible")
+        .await
+        .unwrap();
+
+    let hidden = driver_with_hidden(temp.path(), false);
+    assert!(hidden.safe_resolve(".secret/file.txt").is_err());
+    assert!(hidden.list(".secret").await.is_err());
+    assert!(hidden.mkdir(".created").await.is_err());
+    assert!(hidden.rename_safe("visible.txt", ".renamed", false).await.is_err());
+    assert!(
+        hidden
+            .batch_rename(&[("visible.txt".to_string(), ".batch".to_string())])
+            .await
+            .is_err()
+    );
+
+    let visible = driver_with_hidden(temp.path(), true);
+    assert!(visible.safe_resolve(".secret/file.txt").is_ok());
+    let entries = visible.list(".secret").await.unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].name, "file.txt");
 }
 
 #[tokio::test]
