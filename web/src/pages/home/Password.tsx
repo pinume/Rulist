@@ -4,11 +4,10 @@ import {
   Heading,
   HStack,
   Input,
-  Text,
   useColorModeValue,
   VStack,
 } from "@hope-ui/solid"
-import { useRouter, useT } from "~/hooks"
+import { useRouter } from "~/hooks"
 import { JSXElement } from "solid-js"
 
 type PasswordProps = {
@@ -20,7 +19,6 @@ type PasswordProps = {
 }
 
 const Password = (props: PasswordProps) => {
-  const t = useT()
   const { back } = useRouter()
   return (
     <VStack
@@ -56,11 +54,9 @@ const Password = (props: PasswordProps) => {
         </Flex>
         <HStack spacing="$2">
           <Button colorScheme="neutral" onClick={back}>
-            {t("global.back")}
+            Back
           </Button>
-          <Button onClick={() => props.enterCallback()}>
-            {t("global.ok")}
-          </Button>
+          <Button onClick={() => props.enterCallback()}>OK</Button>
         </HStack>
       </HStack>
     </VStack>
