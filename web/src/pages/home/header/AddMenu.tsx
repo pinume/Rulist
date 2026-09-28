@@ -14,14 +14,11 @@ import {
   RiDocumentFolderAddLine,
 } from "solid-icons/ri"
 import { createMemo, Show } from "solid-js"
-import { useT } from "~/hooks"
 import { getMainColor, objStore, State, userCan } from "~/store"
 import { bus } from "~/utils"
 import { enqueueFilesForUpload } from "../uploads/util"
 
 export const AddMenu = () => {
-  const t = useT()
-
   const canWrite = createMemo(
     () =>
       objStore.state === State.Folder &&
@@ -32,17 +29,9 @@ export const AddMenu = () => {
   let fileInputRef: HTMLInputElement | undefined
   let folderInputRef: HTMLInputElement | undefined
 
-  const handleUploadFiles = () => {
-    fileInputRef?.click()
-  }
-
-  const handleUploadFolder = () => {
-    folderInputRef?.click()
-  }
-
-  const handleCreateFolder = () => {
-    bus.emit("tool", "mkdir")
-  }
+  const handleUploadFiles = () => fileInputRef?.click()
+  const handleUploadFolder = () => folderInputRef?.click()
+  const handleCreateFolder = () => bus.emit("tool", "mkdir")
 
   return (
     <Show when={canWrite()}>
@@ -72,9 +61,9 @@ export const AddMenu = () => {
       />
 
       <Menu placement="bottom-end" offset={6}>
-        <Tooltip placement="bottom" withArrow label={t("home.add_menu.title")}>
+        <Tooltip placement="bottom" withArrow label="New & Upload">
           <MenuTrigger
-            aria-label={t("home.add_menu.title")}
+            aria-label="New & Upload"
             w={{ "@initial": "$7", "@md": "auto" }}
             h="$7"
             p={{ "@initial": 0, "@md": "$3" }}
@@ -97,10 +86,7 @@ export const AddMenu = () => {
               transform: "translateY(-1px)",
               shadow: "$sm",
             }}
-            _active={{
-              transform: "translateY(0)",
-              shadow: "none",
-            }}
+            _active={{ transform: "translateY(0)", shadow: "none" }}
           >
             <svg
               viewBox="0 0 24 24"
@@ -115,12 +101,8 @@ export const AddMenu = () => {
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
-            <Text
-              display={{ "@initial": "none", "@md": "inline" }}
-              ml="$1"
-              fontSize="$sm"
-            >
-              {t("home.add_menu.title")}
+            <Text display={{ "@initial": "none", "@md": "inline" }} ml="$1" fontSize="$sm">
+              New & Upload
             </Text>
           </MenuTrigger>
         </Tooltip>
@@ -137,68 +119,36 @@ export const AddMenu = () => {
         >
           <MenuItem
             cursor="pointer"
-            icon={
-              <Icon
-                as={RiDocumentFileUploadLine}
-                boxSize="$4"
-                color={getMainColor()}
-              />
-            }
+            icon={<Icon as={RiDocumentFileUploadLine} boxSize="$4" color={getMainColor()} />}
             onSelect={handleUploadFiles}
             rounded="$md"
             py="$2"
             px="$2_5"
-            _hover={{
-              bgColor: useColorModeValue("$neutral3", "$neutral5")(),
-            }}
+            _hover={{ bgColor: useColorModeValue("$neutral3", "$neutral5")() }}
           >
-            <Text fontSize="$sm" fontWeight="$medium">
-              {t("home.add_menu.upload_file")}
-            </Text>
+            <Text fontSize="$sm" fontWeight="$medium">Upload file</Text>
           </MenuItem>
-
           <MenuItem
             cursor="pointer"
-            icon={
-              <Icon
-                as={RiDocumentFolderUploadLine}
-                boxSize="$4"
-                color={getMainColor()}
-              />
-            }
+            icon={<Icon as={RiDocumentFolderUploadLine} boxSize="$4" color={getMainColor()} />}
             onSelect={handleUploadFolder}
             rounded="$md"
             py="$2"
             px="$2_5"
-            _hover={{
-              bgColor: useColorModeValue("$neutral3", "$neutral5")(),
-            }}
+            _hover={{ bgColor: useColorModeValue("$neutral3", "$neutral5")() }}
           >
-            <Text fontSize="$sm" fontWeight="$medium">
-              {t("home.add_menu.upload_folder")}
-            </Text>
+            <Text fontSize="$sm" fontWeight="$medium">Upload folder</Text>
           </MenuItem>
-
           <MenuItem
             cursor="pointer"
-            icon={
-              <Icon
-                as={RiDocumentFolderAddLine}
-                boxSize="$4"
-                color={getMainColor()}
-              />
-            }
+            icon={<Icon as={RiDocumentFolderAddLine} boxSize="$4" color={getMainColor()} />}
             onSelect={handleCreateFolder}
             rounded="$md"
             py="$2"
             px="$2_5"
-            _hover={{
-              bgColor: useColorModeValue("$neutral3", "$neutral5")(),
-            }}
+            _hover={{ bgColor: useColorModeValue("$neutral3", "$neutral5")() }}
           >
-            <Text fontSize="$sm" fontWeight="$medium">
-              {t("home.add_menu.create_folder")}
-            </Text>
+            <Text fontSize="$sm" fontWeight="$medium">Create folder</Text>
           </MenuItem>
         </MenuContent>
       </Menu>
