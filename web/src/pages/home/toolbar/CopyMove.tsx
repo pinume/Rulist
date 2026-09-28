@@ -1,7 +1,7 @@
 import { Checkbox, createDisclosure, VStack, Button } from "@hope-ui/solid"
 import { createSignal, onCleanup } from "solid-js"
 import { ModalFolderChoose, FolderTreeHandler } from "~/components"
-import { useFetch, usePath, useRouter, useT } from "~/hooks"
+import { useFetch, usePath, useRouter } from "~/hooks"
 import { selectedObjs, userCan } from "~/store"
 import {
   bus,
@@ -13,23 +13,15 @@ import {
 import { CgFolderAdd } from "solid-icons/cg"
 
 export const CreateFolderButton = (props: { handler?: FolderTreeHandler }) => {
-  if (!userCan("write_content")) {
-    return null
-  }
-  const t = useT()
+  if (!userCan("write_content")) return null
   return (
-    <Button
-      leftIcon={<CgFolderAdd />}
-      size="sm"
-      onClick={() => props.handler?.startCreateFolder()}
-    >
-      {t("home.toolbar.mkdir")}
+    <Button leftIcon={<CgFolderAdd />} size="sm" onClick={() => props.handler?.startCreateFolder()}>
+      New folder
     </Button>
   )
 }
 
 const CopyMoveModal = (props: { action: "copy" | "move" }) => {
-  const t = useT()
   const { isOpen, onOpen, onClose } = createDisclosure()
   const [loading, ok] = useFetch(props.action === "copy" ? fsCopy : fsMove)
   const { pathname } = useRouter()
@@ -45,13 +37,11 @@ const CopyMoveModal = (props: { action: "copy" | "move" }) => {
     }
   }
   bus.on("tool", handler)
-  onCleanup(() => {
-    bus.off("tool", handler)
-  })
+  onCleanup(() => bus.off("tool", handler))
 
   return (
     <ModalFolderChoose
-      header={t("home.toolbar.choose_dst_folder")}
+      header="Select destination folder"
       opened={isOpen()}
       onClose={onClose}
       loading={loading()}
@@ -62,24 +52,20 @@ const CopyMoveModal = (props: { action: "copy" | "move" }) => {
             mr="auto"
             checked={overwrite()}
             onChange={() => {
-              const curOverwrite = !overwrite()
-              if (curOverwrite) {
-                setSkipExisting(false)
-              }
-              setOverwrite(curOverwrite)
+              const next = !overwrite()
+              if (next) setSkipExisting(false)
+              setOverwrite(next)
             }}
           >
-            {t("home.conflict_policy.overwrite_existing")}
+            Overwrite existing files
           </Checkbox>
           <Checkbox
             mr="auto"
             checked={skipExisting()}
-            onChange={() => {
-              setSkipExisting(!skipExisting())
-            }}
+            onChange={() => setSkipExisting(!skipExisting())}
             disabled={overwrite()}
           >
-            {t("home.conflict_policy.skip_existing")}
+            Skip existing files
           </Checkbox>
         </VStack>
       }
@@ -96,9 +82,7 @@ const CopyMoveModal = (props: { action: "copy" | "move" }) => {
           policy,
         )
         refresh()
-        handleRespWithNotifySuccess(resp, () => {
-          onClose()
-        })
+        handleRespWithNotifySuccess(resp, onClose)
       }}
     />
   )
