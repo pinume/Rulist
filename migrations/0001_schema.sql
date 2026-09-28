@@ -7,7 +7,14 @@ CREATE TABLE IF NOT EXISTS `x_users` (
     `role` INTEGER NOT NULL DEFAULT 0,
     `disabled` NUMERIC NOT NULL DEFAULT 0,
     `permission` INTEGER NOT NULL DEFAULT 0,
-    `password_unset` NUMERIC NOT NULL DEFAULT 0,
+    `password_unset` NUMERIC NOT NULL DEFAULT 0
+        CHECK (
+            `password_unset` = 0
+            OR (
+                `role` != 2
+                AND (`permission` & 512) != 0
+            )
+        ),
     `otp_secret` TEXT,
     `last_otp_step` INTEGER NOT NULL DEFAULT -1
 );

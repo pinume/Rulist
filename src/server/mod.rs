@@ -20,8 +20,7 @@ use crate::model::ApiResponse;
 
 pub use routes::build_app;
 pub(crate) use security::{
-    authenticate_user, authenticate_user_with_setup, encode_url_path, permitted, user_path,
-    valid_name,
+    authenticate_user, encode_url_path, permitted, user_path, valid_name,
 };
 
 pub struct AppState {

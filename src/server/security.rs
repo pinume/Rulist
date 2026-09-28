@@ -8,14 +8,6 @@ use crate::model::User;
 use super::AppState;
 
 pub(crate) async fn authenticate_user(headers: &HeaderMap, state: &AppState) -> Option<User> {
-    authenticate_user_with_setup(headers, state, false).await
-}
-
-pub(crate) async fn authenticate_user_with_setup(
-    headers: &HeaderMap,
-    state: &AppState,
-    allow_unset: bool,
-) -> Option<User> {
     let auth_header = headers.get(AUTHORIZATION)?.to_str().ok()?;
     let token = auth_header.strip_prefix("Bearer ").unwrap_or(auth_header);
 
@@ -43,7 +35,6 @@ pub(crate) async fn authenticate_user_with_setup(
     if (claims.user_id > 0 && user.id != claims.user_id)
         || user.disabled
         || user.pwd_ts != claims.pwd_ts
-        || (user.is_admin() && user.password_unset && !allow_unset)
     {
         return None;
     }

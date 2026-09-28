@@ -7,7 +7,7 @@ use crate::auth::{
 };
 use crate::db::{get_setting, get_user_by_name};
 use crate::model::{LoginReq, PERM_ALLOW_EMPTY_PASSWORD, UpdateCurrentReq};
-use crate::server::{SharedState, api_error, api_success, authenticate_user_with_setup};
+use crate::server::{SharedState, api_error, api_success, authenticate_user};
 
 const LOGIN_FAILURE_LIMIT: i64 = 5;
 const LOGIN_FAILURE_WINDOW_SECS: i64 = 15 * 60;
@@ -312,7 +312,7 @@ pub async fn current_user_handler(
     State(state): State<SharedState>,
     headers: HeaderMap,
 ) -> Response {
-    if let Some(user) = authenticate_user_with_setup(&headers, &state, true).await {
+    if let Some(user) = authenticate_user(&headers, &state).await {
         api_success(user)
     } else {
         api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required")
@@ -324,7 +324,7 @@ pub async fn update_current_handler(
     State(state): State<SharedState>,
     Json(req): Json<UpdateCurrentReq>,
 ) -> Response {
-    let user = match authenticate_user_with_setup(&headers, &state, true).await {
+    let user = match authenticate_user(&headers, &state).await {
         Some(user) => user,
         None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
     };
