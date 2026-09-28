@@ -1,1 +1,1 @@
-export const api = window.RULIST_CONFIG.api?.replace(/\/$/, "") || window.location.origin
+export const api = window.location.origin
