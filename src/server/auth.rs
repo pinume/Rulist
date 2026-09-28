@@ -78,7 +78,7 @@ async fn verify_password_bounded(password: &str, pwd_hash: &str) -> Result<bool,
 
 fn password_verify_error(status: StatusCode) -> Response {
     if status == StatusCode::TOO_MANY_REQUESTS {
-        api_error(status, 429, "Too many concurrent login attempts")
+        api_error(status, 429, "Too many password verification attempts")
     } else {
         api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -151,10 +151,10 @@ pub async fn login_handler(
     }
 
     if !user.is_admin()
-        && user.password_unset
+        && req.password.is_empty()
         && user.permission & (1 << PERM_ALLOW_EMPTY_PASSWORD) == 0
     {
-        tracing::warn!(username = %user.username, "login failed: passwordless permission revoked");
+        tracing::warn!(username = %user.username, "login failed: empty password is not permitted");
         return api_error(
             StatusCode::UNAUTHORIZED,
             401,
