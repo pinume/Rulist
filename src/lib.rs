@@ -69,6 +69,47 @@ struct ServerArgs {
     host: Option<String>,
 }
 
+fn initial_home_path() -> Result<PathBuf> {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .context("HOME is not set; cannot initialize the default storage mount")?;
+    let home = home
+        .canonicalize()
+        .with_context(|| format!("failed to resolve current user's HOME directory: {home:?}"))?;
+    if !home.is_dir() {
+        anyhow::bail!("current user's HOME is not a directory: {home:?}");
+    }
+    Ok(home)
+}
+
+async fn init_database(config: &config::Config, data_dir: &std::path::Path) -> Result<db::DbPool> {
+    let db_path = config.resolved_db_path(data_dir);
+    let home_path = if db_path.exists() {
+        None
+    } else {
+        Some(initial_home_path()?)
+    };
+
+    info!("initializing database at {:?}", db_path);
+    let pool = db::init_db(&db_path).await?;
+
+    if let Some(home_path) = home_path {
+        let addition = serde_json::to_string(&driver::local::LocalAddition {
+            root_folder_path: home_path.to_string_lossy().into_owned(),
+            show_hidden: false,
+        })?;
+        sqlx::query(
+            "INSERT OR IGNORE INTO `x_storages` (`mount_path`, `addition`) VALUES ('/', ?)",
+        )
+        .bind(addition)
+        .execute(&pool)
+        .await?;
+        info!("mounted current user's HOME directory at /");
+    }
+
+    Ok(pool)
+}
+
 pub async fn run() -> Result<()> {
     let cli = Cli::parse();
 
@@ -105,7 +146,7 @@ pub async fn run() -> Result<()> {
     match command {
         Commands::Interactive => {
             let (config, _) = config::Config::load_or_create(&data_dir)?;
-            let pool = db::init_db(&config.resolved_db_path(&data_dir)).await?;
+            let pool = init_database(&config, &data_dir).await?;
             if let Err(error) = interactive::run_interactive_console(&pool, &data_dir).await {
                 if error
                     .downcast_ref::<io::Error>()
@@ -131,38 +172,7 @@ pub async fn run() -> Result<()> {
 
             info!("loaded configuration from {:?}", config_path);
 
-            let db_path = config.resolved_db_path(&data_dir);
-            let is_new_database = !db_path.exists();
-            let home_path = if is_new_database {
-                let home = std::env::var_os("HOME")
-                    .map(PathBuf::from)
-                    .context("HOME is not set; cannot initialize the default storage mount")?;
-                let home = home.canonicalize().with_context(|| {
-                    format!("failed to resolve current user's HOME directory: {home:?}")
-                })?;
-                if !home.is_dir() {
-                    anyhow::bail!("current user's HOME is not a directory: {home:?}");
-                }
-                Some(home)
-            } else {
-                None
-            };
-            info!("initializing database at {:?}", db_path);
-            let pool = db::init_db(&db_path).await?;
-
-            if let Some(home_path) = home_path {
-                let addition = serde_json::to_string(&driver::local::LocalAddition {
-                    root_folder_path: home_path.to_string_lossy().into_owned(),
-                    show_hidden: false,
-                })?;
-                sqlx::query(
-                    "INSERT OR IGNORE INTO `x_storages` (`mount_path`, `addition`) VALUES ('/', ?)",
-                )
-                .bind(addition)
-                .execute(&pool)
-                .await?;
-                info!("mounted current user's HOME directory at /");
-            }
+            let pool = init_database(&config, &data_dir).await?;
 
             info!("loading storage manager...");
             let storage = driver::StorageManager::load_from_db(&pool).await?;
