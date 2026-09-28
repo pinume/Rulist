@@ -170,12 +170,7 @@ pub async fn get_admin(pool: &DbPool) -> Result<Option<User>> {
     Ok(user)
 }
 
-pub async fn set_user_password(
-    pool: &DbPool,
-    username: &str,
-    new_password: &str,
-    clear_2fa: bool,
-) -> Result<()> {
+pub async fn set_user_password(pool: &DbPool, username: &str, new_password: &str) -> Result<()> {
     let user = get_user_by_name(pool, username)
         .await?
         .context("user not found")?;
@@ -185,36 +180,21 @@ pub async fn set_user_password(
         .unwrap_or_default()
         .as_secs() as i64;
 
-    let mut tx = pool.begin().await?;
     sqlx::query(
-        "UPDATE `x_users` SET `pwd_hash` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?), `password_unset` = ?, `otp_secret` = CASE WHEN ? THEN '' ELSE `otp_secret` END, `last_otp_step` = CASE WHEN ? THEN -1 ELSE `last_otp_step` END WHERE `id` = ?",
+        "UPDATE `x_users` SET `pwd_hash` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?), `password_unset` = ? WHERE `id` = ?",
     )
     .bind(encoded_pwd)
     .bind(now_ts)
     .bind(new_password.is_empty())
-    .bind(clear_2fa)
-    .bind(clear_2fa)
     .bind(user.id)
-    .execute(&mut *tx)
+    .execute(pool)
     .await?;
 
-    if clear_2fa && user.is_admin() {
-        sqlx::query("UPDATE `x_setting_items` SET `value` = ? WHERE `key` = 'token'")
-            .bind(rand_token())
-            .execute(&mut *tx)
-            .await?;
-    }
-
-    tx.commit().await?;
     Ok(())
 }
 
 pub async fn set_admin_password(pool: &DbPool, new_password: &str) -> Result<()> {
-    set_user_password(pool, "admin", new_password, false).await
-}
-
-pub async fn reset_admin_password(pool: &DbPool, new_password: &str) -> Result<()> {
-    set_user_password(pool, "admin", new_password, true).await
+    set_user_password(pool, "admin", new_password).await
 }
 
 pub async fn get_setting(pool: &DbPool, key: &str) -> Result<Option<String>> {
