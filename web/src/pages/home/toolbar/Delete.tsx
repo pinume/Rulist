@@ -9,60 +9,43 @@ import {
   createDisclosure,
 } from "@hope-ui/solid"
 import { onCleanup } from "solid-js"
-import { useFetch, usePath, useRouter, useT } from "~/hooks"
+import { useFetch, usePath, useRouter } from "~/hooks"
 import { selectedObjs } from "~/store"
 import { bus, fsRemove, handleRespWithNotifySuccess } from "~/utils"
 
 export const Delete = () => {
-  const t = useT()
   const { isOpen, onOpen, onClose } = createDisclosure()
   const [loading, ok] = useFetch(fsRemove)
   const { refresh } = usePath()
   const { pathname } = useRouter()
   const handler = (name: string) => {
-    if (name === "delete") {
-      onOpen()
-    }
+    if (name === "delete") onOpen()
   }
   bus.on("tool", handler)
-  onCleanup(() => {
-    bus.off("tool", handler)
-  })
+  onCleanup(() => bus.off("tool", handler))
   return (
     <Modal
       blockScrollOnMount={false}
       opened={isOpen()}
       onClose={onClose}
-      size={{
-        "@initial": "xs",
-        "@md": "md",
-      }}
+      size={{ "@initial": "xs", "@md": "md" }}
     >
       <ModalOverlay />
       <ModalContent>
-        <ModalHeader>{t("home.toolbar.delete")}</ModalHeader>
-        <ModalBody>
-          <p>{t("home.toolbar.delete-tips")}</p>
-        </ModalBody>
+        <ModalHeader>Delete</ModalHeader>
+        <ModalBody><p>Delete the selected items?</p></ModalBody>
         <ModalFooter display="flex" gap="$2">
-          <Button onClick={onClose} colorScheme="neutral">
-            {t("global.cancel")}
-          </Button>
+          <Button onClick={onClose} colorScheme="neutral">Cancel</Button>
           <Button
             colorScheme="danger"
             loading={loading()}
             onClick={async () => {
-              const resp = await ok(
-                pathname(),
-                selectedObjs().map((obj) => obj.name),
-              )
+              const resp = await ok(pathname(), selectedObjs().map((obj) => obj.name))
               refresh()
-              handleRespWithNotifySuccess(resp, () => {
-                onClose()
-              })
+              handleRespWithNotifySuccess(resp, onClose)
             }}
           >
-            {t("global.confirm")}
+            Confirm
           </Button>
         </ModalFooter>
       </ModalContent>
