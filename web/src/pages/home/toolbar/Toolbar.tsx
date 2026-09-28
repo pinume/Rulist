@@ -10,7 +10,6 @@ import {
 import { lazy, onCleanup, Show, Suspense } from "solid-js"
 import { Portal } from "solid-js/web"
 import { FullLoading } from "~/components"
-import { useT } from "~/hooks"
 import { bus } from "~/utils"
 import { BackTop } from "./BackTop"
 import { BatchRename } from "./BatchRename"
@@ -23,17 +22,12 @@ import { Rename } from "./Rename"
 const Upload = lazy(() => import("../uploads/Upload"))
 
 const UploadModal = () => {
-  const t = useT()
   const { isOpen, onOpen, onClose } = createDisclosure()
   const handler = (name: string) => {
-    if (name === "upload") {
-      onOpen()
-    }
+    if (name === "upload") onOpen()
   }
   bus.on("tool", handler)
-  onCleanup(() => {
-    bus.off("tool", handler)
-  })
+  onCleanup(() => bus.off("tool", handler))
   return (
     <Modal
       opened={isOpen()}
@@ -51,7 +45,7 @@ const UploadModal = () => {
       <ModalOverlay />
       <ModalContent>
         <ModalCloseButton />
-        <ModalHeader>{t("home.toolbar.upload")}</ModalHeader>
+        <ModalHeader>Upload</ModalHeader>
         <ModalBody>
           <Show when={isOpen()}>
             <Suspense fallback={<FullLoading />}>
@@ -64,26 +58,22 @@ const UploadModal = () => {
   )
 }
 
-export const Modals = () => {
-  return (
-    <>
-      <Copy />
-      <Move />
-      <Rename />
-      <Delete />
-      <Mkdir />
-      <BatchRename />
-      <PackageDownloadModal />
-      <UploadModal />
-    </>
-  )
-}
+export const Modals = () => (
+  <>
+    <Copy />
+    <Move />
+    <Rename />
+    <Delete />
+    <Mkdir />
+    <BatchRename />
+    <PackageDownloadModal />
+    <UploadModal />
+  </>
+)
 
-export const Toolbar = () => {
-  return (
-    <Portal>
-      <Modals />
-      <BackTop />
-    </Portal>
-  )
-}
+export const Toolbar = () => (
+  <Portal>
+    <Modals />
+    <BackTop />
+  </Portal>
+)
