@@ -26,12 +26,8 @@ export const getSettingBool = (key: string) => {
   const value = getSetting(key)
   return value === "true" || value === "1"
 }
-export const getMainColor = (): string => {
-  if (window.RULIST_CONFIG.main_color) {
-    return window.RULIST_CONFIG.main_color
-  }
-  return getSetting("main_color") || "#1890ff"
-}
+export const getMainColor = (): string =>
+  getSetting("main_color") || "#1890ff"
 
 let hideFiles: RegExp[]
 
