@@ -63,18 +63,8 @@ pub async fn render_html(pool: &crate::db::DbPool) -> String {
         .map(String::as_str)
         .unwrap_or("Rulist");
     let safe_site_title = escape_html(site_title);
-    let main_color = settings
-        .get("main_color")
-        .map(String::as_str)
-        .unwrap_or("#1890ff");
-    let safe_main_color =
-        serde_json::to_string(main_color).unwrap_or_else(|_| "\"#1890ff\"".to_string());
 
     raw_html
-        .replace(
-            "main_color: undefined",
-            &format!("main_color: {safe_main_color}"),
-        )
         .replace(
             "<title>Rulist</title>",
             &format!("<title>{safe_site_title}</title>"),
