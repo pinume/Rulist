@@ -12,10 +12,8 @@ import { FiDownload, FiExternalLink } from "solid-icons/fi"
 import { PreviewMeta, ObjType } from "~/types"
 import { formatDate, getFileSize, startDownload } from "~/utils"
 import { getIconByObj, getIconColorByObj } from "~/utils/icon"
-import { useT } from "~/hooks"
 
 export const PreviewHeader = (props: { meta: PreviewMeta }) => {
-  const t = useT()
   const headerBg = useColorModeValue("$neutral1", "$neutral2")
   const metaColor = useColorModeValue("$neutral10", "$neutral9")
 
@@ -25,9 +23,7 @@ export const PreviewHeader = (props: { meta: PreviewMeta }) => {
       getFileSize(props.meta.size),
       formatDate(props.meta.modified),
     ]
-    if (props.meta.permissions) {
-      parts.push(props.meta.permissions)
-    }
+    if (props.meta.permissions) parts.push(props.meta.permissions)
     return parts.join(" · ")
   }
 
@@ -47,10 +43,7 @@ export const PreviewHeader = (props: { meta: PreviewMeta }) => {
       <HStack spacing="$3" minW="0" flex="1">
         <Icon
           as={getIconByObj({ type: ObjType.UNKNOWN, name: props.meta.name })}
-          color={getIconColorByObj({
-            type: ObjType.UNKNOWN,
-            name: props.meta.name,
-          })}
+          color={getIconColorByObj({ type: ObjType.UNKNOWN, name: props.meta.name })}
           boxSize="$7"
           flexShrink={0}
         />
@@ -68,19 +61,18 @@ export const PreviewHeader = (props: { meta: PreviewMeta }) => {
           </Text>
         </Box>
       </HStack>
-
       <HStack spacing="$2" flexShrink={0}>
-        <Tooltip label={t("home.toolbar.download") || "Download"}>
+        <Tooltip label="Download">
           <Button
             size="sm"
             colorScheme="accent"
             leftIcon={<Icon as={FiDownload} />}
             onClick={() => startDownload(props.meta.raw_url, props.meta.name)}
           >
-            {t("home.toolbar.download") || "Download"}
+            Download
           </Button>
         </Tooltip>
-        <Tooltip label="Open Raw">
+        <Tooltip label="Open raw file">
           <IconButton
             as="a"
             href={props.meta.raw_url}
@@ -88,7 +80,7 @@ export const PreviewHeader = (props: { meta: PreviewMeta }) => {
             rel="noopener noreferrer"
             size="sm"
             variant="ghost"
-            aria-label="Open Raw"
+            aria-label="Open raw file"
             icon={<Icon as={FiExternalLink} />}
           />
         </Tooltip>
