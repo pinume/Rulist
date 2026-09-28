@@ -26,11 +26,10 @@ import {
 import { Container } from "../Container"
 import { LinkWithBase } from "~/components"
 import { authLogout, changeToken, handleResp, joinBase, notify } from "~/utils"
-import { useRouter, useT } from "~/hooks"
+import { useRouter } from "~/hooks"
 import { AddMenu } from "./AddMenu"
 
 export const Header = () => {
-  const t = useT()
   const { pathname, to } = useRouter()
   let searchInput: HTMLInputElement | undefined
   const [lightLogo, darkLogo] = getLogo()
@@ -97,7 +96,7 @@ export const Header = () => {
           <HStack
             as={LinkWithBase}
             href="/"
-            aria-label={t("global.home")}
+            aria-label="Home"
             class="header-left"
             h="44px"
             w="44px"
@@ -107,29 +106,25 @@ export const Header = () => {
               src={logoSrc()}
               h="32px"
               w="auto"
-              fallback={
-                <Image src={joinBase("favicon.ico")} h="32px" w="auto" />
-              }
+              fallback={<Image src={joinBase("favicon.ico")} h="32px" w="auto" />}
             />
           </HStack>
           <HStack spacing="$2" alignItems="center">
             <Show when={objStore.state === State.Folder}>
               <Input
                 ref={searchInput}
-                aria-label={t("home.search.aria_label")}
-                placeholder={t("home.search.placeholder")}
+                aria-label="Search files on this page"
+                placeholder="Search this page…"
                 value={directoryFilter()}
-                onInput={(event) =>
-                  setDirectoryFilter(event.currentTarget.value)
-                }
+                onInput={(event) => setDirectoryFilter(event.currentTarget.value)}
                 w={{ "@initial": "150px", "@sm": "260px", "@md": "360px" }}
                 size="sm"
               />
             </Show>
             <AddMenu />
-            <Tooltip placement="bottom" withArrow label={t("global.logout")}>
+            <Tooltip placement="bottom" withArrow label="Log out">
               <IconButton
-                aria-label={t("global.logout")}
+                aria-label="Log out"
                 icon={
                   <svg
                     viewBox="0 0 24 24"
@@ -165,14 +160,11 @@ export const Header = () => {
                   transform: "translateY(-1px)",
                   shadow: "$sm",
                 }}
-                _active={{
-                  transform: "translateY(0)",
-                  shadow: "none",
-                }}
+                _active={{ transform: "translateY(0)", shadow: "none" }}
                 onClick={async () => {
                   handleResp(await authLogout(), () => {
                     changeToken()
-                    notify.success(t("global.logout_success"))
+                    notify.success("Logged out successfully")
                     to("/@login?redirect=%2F")
                   })
                 }}
