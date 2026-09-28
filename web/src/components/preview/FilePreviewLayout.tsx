@@ -8,7 +8,6 @@ import {
 } from "@hope-ui/solid"
 import { Match, Switch } from "solid-js"
 import { FiAlertTriangle, FiDownload } from "solid-icons/fi"
-import { useT } from "~/hooks"
 import { PreviewMeta, ProcessedContent } from "~/types"
 import { startDownload } from "~/utils"
 import { AudioPreview } from "./AudioPreview"
@@ -26,7 +25,6 @@ export const FilePreviewLayout = (props: {
   content?: ProcessedContent
   error?: string
 }) => {
-  const t = useT()
   const cardBg = useColorModeValue("white", "$neutral3")
 
   return (
@@ -61,16 +59,14 @@ export const FilePreviewLayout = (props: {
                 fontWeight="$medium"
                 fontSize="$sm"
               >
-                {props.error || t("home.preview.load_failed")}
+                {props.error || "Preview failed. Download the file to view it."}
               </Text>
               <Button
                 colorScheme="accent"
                 leftIcon={<Icon as={FiDownload} />}
-                onClick={() =>
-                  startDownload(props.meta.raw_url, props.meta.name)
-                }
+                onClick={() => startDownload(props.meta.raw_url, props.meta.name)}
               >
-                {t("home.toolbar.download")}
+                Download
               </Button>
             </VStack>
           </Box>
