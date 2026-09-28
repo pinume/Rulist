@@ -7,7 +7,7 @@ web_root="$repo_root/web"
 
 (
   cd "$web_root"
-  CI=true pnpm install --frozen-lockfile
+  CI=true pnpm install
   CI=true pnpm build
 )
 
