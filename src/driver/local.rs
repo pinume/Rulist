@@ -73,13 +73,22 @@ impl LocalDriver {
         })
     }
 
+    fn hidden_name_denied(&self, name: &str) -> bool {
+        !self.show_hidden && name.starts_with('.')
+    }
+
     pub fn safe_resolve(&self, subpath: &str) -> Result<PathBuf> {
         let clean = subpath.trim_matches('/');
         let mut target = self.root_path.clone();
 
         for component in Path::new(clean).components() {
             match component {
-                Component::Normal(value) => target.push(value),
+                Component::Normal(value) => {
+                    if self.hidden_name_denied(&value.to_string_lossy()) {
+                        return Err(anyhow!("access denied: hidden paths are disabled"));
+                    }
+                    target.push(value);
+                }
                 Component::CurDir => {}
                 Component::ParentDir => {
                     return Err(anyhow!(
@@ -126,14 +135,15 @@ impl LocalDriver {
         let mut read_dir = fs::read_dir(&full_path).await?;
         let mut entries = Vec::new();
         while let Some(entry) = read_dir.next_entry().await? {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            if self.hidden_name_denied(&file_name) {
+                continue;
+            }
             let file_type = entry.file_type().await?;
             if file_type.is_symlink() {
                 continue;
             }
-            entries.push((
-                entry.file_name().to_string_lossy().to_string(),
-                file_type.is_dir(),
-            ));
+            entries.push((file_name, file_type.is_dir()));
         }
         Ok(entries)
     }
@@ -240,7 +250,7 @@ impl LocalDriver {
         if subpath.trim_matches('/').is_empty() {
             return Err(RenameError::BadRequest("cannot rename storage root".into()));
         }
-        if !crate::server::valid_name(new_name) {
+        if !crate::server::valid_name(new_name) || self.hidden_name_denied(new_name) {
             return Err(RenameError::BadRequest(format!(
                 "invalid new name: {new_name}"
             )));
@@ -333,7 +343,11 @@ impl LocalDriver {
         }
 
         for (src_name, new_name) in pairs {
-            if !crate::server::valid_name(src_name) || !crate::server::valid_name(new_name) {
+            if !crate::server::valid_name(src_name)
+                || !crate::server::valid_name(new_name)
+                || self.hidden_name_denied(src_name)
+                || self.hidden_name_denied(new_name)
+            {
                 return Err(RenameError::BadRequest("invalid filename".into()));
             }
         }
