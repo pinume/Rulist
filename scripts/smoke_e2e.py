@@ -14,10 +14,11 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
+
 ROOT = Path(__file__).resolve().parents[1]
 BINARY = Path(sys.argv[1]) if len(sys.argv) == 2 else ROOT / "target" / "debug" / "rulist"
 CONTENT = b"Rulist E2E smoke test\n"
-NEW_PASSWORD = "smoke-pass-123"
+PASSWORD = "smoke-pass-123"
 
 
 def pick_port():
@@ -44,9 +45,9 @@ def api(base, path, payload=None, token=None):
     return status, json.loads(raw)
 
 
-def expect(expected, actual, label):
-    if actual != expected:
-        raise AssertionError(f"{label}: expected HTTP {expected}, got {actual}")
+def expect(status, actual, label):
+    if actual != status:
+        raise AssertionError(f"{label}: expected HTTP {status}, got {actual}")
 
 
 def main():
@@ -113,14 +114,14 @@ def main():
                 status, update = api(
                     base,
                     "/api/me/update",
-                    {"password": NEW_PASSWORD, "current_password": initial_password},
+                    {"password": PASSWORD, "current_password": initial_password},
                     setup_token,
                 )
                 expect(200, status, "set password")
                 if update["code"] != 200:
                     raise AssertionError(f"set password API error: {update}")
 
-                status, login = api(base, "/api/auth/login", {"username": "admin", "password": NEW_PASSWORD})
+                status, login = api(base, "/api/auth/login", {"username": "admin", "password": PASSWORD})
                 expect(200, status, "password login")
                 token = login["data"]["token"]
 
@@ -150,7 +151,7 @@ def main():
                 status, downloaded = http(f"{base}{link['data']['url']}")
                 expect(200, status, "signed download")
                 if downloaded != CONTENT:
-                    raise AssertionError,"signed download bytes differ from uploaded bytes")
+                    raise AssertionError("signed download bytes differ from uploaded bytes")
 
                 status, _ = http(f"{base}/api/fs/put", "PUT", b"replacement", upload_headers)
                 expect(409, status, "duplicate upload")
