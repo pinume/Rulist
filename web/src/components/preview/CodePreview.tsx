@@ -9,26 +9,21 @@ import {
 } from "@hope-ui/solid"
 import { createMemo, createSignal, For } from "solid-js"
 import { FiCheck, FiCopy, FiCornerDownLeft } from "solid-icons/fi"
-import { useT, useUtil } from "~/hooks"
+import { useUtil } from "~/hooks"
 import { PreviewMeta, ProcessedContent } from "~/types"
 
 export const CodePreview = (props: {
   content?: ProcessedContent
   meta?: PreviewMeta
 }) => {
-  const t = useT()
   const { copy } = useUtil()
   const [wrap, setWrap] = createSignal(false)
   const [copied, setCopied] = createSignal(false)
 
-  const lines = createMemo(() => {
-    const val = props.content?.value ?? ""
-    return val.split("\n")
-  })
+  const lines = createMemo(() => (props.content?.value ?? "").split("\n"))
 
   const handleCopy = async () => {
-    const val = props.content?.value ?? ""
-    await copy(val)
+    await copy(props.content?.value ?? "")
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -38,13 +33,10 @@ export const CodePreview = (props: {
   const lineNumberColor = useColorModeValue("$neutral8", "$neutral9")
   const codeColor = useColorModeValue("$neutral12", "$neutral12")
   const lineHoverBg = useColorModeValue("$neutral2", "$neutral4")
-
-  const lineNoWidth = () =>
-    `${Math.max(2, String(lines().length).length) * 9 + 20}px`
+  const lineNoWidth = () => `${Math.max(2, String(lines().length).length) * 9 + 20}px`
 
   return (
     <Box w="$full" bg={bg()}>
-      {/* Toolbar */}
       <HStack
         justifyContent="space-between"
         alignItems="center"
@@ -64,15 +56,8 @@ export const CodePreview = (props: {
             </Badge>
           )}
         </HStack>
-
         <HStack spacing="$2">
-          <Tooltip
-            label={
-              wrap()
-                ? "Switch to horizontal scrolling"
-                : "Enable line wrapping"
-            }
-          >
+          <Tooltip label={wrap() ? "Switch to horizontal scrolling" : "Enable line wrapping"}>
             <Button
               size="xs"
               variant={wrap() ? "solid" : "outline"}
@@ -83,7 +68,6 @@ export const CodePreview = (props: {
               {wrap() ? "No wrap" : "Wrap"}
             </Button>
           </Tooltip>
-
           <Button
             size="xs"
             variant="solid"
@@ -91,12 +75,10 @@ export const CodePreview = (props: {
             leftIcon={<Icon as={copied() ? FiCheck : FiCopy} />}
             onClick={handleCopy}
           >
-            {copied() ? t("global.copied") : t("global.copy")}
+            {copied() ? "Copied" : "Copy"}
           </Button>
         </HStack>
       </HStack>
-
-      {/* Code Area */}
       <Box
         p="$3"
         overflowX={wrap() ? "hidden" : "auto"}
