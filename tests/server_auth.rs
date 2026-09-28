@@ -46,6 +46,20 @@ async fn app_for(pool: &db::DbPool) -> axum::Router {
     }))
 }
 
+async fn login_token(app: &axum::Router, username: &str, password: &str) -> String {
+    let (status, body) = json_request(
+        app,
+        "POST",
+        "/api/auth/login",
+        None,
+        json!({ "username": username, "password": password }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["code"], 200);
+    body["data"]["token"].as_str().unwrap().to_string()
+}
+
 #[tokio::test]
 async fn two_factor_login_is_enforced_and_replay_safe() {
     let temp = tempfile::tempdir().unwrap();
@@ -135,7 +149,7 @@ async fn unknown_user_login_is_recorded_before_password_verification() {
 }
 
 #[tokio::test]
-async fn revoked_passwordless_permission_blocks_the_existing_empty_password() {
+async fn legacy_empty_password_state_is_rejected_at_login_boundary() {
     let temp = tempfile::tempdir().unwrap();
     let user_root = temp.path().join("revoked-guest");
     tokio::fs::create_dir_all(&user_root).await.unwrap();
@@ -153,7 +167,12 @@ async fn revoked_passwordless_permission_blocks_the_existing_empty_password() {
     )
     .await
     .unwrap();
-    db::set_user_permission(&pool, user_id, 0).await.unwrap();
+
+    sqlx::query("UPDATE `x_users` SET `permission` = 0, `password_unset` = 0 WHERE `id` = ?")
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let app = app_for(&pool).await;
     let (status, body) = json_request(
@@ -169,12 +188,61 @@ async fn revoked_passwordless_permission_blocks_the_existing_empty_password() {
 }
 
 #[tokio::test]
+async fn database_rejects_disabling_passwordless_for_unset_password() {
+    let temp = tempfile::tempdir().unwrap();
+    let user_root = temp.path().join("guarded-guest");
+    tokio::fs::create_dir_all(&user_root).await.unwrap();
+
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+    let permission = 1 << PERM_ALLOW_EMPTY_PASSWORD;
+    let user_id = db::create_user_direct(
+        &pool,
+        "guarded-guest",
+        "",
+        0,
+        Some(user_root.to_str().unwrap()),
+        permission,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let error = db::set_user_permission(&pool, user_id, 0)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("non-empty password"));
+}
+
+#[tokio::test]
+async fn legacy_master_token_is_not_an_admin_credential() {
+    let temp = tempfile::tempdir().unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+    let legacy_token = db::get_setting(&pool, "token")
+        .await
+        .unwrap()
+        .unwrap();
+    let app = app_for(&pool).await;
+
+    let (status, body) = json_request(
+        &app,
+        "GET",
+        "/api/admin/user/list",
+        Some(&legacy_token),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["code"], 401);
+}
+
+#[tokio::test]
 async fn disabling_passwordless_login_requires_a_nonempty_password() {
     let temp = tempfile::tempdir().unwrap();
     let user_root = temp.path().join("guest");
     tokio::fs::create_dir_all(&user_root).await.unwrap();
 
     let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+    db::set_admin_password(&pool, "AdminPass123!").await.unwrap();
     let permission = 1 << PERM_ALLOW_EMPTY_PASSWORD;
     let user_id = db::create_user_direct(
         &pool,
@@ -187,17 +255,14 @@ async fn disabling_passwordless_login_requires_a_nonempty_password() {
     )
     .await
     .unwrap();
-    let master = db::get_setting(&pool, "token")
-        .await
-        .unwrap()
-        .unwrap();
     let app = app_for(&pool).await;
+    let admin_token = login_token(&app, "admin", "AdminPass123!").await;
 
     let (status, rejected) = json_request(
         &app,
         "POST",
         "/api/admin/user/update",
-        Some(&master),
+        Some(&admin_token),
         json!({
             "id": user_id,
             "username": "guest",
@@ -212,7 +277,7 @@ async fn disabling_passwordless_login_requires_a_nonempty_password() {
         &app,
         "POST",
         "/api/admin/user/update",
-        Some(&master),
+        Some(&admin_token),
         json!({
             "id": user_id,
             "username": "guest",
@@ -254,6 +319,7 @@ async fn disabling_passwordless_login_requires_a_nonempty_password() {
 async fn admin_password_update_keeps_pwd_ts_monotonic() {
     let temp = tempfile::tempdir().unwrap();
     let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+    db::set_admin_password(&pool, "AdminPass123!").await.unwrap();
     let admin = db::get_admin(&pool).await.unwrap().unwrap();
     let old_pwd_ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -267,16 +333,13 @@ async fn admin_password_update_keeps_pwd_ts_monotonic() {
         .await
         .unwrap();
 
-    let master = db::get_setting(&pool, "token")
-        .await
-        .unwrap()
-        .unwrap();
     let app = app_for(&pool).await;
+    let admin_token = login_token(&app, "admin", "AdminPass123!").await;
     let (status, updated) = json_request(
         &app,
         "POST",
         "/api/admin/user/update",
-        Some(&master),
+        Some(&admin_token),
         json!({
             "id": admin.id,
             "username": "admin",
