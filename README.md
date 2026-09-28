@@ -14,7 +14,7 @@ Requirements:
 
 ```bash
 ./build-frontend.sh
-cargo build --release --locked
+cargo build --release
 ```
 
 ## Run
