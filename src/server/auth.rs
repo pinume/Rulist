@@ -6,15 +6,16 @@ use crate::auth::{
     generate_jwt, hash_identifier, hash_password, matching_totp_step, parse_jwt, verify_password,
 };
 use crate::db::{get_setting, get_user_by_name};
-use crate::model::{LoginReq, UpdateCurrentReq};
-use crate::server::{
-    SharedState, api_error, api_success, authenticate_user_with_setup,
-};
+use crate::model::{LoginReq, PERM_ALLOW_EMPTY_PASSWORD, UpdateCurrentReq};
+use crate::server::{SharedState, api_error, api_success, authenticate_user_with_setup};
 
 const LOGIN_FAILURE_LIMIT: i64 = 5;
 const LOGIN_FAILURE_WINDOW_SECS: i64 = 15 * 60;
 const LOGIN_ATTEMPT_CAP: i64 = 10_000;
+const PASSWORD_VERIFY_CONCURRENCY: usize = 4;
 const DUMMY_PASSWORD_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$ZHVtbXlzYWx0MTIzNDU2$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+static PASSWORD_VERIFY_SEMAPHORE: tokio::sync::Semaphore =
+    tokio::sync::Semaphore::const_new(PASSWORD_VERIFY_CONCURRENCY);
 
 fn login_attempt_key(username: &str) -> String {
     hash_identifier(username.trim())
@@ -64,14 +65,65 @@ async fn reserve_login_attempt(
     .await
 }
 
+async fn verify_password_bounded(password: &str, pwd_hash: &str) -> Result<bool, StatusCode> {
+    let _permit = PASSWORD_VERIFY_SEMAPHORE
+        .try_acquire()
+        .map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
+    let password = password.to_owned();
+    let pwd_hash = pwd_hash.to_owned();
+    tokio::task::spawn_blocking(move || verify_password(&password, &pwd_hash))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+fn password_verify_error(status: StatusCode) -> Response {
+    if status == StatusCode::TOO_MANY_REQUESTS {
+        api_error(status, 429, "Too many concurrent login attempts")
+    } else {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Internal server error",
+        )
+    }
+}
+
 pub async fn login_handler(
     State(state): State<SharedState>,
     Json(req): Json<LoginReq>,
 ) -> Response {
+    let attempt_key = login_attempt_key(&req.username);
+    match reserve_login_attempt(&state.pool, &attempt_key).await {
+        Ok(Some(count)) if count > LOGIN_FAILURE_LIMIT => {
+            return api_error(
+                StatusCode::TOO_MANY_REQUESTS,
+                429,
+                "Too many login attempts",
+            );
+        }
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            tracing::warn!(
+                username = %req.username,
+                "rate limit store at capacity, proceeding with bounded credential verification"
+            );
+        }
+        Err(err) => {
+            tracing::error!(error = %err, "failed to reserve login attempt");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
+    }
+
     let user = match get_user_by_name(&state.pool, &req.username).await {
         Ok(Some(user)) => user,
         Ok(None) => {
-            let _ = verify_password(&req.password, DUMMY_PASSWORD_HASH);
+            if let Err(status) = verify_password_bounded(&req.password, DUMMY_PASSWORD_HASH).await {
+                return password_verify_error(status);
+            }
             tracing::warn!(username = %req.username, "login failed: user not found");
             return api_error(
                 StatusCode::UNAUTHORIZED,
@@ -89,32 +141,6 @@ pub async fn login_handler(
         }
     };
 
-    let attempt_key = login_attempt_key(&req.username);
-    match reserve_login_attempt(&state.pool, &attempt_key).await {
-        Ok(Some(count)) if count > LOGIN_FAILURE_LIMIT => {
-            return api_error(
-                StatusCode::TOO_MANY_REQUESTS,
-                429,
-                "Too many login attempts",
-            );
-        }
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            tracing::warn!(
-                username = %req.username,
-                "rate limit store at capacity, proceeding with credential verification"
-            );
-        }
-        Err(err) => {
-            tracing::error!(error = %err, "failed to reserve login attempt");
-            return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Internal server error",
-            );
-        }
-    }
-
     if user.disabled {
         tracing::warn!(username = %user.username, "login failed: user is disabled");
         return api_error(
@@ -124,13 +150,29 @@ pub async fn login_handler(
         );
     }
 
-    if !verify_password(&req.password, &user.pwd_hash) {
-        tracing::warn!(username = %user.username, "login failed: invalid password");
+    if !user.is_admin()
+        && user.password_unset
+        && user.permission & (1 << PERM_ALLOW_EMPTY_PASSWORD) == 0
+    {
+        tracing::warn!(username = %user.username, "login failed: passwordless permission revoked");
         return api_error(
             StatusCode::UNAUTHORIZED,
             401,
             "invalid username or password",
         );
+    }
+
+    match verify_password_bounded(&req.password, &user.pwd_hash).await {
+        Ok(true) => {}
+        Ok(false) => {
+            tracing::warn!(username = %user.username, "login failed: invalid password");
+            return api_error(
+                StatusCode::UNAUTHORIZED,
+                401,
+                "invalid username or password",
+            );
+        }
+        Err(status) => return password_verify_error(status),
     }
 
     if let Some(ref secret) = user.otp_secret
@@ -310,8 +352,12 @@ pub async fn update_current_handler(
         let Some(current_password) = req.current_password.as_deref() else {
             return api_error(StatusCode::BAD_REQUEST, 400, "Current password is required");
         };
-        if !verify_password(current_password, &user.pwd_hash) {
-            return api_error(StatusCode::FORBIDDEN, 403, "Current password is incorrect");
+        match verify_password_bounded(current_password, &user.pwd_hash).await {
+            Ok(true) => {}
+            Ok(false) => {
+                return api_error(StatusCode::FORBIDDEN, 403, "Current password is incorrect");
+            }
+            Err(status) => return password_verify_error(status),
         }
     }
 
