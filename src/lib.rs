@@ -133,24 +133,26 @@ pub async fn run() -> Result<()> {
 
             let db_path = config.resolved_db_path(&data_dir);
             let is_new_database = !db_path.exists();
-            let storage_path = if is_new_database {
-                let storage_dir = data_dir.join("storage");
-                std::fs::create_dir_all(&storage_dir).with_context(|| {
-                    format!("failed to create storage directory: {storage_dir:?}")
+            let home_path = if is_new_database {
+                let home = std::env::var_os("HOME")
+                    .map(PathBuf::from)
+                    .context("HOME is not set; cannot initialize the default storage mount")?;
+                let home = home.canonicalize().with_context(|| {
+                    format!("failed to resolve current user's HOME directory: {home:?}")
                 })?;
-                let storage_dir = storage_dir.canonicalize().with_context(|| {
-                    format!("failed to resolve storage directory: {storage_dir:?}")
-                })?;
-                Some(storage_dir)
+                if !home.is_dir() {
+                    anyhow::bail!("current user's HOME is not a directory: {home:?}");
+                }
+                Some(home)
             } else {
                 None
             };
             info!("initializing database at {:?}", db_path);
             let pool = db::init_db(&db_path).await?;
 
-            if let Some(storage_path) = storage_path {
+            if let Some(home_path) = home_path {
                 let addition = serde_json::to_string(&driver::local::LocalAddition {
-                    root_folder_path: storage_path.to_string_lossy().into_owned(),
+                    root_folder_path: home_path.to_string_lossy().into_owned(),
                     show_hidden: false,
                 })?;
                 sqlx::query(
@@ -159,7 +161,7 @@ pub async fn run() -> Result<()> {
                 .bind(addition)
                 .execute(&pool)
                 .await?;
-                info!("mounted default storage directory at /");
+                info!("mounted current user's HOME directory at /");
             }
 
             info!("loading storage manager...");
