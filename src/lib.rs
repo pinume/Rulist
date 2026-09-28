@@ -154,7 +154,7 @@ pub async fn run() -> Result<()> {
                     show_hidden: false,
                 })?;
                 sqlx::query(
-                    "INSERT OR IGNORE INTO `x_storages` (`mount_path`, `driver`, `addition`) VALUES ('/', 'Local', ?)",
+                    "INSERT OR IGNORE INTO `x_storages` (`mount_path`, `addition`) VALUES ('/', ?)",
                 )
                 .bind(addition)
                 .execute(&pool)
