@@ -15,4 +15,6 @@ mkdir -p "$repo_root/public/dist"
 find "$repo_root/public/dist" -mindepth 1 ! -name README.md -delete
 cp -a "$web_root/dist/." "$repo_root/public/dist/"
 
+touch "$repo_root/src/static_files.rs"
+
 echo "Built Rulist frontend into $repo_root/public/dist"
