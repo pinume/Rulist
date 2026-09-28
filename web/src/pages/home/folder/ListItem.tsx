@@ -10,24 +10,21 @@ import {
 } from "@hope-ui/solid"
 import { Show } from "solid-js"
 import { LinkWithPush } from "~/components"
-import { useLink, usePath, useRouter, useT, useUtil } from "~/hooks"
+import { useLink, usePath, useRouter, useUtil } from "~/hooks"
 import {
   getMainColor,
   getSettingBool,
-  me,
   objStore,
-  OrderBy,
   selectIndex,
   userCan,
 } from "~/store"
-import { StoreObj, UserMethods } from "~/types"
+import { StoreObj } from "~/types"
 import {
   bus,
   colorAlpha,
   formatDate,
   getFileSize,
   hoverColor,
-  notify,
 } from "~/utils"
 import { getIconByObj, getIconColorByObj } from "~/utils/icon"
 import { BsThreeDotsVertical } from "solid-icons/bs"
@@ -58,34 +55,19 @@ export const cols: Col[] = [
 
 export const ListItem = (props: { obj: StoreObj; index: number }) => {
   const { isHide } = useUtil()
-  if (isHide(props.obj)) {
-    return null
-  }
-  const t = useT()
+  if (isHide(props.obj)) return null
   const { rawLink } = useLink()
   const { setPathAs } = usePath()
   const { pushHref, to } = useRouter()
   const hasAnyAction = () => {
     if (!props.obj.is_dir) return true
     if (getSettingBool("package_download")) return true
-    if (objStore.write) {
-      if (
-        userCan("rename") ||
-        userCan("copy") ||
-        userCan("move") ||
-        userCan("delete")
-      ) {
-        return true
-      }
-    }
-    return false
+    return objStore.write &&
+      (userCan("rename") || userCan("copy") || userCan("move") || userCan("delete"))
   }
+
   return (
-    <div
-      style={{
-        width: "100%",
-      }}
-    >
+    <div style={{ width: "100%" }}>
       <HStack
         classList={{ selected: !!props.obj.selected }}
         class="list-item viselect-item"
@@ -102,24 +84,14 @@ export const ListItem = (props: { obj: StoreObj; index: number }) => {
             : hoverColor(),
         }}
         cursor="pointer"
-        bgColor={
-          props.obj.selected ? colorAlpha(getMainColor(), 0.13) : undefined
-        }
+        bgColor={props.obj.selected ? colorAlpha(getMainColor(), 0.13) : undefined}
         onClick={(e: MouseEvent) => {
           const target = e.target as HTMLElement | null
-          if (
-            target?.closest(
-              ".actions, .hope-menu__trigger, .hope-menu__content, .hope-menu__item",
-            )
-          ) {
-            return
-          }
+          if (target?.closest(".actions, .hope-menu__trigger, .hope-menu__content, .hope-menu__item")) return
           e.preventDefault()
           to(pushHref(props.obj.name))
         }}
-        onMouseEnter={() => {
-          setPathAs(props.obj.name, props.obj.is_dir, true)
-        }}
+        onMouseEnter={() => setPathAs(props.obj.name, props.obj.is_dir, true)}
       >
         <HStack class="name-box" spacing="$1" w={cols[0].w}>
           <Icon
@@ -160,11 +132,7 @@ export const ListItem = (props: { obj: StoreObj; index: number }) => {
               >
                 {props.obj.name}
               </Text>
-              <Text
-                display={{ "@initial": "block", "@md": "none" }}
-                size="xs"
-                color="$neutral10"
-              >
+              <Text display={{ "@initial": "block", "@md": "none" }} size="xs" color="$neutral10">
                 {getFileSize(props.obj.size)} · {formatDate(props.obj.modified)}
               </Text>
             </HStack>
@@ -182,9 +150,7 @@ export const ListItem = (props: { obj: StoreObj; index: number }) => {
               {props.obj.permissions}
             </Text>
           </Show>
-          <Text textAlign="right" size="sm">
-            {getFileSize(props.obj.size)}
-          </Text>
+          <Text textAlign="right" size="sm">{getFileSize(props.obj.size)}</Text>
         </HStack>
         <Text
           class="modified"
@@ -221,17 +187,10 @@ export const ListItem = (props: { obj: StoreObj; index: number }) => {
                 <Icon as={BsThreeDotsVertical} boxSize="$4" />
               </MenuTrigger>
               <MenuContent shadow="$md" zIndex={100}>
-                <Show
-                  when={!props.obj.is_dir || getSettingBool("package_download")}
-                >
+                <Show when={!props.obj.is_dir || getSettingBool("package_download")}>
                   <MenuItem
                     cursor="pointer"
-                    icon={
-                      <Icon
-                        as={operations.download.icon}
-                        color={operations.download.color}
-                      />
-                    }
+                    icon={<Icon as={operations.download.icon} color={operations.download.color} />}
                     onSelect={() => {
                       if (props.obj.is_dir) {
                         selectIndex(props.index, true, true)
@@ -242,75 +201,55 @@ export const ListItem = (props: { obj: StoreObj; index: number }) => {
                       }
                     }}
                   >
-                    {t("home.toolbar.download")}
+                    Download
                   </MenuItem>
                 </Show>
                 <Show when={userCan("rename") && objStore.write}>
                   <MenuItem
                     cursor="pointer"
-                    icon={
-                      <Icon
-                        as={operations.rename.icon}
-                        color={operations.rename.color}
-                      />
-                    }
+                    icon={<Icon as={operations.rename.icon} color={operations.rename.color} />}
                     onSelect={() => {
                       selectIndex(props.index, true, true)
                       bus.emit("tool", "rename")
                     }}
                   >
-                    {t("home.toolbar.rename")}
+                    Rename
                   </MenuItem>
                 </Show>
                 <Show when={userCan("copy") && objStore.write}>
                   <MenuItem
                     cursor="pointer"
-                    icon={
-                      <Icon
-                        as={operations.copy.icon}
-                        color={operations.copy.color}
-                      />
-                    }
+                    icon={<Icon as={operations.copy.icon} color={operations.copy.color} />}
                     onSelect={() => {
                       selectIndex(props.index, true, true)
                       bus.emit("tool", "copy")
                     }}
                   >
-                    {t("home.toolbar.copy")}
+                    Copy
                   </MenuItem>
                 </Show>
                 <Show when={userCan("move") && objStore.write}>
                   <MenuItem
                     cursor="pointer"
-                    icon={
-                      <Icon
-                        as={operations.move.icon}
-                        color={operations.move.color}
-                      />
-                    }
+                    icon={<Icon as={operations.move.icon} color={operations.move.color} />}
                     onSelect={() => {
                       selectIndex(props.index, true, true)
                       bus.emit("tool", "move")
                     }}
                   >
-                    {t("home.toolbar.move")}
+                    Move
                   </MenuItem>
                 </Show>
                 <Show when={userCan("delete") && objStore.write}>
                   <MenuItem
                     cursor="pointer"
-                    icon={
-                      <Icon
-                        as={operations.delete.icon}
-                        color={operations.delete.color}
-                      />
-                    }
+                    icon={<Icon as={operations.delete.icon} color={operations.delete.color} />}
                     onSelect={() => {
                       selectIndex(props.index, true, true)
                       bus.emit("tool", "delete")
                     }}
                   >
-                    {t("home.toolbar.delete")}
+                    Delete
                   </MenuItem>
                 </Show>
               </MenuContent>
