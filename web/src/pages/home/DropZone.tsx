@@ -2,7 +2,7 @@ import { Box, Heading, Text, VStack } from "@hope-ui/solid"
 import { FiUploadCloud } from "solid-icons/fi"
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js"
 import { Portal } from "solid-js/web"
-import { useRouter, useT } from "~/hooks"
+import { useRouter } from "~/hooks"
 import { getMainColor, objStore, State, userCan } from "~/store"
 import { notify } from "~/utils"
 import {
@@ -11,7 +11,6 @@ import {
 } from "./uploads/util"
 
 export const DropZone = () => {
-  const t = useT()
   const { pathname } = useRouter()
   const [isDragging, setIsDragging] = createSignal(false)
   let dragCounter = 0
@@ -47,9 +46,7 @@ export const DropZone = () => {
   const onDragOver = (e: DragEvent) => {
     if (!isFilesDrag(e) || hasOpenModal()) return
     e.preventDefault()
-    if (canWrite() && e.dataTransfer) {
-      e.dataTransfer.dropEffect = "copy"
-    }
+    if (canWrite() && e.dataTransfer) e.dataTransfer.dropEffect = "copy"
   }
 
   const onDragLeave = (e: DragEvent) => {
@@ -68,15 +65,13 @@ export const DropZone = () => {
 
   const onDrop = async (e: DragEvent) => {
     const isFiles = isFilesDrag(e)
-    if (isFiles && !hasOpenModal()) {
-      e.preventDefault()
-    }
+    if (isFiles && !hasOpenModal()) e.preventDefault()
     resetDrag()
     if (!canWrite() || hasOpenModal() || !isFiles) return
 
     const files = await extractFilesFromDataTransfer(e.dataTransfer)
     if (files.length === 0) {
-      notify.warning(t("home.upload.no_files_drag"))
+      notify.warning("No files were dragged in.")
       return
     }
     enqueueFilesForUpload(files)
@@ -115,9 +110,7 @@ export const DropZone = () => {
           alignItems="center"
           justifyContent="center"
           bg="rgba(0, 0, 0, 0.45)"
-          css={{
-            backdropFilter: "blur(4px)",
-          }}
+          css={{ backdropFilter: "blur(4px)" }}
           p="$6"
         >
           <VStack
@@ -133,10 +126,8 @@ export const DropZone = () => {
             <Box color={getMainColor()} fontSize="3.5rem">
               <FiUploadCloud />
             </Box>
-            <Heading size="lg">{t("home.upload.release_to_upload")}</Heading>
-            <Text fontSize="$sm" color="$neutral11">
-              {pathname()}
-            </Text>
+            <Heading size="lg">Drop files or folders to upload them to the current directory</Heading>
+            <Text fontSize="$sm" color="$neutral11">{pathname()}</Text>
           </VStack>
         </Box>
       </Show>
