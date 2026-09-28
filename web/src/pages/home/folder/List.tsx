@@ -14,7 +14,7 @@ import {
   VStack,
 } from "@hope-ui/solid"
 import { For, Show } from "solid-js"
-import { usePath, useT, useRouter } from "~/hooks"
+import { usePath, useRouter } from "~/hooks"
 import {
   countMsg,
   directoryFilter,
@@ -35,12 +35,17 @@ import { bus } from "~/utils"
 import { BsFilter } from "solid-icons/bs"
 import { FiCheck } from "solid-icons/fi"
 
+const columnLabel: Record<string, string> = {
+  name: "Name",
+  size: "Size",
+  modified: "Modified",
+}
+
 export const ListTitle = (props: {
   sortCallback: (orderBy: OrderBy, reverse: boolean) => void
   initialOrder: OrderBy
   initialReverse: boolean
 }) => {
-  const t = useT()
   const { pathname } = useRouter()
   const hasNav = () => pathname().split("/").filter(Boolean).length > 0
 
@@ -49,24 +54,23 @@ export const ListTitle = (props: {
     props.sortCallback(nextOrder, nextReverse)
   }
 
-  const itemProps = (col: Col) => {
-    return {
-      fontWeight: "semibold",
-      fontSize: "$xs",
-      color: "$neutral9",
-      textTransform: "uppercase" as any,
-      letterSpacing: "0.05em",
-      textAlign: col.textAlign as any,
-      cursor: "pointer",
-      onClick: () => {
-        if (col.name === props.initialOrder) {
-          updateSort(col.name as OrderBy, !props.initialReverse)
-        } else {
-          updateSort(col.name as OrderBy, false)
-        }
-      },
-    }
-  }
+  const itemProps = (col: Col) => ({
+    fontWeight: "semibold",
+    fontSize: "$xs",
+    color: "$neutral9",
+    textTransform: "uppercase" as any,
+    letterSpacing: "0.05em",
+    textAlign: col.textAlign as any,
+    cursor: "pointer",
+    onClick: () => {
+      if (col.name === props.initialOrder) {
+        updateSort(col.name as OrderBy, !props.initialReverse)
+      } else {
+        updateSort(col.name as OrderBy, false)
+      }
+    },
+  })
+
   return (
     <HStack
       class="title"
@@ -82,21 +86,21 @@ export const ListTitle = (props: {
       borderTopRadius="$xl"
     >
       <HStack w={cols[0].w} spacing="$1">
-        <Text {...itemProps(cols[0])}>{t(`home.obj.${cols[0].name}`)}</Text>
+        <Text {...itemProps(cols[0])}>{columnLabel[cols[0].name]}</Text>
       </HStack>
       <Text
         w={cols[1].w}
         display={{ "@initial": "none", "@md": "inline" }}
         {...itemProps(cols[1])}
       >
-        {t(`home.obj.${cols[1].name}`)}
+        {columnLabel[cols[1].name]}
       </Text>
       <Text
         w={cols[2].w}
         {...itemProps(cols[2])}
         display={{ "@initial": "none", "@md": "inline" }}
       >
-        {t(`home.obj.${cols[2].name}`)}
+        {columnLabel[cols[2].name]}
       </Text>
       <HStack
         w={cols[3].w}
@@ -113,9 +117,7 @@ export const ListTitle = (props: {
             rounded="$md"
             cursor="pointer"
             bg="transparent"
-            _hover={{
-              bgColor: useColorModeValue("$neutral3", "$neutral5")(),
-            }}
+            _hover={{ bgColor: useColorModeValue("$neutral3", "$neutral5")() }}
           >
             <HStack spacing="$1" alignItems="center">
               <Icon as={BsFilter} boxSize="$4" color="$neutral9" />
@@ -125,61 +127,37 @@ export const ListTitle = (props: {
                 color="$neutral9"
                 display={{ "@initial": "none", "@md": "inline" }}
               >
-                {t("home.sort")}
+                Sort
               </Text>
             </HStack>
           </MenuTrigger>
           <MenuContent minW="160px" shadow="$md" zIndex={100}>
             <MenuGroup>
               <MenuLabel fontSize="$xs" color="$neutral9" px="$3" py="$1">
-                {t("home.sort_by")}
+                Sort by
               </MenuLabel>
-              <MenuItem
-                cursor="pointer"
-                onSelect={() => updateSort("name", objStore.reverse)}
-              >
-                <HStack
-                  w="$full"
-                  justifyContent="space-between"
-                  alignItems="center"
-                >
+              <MenuItem cursor="pointer" onSelect={() => updateSort("name", objStore.reverse)}>
+                <HStack w="$full" justifyContent="space-between" alignItems="center">
                   <Text
                     fontSize="$sm"
-                    color={
-                      objStore.orderBy === "name" ? getMainColor() : undefined
-                    }
-                    fontWeight={
-                      objStore.orderBy === "name" ? "semibold" : "normal"
-                    }
+                    color={objStore.orderBy === "name" ? getMainColor() : undefined}
+                    fontWeight={objStore.orderBy === "name" ? "semibold" : "normal"}
                   >
-                    {t("home.sort_name")}
+                    File name
                   </Text>
                   <Show when={objStore.orderBy === "name"}>
                     <Icon as={FiCheck} color={getMainColor()} />
                   </Show>
                 </HStack>
               </MenuItem>
-              <MenuItem
-                cursor="pointer"
-                onSelect={() => updateSort("modified", objStore.reverse)}
-              >
-                <HStack
-                  w="$full"
-                  justifyContent="space-between"
-                  alignItems="center"
-                >
+              <MenuItem cursor="pointer" onSelect={() => updateSort("modified", objStore.reverse)}>
+                <HStack w="$full" justifyContent="space-between" alignItems="center">
                   <Text
                     fontSize="$sm"
-                    color={
-                      objStore.orderBy === "modified"
-                        ? getMainColor()
-                        : undefined
-                    }
-                    fontWeight={
-                      objStore.orderBy === "modified" ? "semibold" : "normal"
-                    }
+                    color={objStore.orderBy === "modified" ? getMainColor() : undefined}
+                    fontWeight={objStore.orderBy === "modified" ? "semibold" : "normal"}
                   >
-                    {t("home.sort_modified")}
+                    Modified
                   </Text>
                   <Show when={objStore.orderBy === "modified"}>
                     <Icon as={FiCheck} color={getMainColor()} />
@@ -187,49 +165,33 @@ export const ListTitle = (props: {
                 </HStack>
               </MenuItem>
             </MenuGroup>
-
             <Divider my="$1" />
-
             <MenuGroup>
               <MenuLabel fontSize="$xs" color="$neutral9" px="$3" py="$1">
-                {t("home.sort_order")}
+                Sort order
               </MenuLabel>
-              <MenuItem
-                cursor="pointer"
-                onSelect={() => updateSort(objStore.orderBy, false)}
-              >
-                <HStack
-                  w="$full"
-                  justifyContent="space-between"
-                  alignItems="center"
-                >
+              <MenuItem cursor="pointer" onSelect={() => updateSort(objStore.orderBy, false)}>
+                <HStack w="$full" justifyContent="space-between" alignItems="center">
                   <Text
                     fontSize="$sm"
                     color={!objStore.reverse ? getMainColor() : undefined}
                     fontWeight={!objStore.reverse ? "semibold" : "normal"}
                   >
-                    {t("home.sort_asc")}
+                    A to Z
                   </Text>
                   <Show when={!objStore.reverse}>
                     <Icon as={FiCheck} color={getMainColor()} />
                   </Show>
                 </HStack>
               </MenuItem>
-              <MenuItem
-                cursor="pointer"
-                onSelect={() => updateSort(objStore.orderBy, true)}
-              >
-                <HStack
-                  w="$full"
-                  justifyContent="space-between"
-                  alignItems="center"
-                >
+              <MenuItem cursor="pointer" onSelect={() => updateSort(objStore.orderBy, true)}>
+                <HStack w="$full" justifyContent="space-between" alignItems="center">
                   <Text
                     fontSize="$sm"
                     color={objStore.reverse ? getMainColor() : undefined}
                     fontWeight={objStore.reverse ? "semibold" : "normal"}
                   >
-                    {t("home.sort_desc")}
+                    Z to A
                   </Text>
                   <Show when={objStore.reverse}>
                     <Icon as={FiCheck} color={getMainColor()} />
@@ -237,12 +199,10 @@ export const ListTitle = (props: {
                 </HStack>
               </MenuItem>
             </MenuGroup>
-
             <Divider my="$1" />
-
             <MenuGroup>
               <MenuLabel fontSize="$xs" color="$neutral9" px="$3" py="$1">
-                {t("home.sort_folder")}
+                Folders
               </MenuLabel>
               <MenuItem
                 cursor="pointer"
@@ -251,29 +211,15 @@ export const ListTitle = (props: {
                   props.sortCallback(objStore.orderBy, objStore.reverse)
                 }}
               >
-                <HStack
-                  w="$full"
-                  justifyContent="space-between"
-                  alignItems="center"
-                >
+                <HStack w="$full" justifyContent="space-between" alignItems="center">
                   <Text
                     fontSize="$sm"
-                    color={
-                      (local["folder_sort_position"] || "top") === "top"
-                        ? getMainColor()
-                        : undefined
-                    }
-                    fontWeight={
-                      (local["folder_sort_position"] || "top") === "top"
-                        ? "semibold"
-                        : "normal"
-                    }
+                    color={(local["folder_sort_position"] || "top") === "top" ? getMainColor() : undefined}
+                    fontWeight={(local["folder_sort_position"] || "top") === "top" ? "semibold" : "normal"}
                   >
-                    {t("home.sort_folder_top")}
+                    On top
                   </Text>
-                  <Show
-                    when={(local["folder_sort_position"] || "top") === "top"}
-                  >
+                  <Show when={(local["folder_sort_position"] || "top") === "top"}>
                     <Icon as={FiCheck} color={getMainColor()} />
                   </Show>
                 </HStack>
@@ -285,25 +231,13 @@ export const ListTitle = (props: {
                   props.sortCallback(objStore.orderBy, objStore.reverse)
                 }}
               >
-                <HStack
-                  w="$full"
-                  justifyContent="space-between"
-                  alignItems="center"
-                >
+                <HStack w="$full" justifyContent="space-between" alignItems="center">
                   <Text
                     fontSize="$sm"
-                    color={
-                      local["folder_sort_position"] === "mixed"
-                        ? getMainColor()
-                        : undefined
-                    }
-                    fontWeight={
-                      local["folder_sort_position"] === "mixed"
-                        ? "semibold"
-                        : "normal"
-                    }
+                    color={local["folder_sort_position"] === "mixed" ? getMainColor() : undefined}
+                    fontWeight={local["folder_sort_position"] === "mixed" ? "semibold" : "normal"}
                   >
-                    {t("home.sort_folder_mixed")}
+                    Mixed with files
                   </Text>
                   <Show when={local["folder_sort_position"] === "mixed"}>
                     <Icon as={FiCheck} color={getMainColor()} />
@@ -319,7 +253,6 @@ export const ListTitle = (props: {
 }
 
 const ListLayout = () => {
-  const t = useT()
   const { pathname } = useRouter()
   const { handleFolder } = usePath()
 
@@ -348,53 +281,31 @@ const ListLayout = () => {
             {selectedMsg()}
           </Text>
           <Show when={userCan("copy") && objStore.write}>
-            <Button
-              size="sm"
-              variant="ghost"
-              color={getMainColor()}
-              onClick={() => bus.emit("tool", "copy")}
-            >
-              {t("home.toolbar.copy")}
+            <Button size="sm" variant="ghost" color={getMainColor()} onClick={() => bus.emit("tool", "copy")}>
+              Copy
             </Button>
           </Show>
           <Show when={userCan("move") && objStore.write}>
-            <Button
-              size="sm"
-              variant="ghost"
-              color={getMainColor()}
-              onClick={() => bus.emit("tool", "move")}
-            >
-              {t("home.toolbar.move")}
+            <Button size="sm" variant="ghost" color={getMainColor()} onClick={() => bus.emit("tool", "move")}>
+              Move
             </Button>
           </Show>
           <Show when={userCan("delete") && objStore.write}>
-            <Button
-              size="sm"
-              variant="ghost"
-              color="$danger9"
-              onClick={() => bus.emit("tool", "delete")}
-            >
-              {t("home.toolbar.delete")}
+            <Button size="sm" variant="ghost" color="$danger9" onClick={() => bus.emit("tool", "delete")}>
+              Delete
             </Button>
           </Show>
-          <Button
-            size="sm"
-            variant="ghost"
-            color="$neutral10"
-            onClick={() => selectAll(false)}
-          >
-            {t("home.toolbar.cancel_select")}
+          <Button size="sm" variant="ghost" color="$neutral10" onClick={() => selectAll(false)}>
+            Cancel selection
           </Button>
         </HStack>
       </Show>
       <For each={visibleObjIndexes()}>
-        {(index) => {
-          return <ListItem obj={objStore.objs[index]} index={index} />
-        }}
+        {(index) => <ListItem obj={objStore.objs[index]} index={index} />}
       </For>
       <Show when={directoryFilter().trim() && visibleObjIndexes().length === 0}>
         <Text size="sm" color="$neutral11" p="$4">
-          {t("home.search.empty")}
+          No matching files on this page
         </Text>
       </Show>
       <HStack
@@ -414,7 +325,7 @@ const ListLayout = () => {
       >
         <Text size="xs" color="$neutral10">
           {directoryFilter().trim()
-            ? t("home.search.results", { count: visibleObjIndexes().length })
+            ? `${visibleObjIndexes().length} matches on this page`
             : countMsg()}
         </Text>
       </HStack>
