@@ -375,19 +375,29 @@ pub async fn admin_user_update_handler(
     let next_permission = req.permission.unwrap_or(target.permission);
     let allow_empty =
         !target.is_admin() && next_permission & (1 << crate::model::PERM_ALLOW_EMPTY_PASSWORD) != 0;
+    let nonempty_password_supplied = req.password.as_deref().is_some_and(|password| !password.is_empty());
+    if !target.is_admin() && target.password_unset && !allow_empty && !nonempty_password_supplied {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            400,
+            "Set a non-empty password before disabling passwordless login",
+        );
+    }
+
     if let Some(password) = req.password.as_deref()
         && (!target.is_admin() || !password.is_empty())
     {
         if let Err(response) = validate_password_request(password, allow_empty) {
             return response;
         }
+        let old_pwd_ts = target.pwd_ts;
         target.pwd_hash = crate::auth::hash_password(password);
-        target.pwd_ts = std::time::SystemTime::now()
+        let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as i64;
-        target.pwd_ts = target.pwd_ts.max(target.pwd_ts + 1);
-        target.password_unset = false;
+        target.pwd_ts = now.max(old_pwd_ts.saturating_add(1));
+        target.password_unset = password.is_empty();
     }
 
     target.username = username.to_string();
