@@ -1,9 +1,8 @@
 use axum::http::HeaderMap;
 use axum::http::header::AUTHORIZATION;
-use subtle::ConstantTimeEq;
 
 use crate::auth::parse_jwt;
-use crate::db::{get_admin, get_setting, get_user_by_name};
+use crate::db::get_user_by_name;
 use crate::model::User;
 
 use super::AppState;
@@ -19,13 +18,6 @@ pub(crate) async fn authenticate_user_with_setup(
 ) -> Option<User> {
     let auth_header = headers.get(AUTHORIZATION)?.to_str().ok()?;
     let token = auth_header.strip_prefix("Bearer ").unwrap_or(auth_header);
-
-    if let Ok(Some(admin_token)) = get_setting(&state.pool, "token").await
-        && !admin_token.is_empty()
-        && admin_token.as_bytes().ct_eq(token.as_bytes()).into()
-    {
-        return get_admin(&state.pool).await.ok().flatten();
-    }
 
     let claims = parse_jwt(token, &state.config.jwt_secret).ok()?;
     let now = std::time::SystemTime::now()
