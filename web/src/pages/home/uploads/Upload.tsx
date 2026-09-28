@@ -13,7 +13,7 @@ import {
   Stack,
 } from "@hope-ui/solid"
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js"
-import { usePath, useRouter, useT } from "~/hooks"
+import { usePath, useRouter } from "~/hooks"
 import { getMainColor, uploadConfig, setUploadConfig } from "~/store"
 import {
   RiDocumentFolderUploadFill,
@@ -31,92 +31,76 @@ import {
 } from "./util"
 import { StreamUpload } from "./stream"
 
-const UploadFile = (props: UploadFileProps & { onRetry?: () => void }) => {
-  const t = useT()
-  return (
-    <VStack
-      w="$full"
-      spacing="$1"
-      rounded="$lg"
-      border="1px solid $neutral7"
-      alignItems="start"
-      p="$2"
-      _hover={{
-        border: `1px solid ${getMainColor()}`,
-      }}
-    >
-      <Text
-        css={{
-          wordBreak: "break-all",
-        }}
-      >
-        {props.path}
-      </Text>
-      <HStack spacing="$2" w="$full" justifyContent="space-between">
-        <HStack spacing="$2">
-          <Badge colorScheme={StatusBadge[props.status]}>
-            {t(`home.upload.${props.status}`)}
-          </Badge>
-          <Text>{getFileSize(props.speed)}/s</Text>
-        </HStack>
-        <HStack spacing="$2">
-          <Show when={props.status === "error" && props.onRetry}>
-            <Button
-              compact
-              size="xs"
-              colorScheme="accent"
-              onClick={() => props.onRetry?.()}
-            >
-              {t("home.upload.retry")}
-            </Button>
-          </Show>
-          <Text color="$neutral11">{getFileSize(props.size)}</Text>
-        </HStack>
-      </HStack>
-      <Progress
-        w="$full"
-        trackColor="$info3"
-        rounded="$full"
-        value={props.progress}
-        size="sm"
-      >
-        <ProgressIndicator color={getMainColor()} rounded="$md" />
-      </Progress>
-      <Text color="$danger10">{props.msg}</Text>
-    </VStack>
-  )
+const statusText: Record<string, string> = {
+  pending: "Pending",
+  uploading: "Uploading",
+  backending: "Uploading in background",
+  success: "Success",
+  error: "Error",
 }
+
+const UploadFile = (props: UploadFileProps & { onRetry?: () => void }) => (
+  <VStack
+    w="$full"
+    spacing="$1"
+    rounded="$lg"
+    border="1px solid $neutral7"
+    alignItems="start"
+    p="$2"
+    _hover={{ border: `1px solid ${getMainColor()}` }}
+  >
+    <Text css={{ wordBreak: "break-all" }}>{props.path}</Text>
+    <HStack spacing="$2" w="$full" justifyContent="space-between">
+      <HStack spacing="$2">
+        <Badge colorScheme={StatusBadge[props.status]}>
+          {statusText[props.status] ?? props.status}
+        </Badge>
+        <Text>{getFileSize(props.speed)}/s</Text>
+      </HStack>
+      <HStack spacing="$2">
+        <Show when={props.status === "error" && props.onRetry}>
+          <Button compact size="xs" colorScheme="accent" onClick={() => props.onRetry?.()}>
+            Retry
+          </Button>
+        </Show>
+        <Text color="$neutral11">{getFileSize(props.size)}</Text>
+      </HStack>
+    </HStack>
+    <Progress
+      w="$full"
+      trackColor="$info3"
+      rounded="$full"
+      value={props.progress}
+      size="sm"
+    >
+      <ProgressIndicator color={getMainColor()} rounded="$md" />
+    </Progress>
+    <Text color="$danger10">{props.msg}</Text>
+  </VStack>
+)
 
 type UploadTask = UploadFileProps & { id: number }
 
 const Upload = () => {
-  const t = useT()
   const { pathname } = useRouter()
   const { refresh } = usePath()
   const [drag, setDrag] = createSignal(false)
   const [uploading, setUploading] = createSignal(false)
-  const [uploadFiles, setUploadFiles] = createStore<{
-    uploads: UploadTask[]
-  }>({
-    uploads: [],
-  })
-  const allDone = () => {
-    return uploadFiles.uploads.every(({ status }) =>
-      ["success", "error"].includes(status),
-    )
-  }
+  const [uploadFiles, setUploadFiles] = createStore<{ uploads: UploadTask[] }>({ uploads: [] })
+  const allDone = () =>
+    uploadFiles.uploads.every(({ status }) => ["success", "error"].includes(status))
   let fileInput!: HTMLInputElement
   let folderInput!: HTMLInputElement
-  // Keep the File handles around so a failed row can be retried in place.
   const fileMap = new Map<number, File>()
   let nextUploadId = 0
+
   const handleAddFiles = async (files: File[]) => {
     if (files.length === 0) return
     setUploading(true)
     const uploads = files.map((file) => {
       const upload = { ...File2Upload(file), id: nextUploadId++ }
       fileMap.set(upload.id, file)
-      setUploadFiles("uploads", (uploads) => [...uploads, upload])
+      setUploadFiles("uploads", (items) => [...items, upload])
       return { file, upload }
     })
     for await (const ms of asyncPool(3, uploads, ({ file, upload }) =>
@@ -125,21 +109,16 @@ const Upload = () => {
       console.log(ms)
     }
     refresh()
-    // Refresh again after a delay so asynchronously generated backend files can appear.
     setTimeout(() => refresh(undefined, true), 5000)
   }
 
   onMount(() => {
     setUploadListenerActive(true)
     const pending = takePendingFiles()
-    if (pending.length > 0) {
-      handleAddFiles(pending)
-    }
+    if (pending.length > 0) handleAddFiles(pending)
   })
 
-  const onUploadFiles = (files: File[]) => {
-    handleAddFiles(files)
-  }
+  const onUploadFiles = (files: File[]) => handleAddFiles(files)
   bus.on("upload_files", onUploadFiles)
   onCleanup(() => {
     setUploadListenerActive(false)
@@ -158,17 +137,16 @@ const Upload = () => {
     setUpload(id, "speed", 0)
     handleFile(id, file)
   }
+
   const handleFile = async (id: number, file: File) => {
-    const path = file.webkitRelativePath ? file.webkitRelativePath : file.name
+    const path = file.webkitRelativePath || file.name
     setUpload(id, "status", "uploading")
     const uploadPath = pathJoin(pathname(), path)
     try {
       const err = await StreamUpload(
         uploadPath,
         file,
-        (key, value) => {
-          setUpload(id, key, value)
-        },
+        (key, value) => setUpload(id, key, value),
         uploadConfig.asTask,
         uploadConfig.overwrite,
       ).catch((err) => err)
@@ -185,6 +163,7 @@ const Upload = () => {
       setUpload(id, "msg", e.message)
     }
   }
+
   return (
     <VStack w="$full" pb="$2" spacing="$2">
       <Show
@@ -194,31 +173,20 @@ const Upload = () => {
             <HStack spacing="$2">
               <Button
                 colorScheme="accent"
-                onClick={() => {
-                  setUploadFiles("uploads", (_uploads) =>
-                    _uploads.filter(
-                      ({ status }) => !["success", "error"].includes(status),
-                    ),
+                onClick={() =>
+                  setUploadFiles("uploads", (items) =>
+                    items.filter(({ status }) => !["success", "error"].includes(status)),
                   )
-                  console.log(uploadFiles.uploads)
-                }}
+                }
               >
-                {t("home.upload.clear_done")}
+                Clear completed
               </Button>
               <Show when={allDone()}>
-                <Button
-                  onClick={() => {
-                    setUploading(false)
-                  }}
-                >
-                  {t("home.upload.back")}
-                </Button>
+                <Button onClick={() => setUploading(false)}>Back to upload</Button>
               </Show>
             </HStack>
             <For each={uploadFiles.uploads}>
-              {(upload) => (
-                <UploadFile {...upload} onRetry={() => retryFile(upload.id)} />
-              )}
+              {(upload) => <UploadFile {...upload} onRetry={() => retryFile(upload.id)} />}
             </For>
           </>
         }
@@ -228,10 +196,7 @@ const Upload = () => {
           multiple
           ref={fileInput}
           display="none"
-          onChange={(e) => {
-            // @ts-ignore
-            handleAddFiles(Array.from(e.target.files ?? []))
-          }}
+          onChange={(e) => handleAddFiles(Array.from(e.currentTarget.files ?? []))}
         />
         <Input
           type="file"
@@ -240,10 +205,7 @@ const Upload = () => {
           webkitdirectory
           ref={folderInput}
           display="none"
-          onChange={(e) => {
-            // @ts-ignore
-            handleAddFiles(Array.from(e.target.files ?? []))
-          }}
+          onChange={(e) => handleAddFiles(Array.from(e.currentTarget.files ?? []))}
         />
         <VStack
           w="$full"
@@ -257,58 +219,44 @@ const Upload = () => {
             e.preventDefault()
             setDrag(true)
           }}
-          onDragLeave={() => {
-            setDrag(false)
-          }}
+          onDragLeave={() => setDrag(false)}
           onDrop={async (e: DragEvent) => {
             e.preventDefault()
             e.stopPropagation()
             setDrag(false)
-            const res = await extractFilesFromDataTransfer(e.dataTransfer)
-            if (res.length === 0) {
-              notify.warning(t("home.upload.no_files_drag"))
+            const files = await extractFilesFromDataTransfer(e.dataTransfer)
+            if (files.length === 0) {
+              notify.warning("No files were dragged in.")
               return
             }
-            handleAddFiles(res)
+            handleAddFiles(files)
           }}
         >
-          <Show
-            when={!drag()}
-            fallback={<Heading>{t("home.upload.release")}</Heading>}
-          >
+          <Show when={!drag()} fallback={<Heading>Release to upload</Heading>}>
             <Heading size="lg" textAlign="center">
-              {t("home.upload.upload-tips")}
+              Drag files here to upload, or click:
             </Heading>
             <HStack spacing="$4">
               <VStack spacing="$2" alignItems="center">
                 <IconButton
                   compact
                   size="xl"
-                  aria-label={t("home.upload.upload_folder")}
+                  aria-label="Select folder"
                   colorScheme="accent"
                   icon={<RiDocumentFolderUploadFill size="1.2em" />}
-                  onClick={() => {
-                    folderInput.click()
-                  }}
+                  onClick={() => folderInput.click()}
                 />
-                <Text fontSize="$sm" color="$neutral11" textAlign="center">
-                  {t("home.upload.upload_folder")}
-                </Text>
+                <Text fontSize="$sm" color="$neutral11" textAlign="center">Select folder</Text>
               </VStack>
-
               <VStack spacing="$2" alignItems="center">
                 <IconButton
                   compact
                   size="xl"
-                  aria-label={t("home.upload.upload_files")}
+                  aria-label="Select files"
                   icon={<RiDocumentFileUploadFill size="1.2em" />}
-                  onClick={() => {
-                    fileInput.click()
-                  }}
+                  onClick={() => fileInput.click()}
                 />
-                <Text fontSize="$sm" color="$neutral11" textAlign="center">
-                  {t("home.upload.upload_files")}
-                </Text>
+                <Text fontSize="$sm" color="$neutral11" textAlign="center">Select files</Text>
               </VStack>
             </HStack>
             <Stack
@@ -317,19 +265,15 @@ const Upload = () => {
             >
               <Checkbox
                 checked={uploadConfig.asTask}
-                onChange={() => {
-                  setUploadConfig({ asTask: !uploadConfig.asTask })
-                }}
+                onChange={() => setUploadConfig({ asTask: !uploadConfig.asTask })}
               >
-                {t("home.upload.add_as_task")}
+                Add as task
               </Checkbox>
               <Checkbox
                 checked={uploadConfig.overwrite}
-                onChange={() => {
-                  setUploadConfig({ overwrite: !uploadConfig.overwrite })
-                }}
+                onChange={() => setUploadConfig({ overwrite: !uploadConfig.overwrite })}
               >
-                {t("home.conflict_policy.overwrite_existing")}
+                Overwrite existing files
               </Checkbox>
             </Stack>
           </Show>
