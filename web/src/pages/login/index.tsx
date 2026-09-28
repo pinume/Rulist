@@ -13,19 +13,18 @@ import {
   FormLabel,
 } from "@hope-ui/solid"
 import { createMemo, createSignal, Show } from "solid-js"
-import { useFetch, useLoading, useT, useTitle, useRouter } from "~/hooks"
+import { useLoading, useTitle, useRouter } from "~/hooks"
 import {
   changeToken,
   r,
   notify,
   handleRespWithoutAuthAndNotify,
-  base_path,
   getSafeRedirect,
 } from "~/utils"
 import { Resp } from "~/types"
 import LoginBg from "./LoginBg"
 import { createStorageSignal } from "@solid-primitives/storage"
-import { getLogo, getSetting, getSettingBool } from "~/store"
+import { getLogo, getSetting } from "~/store"
 import { joinBase } from "~/utils"
 
 const Login = () => {
@@ -38,10 +37,7 @@ const Login = () => {
     }
     return joinBase(value)
   })
-  const t = useT()
-  const title = createMemo(() => {
-    return `${t("login.login_to")} ${getSetting("site_title")}`
-  })
+  const title = createMemo(() => `Sign in to ${getSetting("site_title")}`)
   useTitle(title)
   const bgColor = useColorModeValue("white", "$neutral3")
   const [username, setUsername] = createSignal(
@@ -70,10 +66,10 @@ const Login = () => {
     handleRespWithoutAuthAndNotify(
       resp,
       (data) => {
-        notify.success(t("login.success"))
+        notify.success("Signed in successfully")
         changeToken(data.token)
         const redirect = getSafeRedirect(searchParams["redirect"])
-        to(redirect || base_path || "/", true)
+        to(redirect || "/", true)
       },
       (msg, code) => {
         if (!needOpt() && code === 402) {
@@ -113,11 +109,11 @@ const Login = () => {
           when={!needOpt()}
           fallback={
             <FormControl>
-              <FormLabel for="totp">{t("login.otp")}</FormLabel>
+              <FormLabel for="totp">Verification code</FormLabel>
               <Input
                 id="totp"
                 name="otp"
-                placeholder={t("login.otp-tips")}
+                placeholder="Enter your OTP code"
                 value={opt()}
                 onInput={(e) => setOpt(e.currentTarget.value)}
                 onKeyDown={(e) => {
@@ -130,21 +126,21 @@ const Login = () => {
           }
         >
           <FormControl>
-            <FormLabel for="username">{t("login.username")}</FormLabel>
+            <FormLabel for="username">Username</FormLabel>
             <Input
               id="username"
               name="username"
-              placeholder={t("login.username-tips")}
+              placeholder="Enter your username"
               value={username()}
               onInput={(e) => setUsername(e.currentTarget.value)}
             />
           </FormControl>
           <FormControl>
-            <FormLabel for="password">{t("login.password")}</FormLabel>
+            <FormLabel for="password">Password</FormLabel>
             <Input
               id="password"
               name="password"
-              placeholder={t("login.password-tips")}
+              placeholder="Enter your password"
               type="password"
               value={password()}
               onInput={(e) => setPassword(e.currentTarget.value)}
@@ -169,7 +165,7 @@ const Login = () => {
                 setRemember(remember() === "true" ? "false" : "true")
               }
             >
-              {t("login.remember")}
+              Remember username
             </Checkbox>
           </Flex>
         </Show>
@@ -186,10 +182,10 @@ const Login = () => {
               }
             }}
           >
-            {t("login.clear")}
+            Clear
           </Button>
           <Button w="$full" loading={loading()} onClick={Login}>
-            {t("login.login")}
+            Sign in
           </Button>
         </HStack>
       </VStack>
