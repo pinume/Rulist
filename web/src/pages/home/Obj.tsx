@@ -1,7 +1,6 @@
 import { Text, useColorModeValue, VStack } from "@hope-ui/solid"
 import {
   createEffect,
-  createMemo,
   lazy,
   Match,
   on,
@@ -9,13 +8,13 @@ import {
   Switch,
 } from "solid-js"
 import { Error, FullLoading, LinkWithBase } from "~/components"
-import { useObjTitle, usePath, useRouter, useT } from "~/hooks"
+import { useObjTitle, usePath, useRouter } from "~/hooks"
 import {
   objStore,
   password,
   recordHistory,
   setPassword,
-  /*layout,*/ State,
+  State,
 } from "~/store"
 
 const Folder = lazy(() => import("./folder/Folder"))
@@ -23,19 +22,14 @@ const File = lazy(() => import("./file/File"))
 const Password = lazy(() => import("./Password"))
 
 export const Obj = () => {
-  const t = useT()
   const cardBg = useColorModeValue("white", "$neutral3")
-  const { pathname, searchParams, to } = useRouter()
+  const { pathname, searchParams } = useRouter()
   const { handlePathChange, refresh } = usePath()
   let lastPathname: string
   createEffect(
     on(pathname, async (pathname) => {
-      if (searchParams["pwd"]) {
-        setPassword(searchParams["pwd"])
-      }
-      if (lastPathname) {
-        recordHistory(lastPathname)
-      }
+      if (searchParams["pwd"]) setPassword(searchParams["pwd"])
+      if (lastPathname) recordHistory(lastPathname)
       lastPathname = pathname
       useObjTitle()
       await handlePathChange(pathname)
@@ -60,29 +54,23 @@ export const Obj = () => {
           <Match when={objStore.err}>
             <Error msg={objStore.err} />
           </Match>
-          <Match
-            when={[State.FetchingObj, State.FetchingObjs].includes(
-              objStore.state,
-            )}
-          >
+          <Match when={[State.FetchingObj, State.FetchingObjs].includes(objStore.state)}>
             <FullLoading />
           </Match>
           <Match when={objStore.state === State.NeedPassword}>
             <Password
-              title={t("home.input_password")}
+              title="Enter password"
               password={password}
               setPassword={setPassword}
               enterCallback={() => refresh(true)}
             >
-              <Text>{t("global.have_account")}</Text>
+              <Text>Already have an account?</Text>
               <Text
                 color="$info9"
                 as={LinkWithBase}
-                href={`/@login?redirect=${encodeURIComponent(
-                  location.pathname,
-                )}`}
+                href={`/@login?redirect=${encodeURIComponent(location.pathname)}`}
               >
-                {t("global.go_login")}
+                Go to login
               </Text>
             </Password>
           </Match>
