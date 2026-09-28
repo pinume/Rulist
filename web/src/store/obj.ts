@@ -86,6 +86,29 @@ export const ObjStore = {
   setErr: (err: string) => setObjStore("err", err),
 }
 
+let lastClickedIndex: number | null = null
+
+export const setLastClickedIndex = (index: number | null) => {
+  lastClickedIndex = index
+}
+
+export const selectRange = (targetIndex: number) => {
+  const indexes = visibleObjIndexes()
+  if (!indexes.includes(targetIndex)) return
+  if (lastClickedIndex === null || !indexes.includes(lastClickedIndex)) {
+    selectIndex(targetIndex, true)
+    lastClickedIndex = targetIndex
+    return
+  }
+  const posA = indexes.indexOf(lastClickedIndex)
+  const posB = indexes.indexOf(targetIndex)
+  const start = Math.min(posA, posB)
+  const end = Math.max(posA, posB)
+  for (let i = start; i <= end; i++) {
+    setObjStore("objs", indexes[i], { selected: true })
+  }
+}
+
 export const selectIndex = (index: number, checked: boolean, one?: boolean) => {
   const indexes = visibleObjIndexes()
   if (!indexes.includes(index)) return
@@ -94,6 +117,9 @@ export const selectIndex = (index: number, checked: boolean, one?: boolean) => {
 }
 
 export const selectAll = (checked: boolean) => {
+  if (!checked) {
+    lastClickedIndex = null
+  }
   const indexes = checked
     ? visibleObjIndexes()
     : objStore.objs.map((_, index) => index)

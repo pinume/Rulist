@@ -16,6 +16,8 @@ import {
   getSettingBool,
   objStore,
   selectIndex,
+  selectRange,
+  setLastClickedIndex,
   userCan,
 } from "~/store"
 import { StoreObj } from "~/types"
@@ -89,6 +91,18 @@ export const ListItem = (props: { obj: StoreObj; index: number }) => {
           const target = e.target as HTMLElement | null
           if (target?.closest(".actions, .hope-menu__trigger, .hope-menu__content, .hope-menu__item")) return
           e.preventDefault()
+
+          if (e.shiftKey) {
+            selectRange(props.index)
+            return
+          }
+          if (e.ctrlKey || e.metaKey) {
+            selectIndex(props.index, !props.obj.selected)
+            setLastClickedIndex(props.index)
+            return
+          }
+
+          setLastClickedIndex(props.index)
           to(pushHref(props.obj.name))
         }}
         onMouseEnter={() => setPathAs(props.obj.name, props.obj.is_dir, true)}
