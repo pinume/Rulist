@@ -14,7 +14,7 @@ import {
   RadioGroup,
   Input,
 } from "@hope-ui/solid"
-import { useFetch, usePath, useRouter, useT } from "~/hooks"
+import { useFetch, usePath, useRouter } from "~/hooks"
 import {
   bus,
   fsBatchRename,
@@ -27,48 +27,40 @@ import { createSignal, For, onCleanup, Show } from "solid-js"
 import { selectedObjs } from "~/store"
 import { RenameObj } from "~/types"
 
-const RenameItem = (props: { obj: RenameObj; index: number }) => {
-  return (
-    <div style={{ width: "100%" }}>
-      <HStack
-        class="list-item"
-        w="$full"
-        p="$2"
-        rounded="$lg"
-        transition="all 0.3s"
-        _hover={{
-          transform: "scale(1.01)",
-          bgColor: hoverColor(),
-        }}
+const validationMessage = (error?: string) =>
+  error === "invalid_filename_chars"
+    ? 'File names cannot contain: / \\ ? < > * : | "'
+    : "Please enter a value"
+
+const RenameItem = (props: { obj: RenameObj; index: number }) => (
+  <div style={{ width: "100%" }}>
+    <HStack
+      class="list-item"
+      w="$full"
+      p="$2"
+      rounded="$lg"
+      transition="all 0.3s"
+      _hover={{ transform: "scale(1.01)", bgColor: hoverColor() }}
+    >
+      <Text
+        w={{ "@initial": "50%", "@md": "50%" }}
+        class="name"
+        css={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+        title={props.obj.src_name}
       >
-        <Text
-          w={{ "@initial": "50%", "@md": "50%" }}
-          class="name"
-          css={{
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-          title={props.obj.src_name}
-        >
-          {props.obj.src_name}
-        </Text>
-        <Text
-          w={{ "@initial": "50%", "@md": "50%" }}
-          class="name"
-          css={{
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-          title={props.obj.new_name}
-        >
-          {props.obj.new_name}
-        </Text>
-      </HStack>
-    </div>
-  )
-}
+        {props.obj.src_name}
+      </Text>
+      <Text
+        w={{ "@initial": "50%", "@md": "50%" }}
+        class="name"
+        css={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+        title={props.obj.new_name}
+      >
+        {props.obj.new_name}
+      </Text>
+    </HStack>
+  </div>
+)
 
 export const BatchRename = () => {
   const {
@@ -87,7 +79,6 @@ export const BatchRename = () => {
   const [matchNames, setMatchNames] = createSignal<RenameObj[]>([])
   const [validationErrorSrc, setValidationErrorSrc] = createSignal<string>("")
   const [validationErrorNew, setValidationErrorNew] = createSignal<string>("")
-  const t = useT()
 
   const handleInputSrc = (newValue: string) => {
     setSrcName(newValue)
@@ -101,85 +92,70 @@ export const BatchRename = () => {
     setValidationErrorNew(validation.valid ? "" : validation.error || "")
   }
 
-  const itemProps = () => {
-    return {
-      fontWeight: "bold",
-      fontSize: "$sm",
-      color: "$neutral11",
-      textAlign: "left" as any,
-      cursor: "pointer",
-    }
-  }
+  const itemProps = () => ({
+    fontWeight: "bold",
+    fontSize: "$sm",
+    color: "$neutral11",
+    textAlign: "left" as any,
+    cursor: "pointer",
+  })
+
   const handler = (name: string) => {
-    if (name === "batchRename") {
-      onOpen()
-    }
+    if (name === "batchRename") onOpen()
   }
   bus.on("tool", handler)
-  onCleanup(() => {
-    bus.off("tool", handler)
-  })
+  onCleanup(() => bus.off("tool", handler))
 
   const submit = () => {
     if (!srcName()) {
-      // Check if both input values are not empty
-      notify.warning(t("global.empty_input"))
+      notify.warning("Please enter a value")
       return
     }
     const validationSrc = validateFilename(srcName())
     if (!validationSrc.valid) {
-      notify.warning(t(`global.${validationSrc.error}`))
+      notify.warning(validationMessage(validationSrc.error))
       return
     }
     const validationNew = validateFilename(newName())
     if (!validationNew.valid) {
-      notify.warning(t(`global.${validationNew.error}`))
+      notify.warning(validationMessage(validationNew.error))
       return
     }
-    let matchNames: RenameObj[]
+
+    let matches: RenameObj[]
     if (type() === "2") {
       let tempNum = newName()
       const hasNumberPlaceholder = srcName().includes("{number}")
       const paddingLength = parseInt(paddingZeros()) || 0
-
-      matchNames = selectedObjs().map((obj) => {
+      matches = selectedObjs().map((obj) => {
         const lastDotIndex = obj.name.lastIndexOf(".")
-        const suffix =
-          lastDotIndex !== -1 ? obj.name.substring(lastDotIndex) : ""
-        const paddedNum =
-          paddingLength > 0 ? tempNum.padStart(paddingLength, "0") : tempNum
-
-        let newFileName: string
-        if (hasNumberPlaceholder) {
-          newFileName = srcName().replace("{number}", paddedNum) + suffix
-        } else {
-          newFileName = srcName() + paddedNum + suffix
-        }
-
-        const renameObj: RenameObj = {
-          src_name: obj.name,
-          new_name: newFileName,
-        }
-        tempNum = (parseInt(tempNum) + 1)
-          .toString()
-          .padStart(tempNum.length, "0")
-        return renameObj
+        const suffix = lastDotIndex !== -1 ? obj.name.substring(lastDotIndex) : ""
+        const paddedNum = paddingLength > 0 ? tempNum.padStart(paddingLength, "0") : tempNum
+        const newFileName = hasNumberPlaceholder
+          ? srcName().replace("{number}", paddedNum) + suffix
+          : srcName() + paddedNum + suffix
+        tempNum = (parseInt(tempNum) + 1).toString().padStart(tempNum.length, "0")
+        return { src_name: obj.name, new_name: newFileName }
       })
     } else {
-      matchNames = selectedObjs()
-        .filter((obj) => obj.name.indexOf(srcName()) !== -1)
-        .map((obj) => {
-          const renameObj: RenameObj = {
-            src_name: obj.name,
-            new_name: obj.name.replace(srcName(), newName()),
-          }
-          return renameObj
-        })
+      matches = selectedObjs()
+        .filter((obj) => obj.name.includes(srcName()))
+        .map((obj) => ({
+          src_name: obj.name,
+          new_name: obj.name.replace(srcName(), newName()),
+        }))
     }
 
-    setMatchNames(matchNames)
+    setMatchNames(matches)
     openPreviewModal()
     onClose()
+  }
+
+  const reset = () => {
+    setType("3")
+    setPaddingZeros("")
+    setValidationErrorSrc("")
+    setValidationErrorNew("")
   }
 
   return (
@@ -189,86 +165,61 @@ export const BatchRename = () => {
         opened={isOpen()}
         onClose={onClose}
         initialFocus="#modal-input1"
-        size={{
-          "@initial": "xs",
-          "@md": "md",
-        }}
+        size={{ "@initial": "xs", "@md": "md" }}
       >
         <ModalOverlay />
         <ModalContent>
-          {/* <ModalCloseButton /> */}
-          <ModalHeader>{t("home.toolbar.batch_rename")}</ModalHeader>
+          <ModalHeader>Batch rename</ModalHeader>
           <ModalBody>
             <RadioGroup
               value={type()}
               onChange={(event: string) => {
                 setType(event)
                 setNewName("")
-                // Clear validation errors when switching type
                 setValidationErrorSrc("")
                 setValidationErrorNew("")
               }}
             >
               <HStack spacing="$4">
-                <Radio value="3">{t("home.toolbar.find_replace")}</Radio>
-                <Radio value="2">{t("home.toolbar.sequential_renaming")}</Radio>
+                <Radio value="3">Find and replace</Radio>
+                <Radio value="2">Sequential rename</Radio>
               </HStack>
             </RadioGroup>
             <VStack spacing="$2">
               <p style={{ margin: "10px 0" }}>
                 <Show when={type() === "2"}>
-                  {t("home.toolbar.sequential_renaming_desc")}
+                  Append a sequence number to new file names. Enter the new file name first and the starting number second. The {"{number}"} placeholder is supported.
                 </Show>
                 <Show when={type() === "3"}>
-                  {t("home.toolbar.find_replace_desc")}
+                  Find text in the selected file names and replace it.
                 </Show>
               </p>
               <Input
-                id="modal-input1" // Update id to "modal-input1" for first input
-                type={"string"}
-                placeholder={
-                  type() === "2"
-                    ? t("home.toolbar.sequential_renaming_input1_placeholder")
-                    : t("home.toolbar.find_replace_input1_placeholder")
-                }
-                value={srcName()} // Update value to value1 for first input
+                id="modal-input1"
+                type="string"
+                placeholder={type() === "2" ? "New file name (supports {number})" : "Find"}
+                value={srcName()}
                 invalid={!!validationErrorSrc()}
-                onInput={(e) => {
-                  handleInputSrc(e.currentTarget.value)
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    submit()
-                  }
-                }}
+                onInput={(e) => handleInputSrc(e.currentTarget.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") submit() }}
               />
               <Show when={validationErrorSrc()}>
                 <Text color="$danger9" fontSize="$sm">
-                  {t(`global.${validationErrorSrc()}`)}
+                  {validationMessage(validationErrorSrc())}
                 </Text>
               </Show>
               <Input
-                id="modal-input2" // Add second input with id "modal-input2"
+                id="modal-input2"
                 type={type() === "2" ? "number" : "text"}
-                placeholder={
-                  type() === "2"
-                    ? t("home.toolbar.sequential_renaming_input2_placeholder")
-                    : t("home.toolbar.find_replace_input2_placeholder")
-                }
-                value={newName()} // Bind value to value2 for second input
+                placeholder={type() === "2" ? "Starting number (for example, 1)" : "Replace with"}
+                value={newName()}
                 invalid={!!validationErrorNew()}
-                onInput={(e) => {
-                  handleInputNew(e.currentTarget.value)
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    submit()
-                  }
-                }}
+                onInput={(e) => handleInputNew(e.currentTarget.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") submit() }}
               />
               <Show when={validationErrorNew()}>
                 <Text color="$danger9" fontSize="$sm">
-                  {t(`global.${validationErrorNew()}`)}
+                  {validationMessage(validationErrorNew())}
                 </Text>
               </Show>
               <Show when={type() === "2"}>
@@ -277,18 +228,10 @@ export const BatchRename = () => {
                   type="number"
                   min="0"
                   step="1"
-                  placeholder={t(
-                    "home.toolbar.sequential_renaming_input3_placeholder",
-                  )}
+                  placeholder="Zero-padding width (optional)"
                   value={paddingZeros()}
-                  onInput={(e) => {
-                    setPaddingZeros(e.currentTarget.value)
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      submit()
-                    }
-                  }}
+                  onInput={(e) => setPaddingZeros(e.currentTarget.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") submit() }}
                 />
               </Show>
             </VStack>
@@ -296,70 +239,47 @@ export const BatchRename = () => {
           <ModalFooter display="flex" gap="$2">
             <Button
               onClick={() => {
-                setType("3")
-                setPaddingZeros("")
-                setValidationErrorSrc("")
-                setValidationErrorNew("")
+                reset()
                 onClose()
               }}
               colorScheme="neutral"
             >
-              {t("global.cancel")}
+              Cancel
             </Button>
             <Button
-              onClick={() => submit()}
-              disabled={
-                !srcName() ||
-                !newName() ||
-                !!validationErrorSrc() ||
-                !!validationErrorNew()
-              }
+              onClick={submit}
+              disabled={!srcName() || !newName() || !!validationErrorSrc() || !!validationErrorNew()}
             >
-              {t("global.ok")}
+              OK
             </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
 
-      <Modal
-        size="xl"
-        opened={isPreviewModalOpen()}
-        onClose={closePreviewModal}
-      >
+      <Modal size="xl" opened={isPreviewModalOpen()} onClose={closePreviewModal}>
         <ModalOverlay />
         <ModalContent>
-          <ModalHeader>{t("home.toolbar.batch_rename_preview")}</ModalHeader>
+          <ModalHeader>Renamed files</ModalHeader>
           <ModalBody>
             <VStack class="list" w="$full" spacing="$1">
               <HStack class="title" w="$full" p="$2">
-                <Text w={{ "@initial": "50%", "@md": "50%" }} {...itemProps()}>
-                  {t("home.toolbar.batch_rename_preview_old_name")}
-                </Text>
-                <Text w={{ "@initial": "50%", "@md": "50%" }} {...itemProps()}>
-                  {t("home.toolbar.batch_rename_preview_new_name")}
-                </Text>
+                <Text w={{ "@initial": "50%", "@md": "50%" }} {...itemProps()}>Old name</Text>
+                <Text w={{ "@initial": "50%", "@md": "50%" }} {...itemProps()}>New name</Text>
               </HStack>
-              <For each={matchNames()}>
-                {(obj, i) => {
-                  return <RenameItem obj={obj} index={i()} />
-                }}
-              </For>
+              <For each={matchNames()}>{(obj, i) => <RenameItem obj={obj} index={i()} />}</For>
             </VStack>
           </ModalBody>
           <ModalFooter display="flex" gap="$2">
             <Button
               onClick={() => {
                 setMatchNames([])
-                setType("3")
-                setPaddingZeros("")
-                setValidationErrorSrc("")
-                setValidationErrorNew("")
+                reset()
                 closePreviewModal()
                 onClose()
               }}
               colorScheme="neutral"
             >
-              {t("global.cancel")}
+              Cancel
             </Button>
             <Button
               onClick={() => {
@@ -369,7 +289,7 @@ export const BatchRename = () => {
               }}
               colorScheme="neutral"
             >
-              {t("global.back")}
+              Back
             </Button>
             <Button
               loading={loading()}
@@ -379,18 +299,15 @@ export const BatchRename = () => {
                   setMatchNames([])
                   setSrcName("")
                   setNewName("")
-                  setPaddingZeros("")
-                  setType("3")
-                  setValidationErrorSrc("")
-                  setValidationErrorNew("")
+                  reset()
                   refresh()
                   onClose()
                   closePreviewModal()
                 })
               }}
-              disabled={matchNames().length == 0}
+              disabled={matchNames().length === 0}
             >
-              {t("global.ok")}
+              OK
             </Button>
           </ModalFooter>
         </ModalContent>
