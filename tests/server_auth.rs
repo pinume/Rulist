@@ -135,6 +135,40 @@ async fn unknown_user_login_is_recorded_before_password_verification() {
 }
 
 #[tokio::test]
+async fn revoked_passwordless_permission_blocks_the_existing_empty_password() {
+    let temp = tempfile::tempdir().unwrap();
+    let user_root = temp.path().join("revoked-guest");
+    tokio::fs::create_dir_all(&user_root).await.unwrap();
+
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+    let permission = 1 << PERM_ALLOW_EMPTY_PASSWORD;
+    let user_id = db::create_user_direct(
+        &pool,
+        "revoked-guest",
+        "",
+        0,
+        Some(user_root.to_str().unwrap()),
+        permission,
+        false,
+    )
+    .await
+    .unwrap();
+    db::set_user_permission(&pool, user_id, 0).await.unwrap();
+
+    let app = app_for(&pool).await;
+    let (status, body) = json_request(
+        &app,
+        "POST",
+        "/api/auth/login",
+        None,
+        json!({ "username": "revoked-guest", "password": "" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["code"], 401);
+}
+
+#[tokio::test]
 async fn disabling_passwordless_login_requires_a_nonempty_password() {
     let temp = tempfile::tempdir().unwrap();
     let user_root = temp.path().join("guest");
