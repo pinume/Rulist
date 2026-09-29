@@ -1,9 +1,9 @@
-pub mod auth;
-pub mod files;
-pub mod preview;
+mod auth;
+mod files;
+mod preview;
 mod routes;
 mod security;
-pub mod stream;
+mod stream;
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
