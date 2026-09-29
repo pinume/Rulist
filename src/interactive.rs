@@ -3,7 +3,7 @@ use crate::{
     config::Config,
     db::{self, DbPool, PERM_ALLOW_EMPTY_PASSWORD, User},
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::{
     io::{self, IsTerminal, Write},
     path::{Path, PathBuf},
@@ -52,17 +52,25 @@ fn password(label: &str) -> io::Result<String> {
         prompt(label)
     }
 }
+fn home_path() -> Result<PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|home| !home.is_empty())
+        .map(PathBuf::from)
+        .context("HOME 未设置，请输入绝对路径")
+}
 fn local_path(input: &str) -> Result<String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
     let input = input.trim();
-    let path = if input == "~" || input.is_empty() {
-        PathBuf::from(home)
-    } else if let Some(rest) = input.strip_prefix("~/") {
-        PathBuf::from(home).join(rest)
-    } else if Path::new(input).is_absolute() {
+    let path = if Path::new(input).is_absolute() {
         PathBuf::from(input)
     } else {
-        PathBuf::from(home).join(input)
+        let home = home_path()?;
+        if input.is_empty() || input == "~" {
+            home
+        } else if let Some(rest) = input.strip_prefix("~/") {
+            home.join(rest)
+        } else {
+            home.join(input)
+        }
     };
     let path = path.canonicalize()?;
     anyhow::ensure!(path.is_dir(), "路径不是目录");
@@ -170,7 +178,13 @@ async fn manage(pool: &DbPool, mut user: User) -> Result<()> {
         match prompt("选择: ")?.as_str() {
             "1" => set_password(pool, &mut user).await?,
             "2" => {
-                let path = local_path(&prompt("目录: ")?)?;
+                let path = match local_path(&prompt("目录: ")?) {
+                    Ok(path) => path,
+                    Err(error) => {
+                        println!("错误: {error}");
+                        continue;
+                    }
+                };
                 db::set_user_local_path(pool, user.id, &path).await?;
                 user = match db::get_user_by_id(pool, user.id).await? {
                     Some(user) => user,
@@ -260,7 +274,13 @@ async fn add(pool: &DbPool) -> Result<()> {
     if username.is_empty() {
         return Ok(());
     }
-    let path = local_path(&prompt("目录: ")?)?;
+    let path = match local_path(&prompt("目录: ")?) {
+        Ok(path) => path,
+        Err(error) => {
+            println!("错误: {error}");
+            return Ok(());
+        }
+    };
     let Some(permission) = choose_permissions(false)? else {
         return Ok(());
     };
@@ -320,4 +340,60 @@ pub async fn run_interactive_console(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::local_path;
+    use std::{ffi::OsString, fs};
+
+    struct RestoreHome(Option<OsString>);
+
+    impl Drop for RestoreHome {
+        fn drop(&mut self) {
+            unsafe {
+                if let Some(home) = &self.0 {
+                    std::env::set_var("HOME", home);
+                } else {
+                    std::env::remove_var("HOME");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn local_path_requires_home_for_relative_paths() {
+        let _restore_home = RestoreHome(std::env::var_os("HOME"));
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let documents = home.join("Documents");
+        let absolute = temp.path().join("mnt/data");
+        fs::create_dir_all(&documents).unwrap();
+        fs::create_dir_all(&absolute).unwrap();
+
+        unsafe { std::env::set_var("HOME", &home) };
+        let home = home.canonicalize().unwrap().to_string_lossy().into_owned();
+        let documents = documents
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let absolute = absolute
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(local_path("~").unwrap(), home);
+        assert_eq!(local_path("").unwrap(), home);
+        assert_eq!(local_path("~/Documents").unwrap(), documents);
+        assert_eq!(local_path("Documents").unwrap(), documents);
+
+        unsafe { std::env::remove_var("HOME") };
+        assert_eq!(local_path(&absolute).unwrap(), absolute);
+        for input in ["~", "~/Documents", "Documents", ""] {
+            assert!(local_path(input).is_err(), "expected {input:?} to fail");
+        }
+        unsafe { std::env::set_var("HOME", "") };
+        assert!(local_path("Documents").is_err());
+    }
 }
