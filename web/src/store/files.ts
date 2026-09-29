@@ -1,7 +1,6 @@
 import { createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { FileEntry, FileItem, FileType } from "~/types"
-import { local } from "./local_settings"
 
 export type OrderBy = "name" | "size" | "modified"
 export const LIST_PAGE_SIZE = 100
@@ -33,45 +32,44 @@ export const loadSortState = (dir: string): SortState => {
   return defaultSort
 }
 
-export enum State {
+export enum ViewState {
   Initial,
-  FetchingObj,
-  FetchingObjs,
+  Loading,
   Folder,
   File,
 }
-const initialObjStore = {
-  obj: {} as FileEntry,
+const initialFileStore = {
+  file: {} as FileEntry,
   raw_url: "",
-  objs: [] as FileItem[],
+  files: [] as FileItem[],
   total: 0,
   page: 1,
   orderBy: "name" as OrderBy,
   reverse: false,
-  state: State.Initial,
+  state: ViewState.Initial,
   err: "",
 }
-const [objStore, setObjStore] = createStore<
-  typeof initialObjStore & {
+const [fileStore, setFileStore] = createStore<
+  typeof initialFileStore & {
     write?: boolean
   }
->(initialObjStore)
+>(initialFileStore)
 
-const setListing = (objs: FileEntry[], total: number, page: number) => {
-  if (objStore.page !== page) setDirectoryFilter("")
-  setObjStore({ objs, total, page })
-  setObjStore("obj", "is_dir", true)
+const setListing = (files: FileEntry[], total: number, page: number) => {
+  if (fileStore.page !== page) setDirectoryFilter("")
+  setFileStore({ files, total, page })
+  setFileStore("file", "is_dir", true)
 }
 
-export const ObjStore = {
-  set: (data: object) => setObjStore(data),
-  setObj: (obj: FileEntry) => setObjStore("obj", obj),
-  setRawUrl: (raw_url: string) => setObjStore("raw_url", raw_url),
+export const FileStore = {
+  set: (data: object) => setFileStore(data),
+  setFile: (file: FileEntry) => setFileStore("file", file),
+  setRawUrl: (raw_url: string) => setFileStore("raw_url", raw_url),
   setListing,
-  setSort: (orderBy: OrderBy, reverse: boolean) => setObjStore({ orderBy, reverse }),
-  setWrite: (write: boolean) => setObjStore("write", write),
-  setState: (state: State) => setObjStore("state", state),
-  setErr: (err: string) => setObjStore("err", err),
+  setSort: (orderBy: OrderBy, reverse: boolean) => setFileStore({ orderBy, reverse }),
+  setWrite: (write: boolean) => setFileStore("write", write),
+  setState: (state: ViewState) => setFileStore("state", state),
+  setErr: (err: string) => setFileStore("err", err),
 }
 
 let lastClickedIndex: number | null = null
@@ -81,7 +79,7 @@ export const setLastClickedIndex = (index: number | null) => {
 }
 
 export const selectRange = (targetIndex: number) => {
-  const indexes = visibleObjIndexes()
+  const indexes = visibleFileIndexes()
   if (!indexes.includes(targetIndex)) return
   if (lastClickedIndex === null || !indexes.includes(lastClickedIndex)) {
     selectIndex(targetIndex, true)
@@ -93,15 +91,15 @@ export const selectRange = (targetIndex: number) => {
   const start = Math.min(posA, posB)
   const end = Math.max(posA, posB)
   for (let i = start; i <= end; i++) {
-    setObjStore("objs", indexes[i], { selected: true })
+    setFileStore("files", indexes[i], { selected: true })
   }
 }
 
 export const selectIndex = (index: number, checked: boolean, one?: boolean) => {
-  const indexes = visibleObjIndexes()
+  const indexes = visibleFileIndexes()
   if (!indexes.includes(index)) return
   if (one) selectAll(false)
-  setObjStore("objs", index, { selected: checked })
+  setFileStore("files", index, { selected: checked })
 }
 
 export const selectAll = (checked: boolean) => {
@@ -109,16 +107,16 @@ export const selectAll = (checked: boolean) => {
     lastClickedIndex = null
   }
   const indexes = checked
-    ? visibleObjIndexes()
-    : objStore.objs.map((_, index) => index)
-  for (const index of indexes) setObjStore("objs", index, { selected: checked })
+    ? visibleFileIndexes()
+    : fileStore.files.map((_, index) => index)
+  for (const index of indexes) setFileStore("files", index, { selected: checked })
 }
 
-export const selectedObjs = () => objStore.objs.filter((obj) => obj.selected)
-export const oneChecked = () => selectedNum() === 1
+export const selectedFiles = () => fileStore.files.filter((file) => file.selected)
+export const oneSelected = () => selectedNum() === 1
 
-const selectedNum = createMemo(() => selectedObjs().length)
-export { objStore }
+const selectedNum = createMemo(() => selectedFiles().length)
+export { fileStore }
 const [directoryFilter, setDirectoryFilterValue] = createSignal("")
 export const setDirectoryFilter = (value: string) => {
   if (directoryFilter() === value) return
@@ -127,18 +125,18 @@ export const setDirectoryFilter = (value: string) => {
 }
 export const clearDirectoryFilter = () => setDirectoryFilter("")
 export { directoryFilter }
-export const visibleObjIndexes = createMemo(() => {
+export const visibleFileIndexes = createMemo(() => {
   const query = directoryFilter().trim().toLowerCase()
-  const indexes = objStore.objs.flatMap((obj, index) =>
+  const indexes = fileStore.files.flatMap((obj, index) =>
     !query || obj.name.toLowerCase().includes(query) ? [index] : [],
   )
-  const position = (local["folder_sort_position"] || "top") as string
-  const orderBy = objStore.orderBy
-  const reverse = objStore.reverse
+  const position = folderSortPosition()
+  const orderBy = fileStore.orderBy
+  const reverse = fileStore.reverse
 
   return indexes.sort((i, j) => {
-    const a = objStore.objs[i]
-    const b = objStore.objs[j]
+    const a = fileStore.files[i]
+    const b = fileStore.files[j]
     if (!a || !b) return 0
     if (position === "top" && a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
     let res = 0
@@ -168,10 +166,10 @@ const getCountStr = (objs: FileItem[], prefix: "count" | "selected", filterType?
 }
 
 export const countMsg = (filterType?: FileType) =>
-  getCountStr(objStore.objs, "count", filterType)
+  getCountStr(fileStore.files, "count", filterType)
 
 export const selectedMsg = (filterType?: FileType) => {
-  const selectedList = selectedObjs()
+  const selectedList = selectedFiles()
   return selectedList.length > 0
     ? getCountStr(selectedList, "selected", filterType)
     : ""
@@ -183,3 +181,10 @@ export const [uploadConfig, setUploadConfig] = createStore({
 })
 
 export const [shouldKeepState, setShouldKeepState] = createSignal(false)
+export const [folderSortPosition, setFolderSortPositionValue] = createSignal(
+  localStorage.getItem("folder_sort_position") || "top",
+)
+export const setFolderSortPosition = (value: string) => {
+  localStorage.setItem("folder_sort_position", value)
+  setFolderSortPositionValue(value)
+}

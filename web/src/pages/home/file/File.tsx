@@ -2,7 +2,7 @@ import { Button, Spinner, Text, VStack } from "@hope-ui/solid"
 import { createResource, Match, Switch } from "solid-js"
 import { FilePreviewLayout } from "~/components/preview"
 import { useRouter } from "~/hooks"
-import { objStore } from "~/store"
+import { fileStore } from "~/store"
 import { PreviewResponse, Resp } from "~/types"
 import { getFileSize, r, startDownload } from "~/utils"
 
@@ -57,16 +57,16 @@ const File = () => {
           spacing="$3"
         >
           <Text fontWeight="$medium">
-            {preview()?.meta?.name || objStore.obj.name}
+            {preview()?.meta?.name || fileStore.file.name}
           </Text>
           <Text color="$neutral10">
-            {getFileSize(preview()?.meta?.size || objStore.obj.size)}
+            {getFileSize(preview()?.meta?.size || fileStore.file.size)}
           </Text>
           <Button
             onClick={() =>
               startDownload(
-                preview()?.meta?.raw_url || objStore.raw_url,
-                preview()?.meta?.name || objStore.obj.name || "download",
+                preview()?.meta?.raw_url || fileStore.raw_url,
+                preview()?.meta?.name || fileStore.file.name || "download",
               )
             }
           >

@@ -1,4 +1,4 @@
-import { me, objStore, State } from "~/store"
+import { me, fileStore, ViewState } from "~/store"
 import { FileEntry } from "~/types"
 import { api, encodePath, pathDir, pathJoin, standardizePath } from "~/utils"
 import { useRouter } from "."
@@ -22,7 +22,7 @@ export const getLinkByDirAndObj = (
 export const useLink = () => {
   const { pathname } = useRouter()
   const rawLink = (obj: FileEntry, encodeAll?: boolean) => {
-    const dir = objStore.state === State.File ? pathDir(pathname()) : pathname()
+    const dir = fileStore.state === ViewState.File ? pathDir(pathname()) : pathname()
     return getLinkByDirAndObj(dir, obj, encodeAll)
   }
   return { rawLink }

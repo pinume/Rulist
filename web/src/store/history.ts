@@ -1,8 +1,8 @@
-import { shouldKeepState, ObjStore, objStore, State } from "~/store/obj"
+import { shouldKeepState, FileStore, fileStore, ViewState } from "~/store/files"
 import { encodePath } from "~/utils"
 
 interface History {
-  obj: object
+  state: object
   scroll: number
 }
 
@@ -15,13 +15,13 @@ const waitForNextFrame = () => {
 export const getHistoryKey = (path: string) => encodePath(path)
 
 export const recordHistory = (path: string) => {
-  if (![State.Folder, State.File].includes(objStore.state)) {
+  if (![ViewState.Folder, ViewState.File].includes(fileStore.state)) {
     return
   }
-  const obj = JSON.parse(JSON.stringify(objStore))
+  const state = JSON.parse(JSON.stringify(fileStore))
   const key = getHistoryKey(path)
   const history = {
-    obj,
+    state,
     scroll: window.scrollY,
   }
   HistoryMap.set(key, history)
@@ -31,9 +31,9 @@ export const recoverHistory = async (path: string) => {
   const key = getHistoryKey(path)
   const history = HistoryMap.get(key)
   if (!history) return
-  shouldKeepState() || ObjStore.setState(State.Initial)
+  shouldKeepState() || FileStore.setState(ViewState.Initial)
   await waitForNextFrame()
-  ObjStore.set(JSON.parse(JSON.stringify(history.obj)))
+  FileStore.set(JSON.parse(JSON.stringify(history.state)))
   await waitForNextFrame()
   window.scroll({ top: history.scroll })
 }

@@ -2,7 +2,7 @@ import { Checkbox, createDisclosure, VStack, Button } from "@hope-ui/solid"
 import { createSignal, onCleanup } from "solid-js"
 import { ModalFolderChoose, FolderTreeHandler } from "~/components"
 import { useFetch, usePath, useRouter } from "~/hooks"
-import { selectedObjs, userCan } from "~/store"
+import { selectedFiles, userCan } from "~/store"
 import {
   bus,
   ConflictPolicy,
@@ -78,7 +78,7 @@ const CopyMoveModal = (props: { action: "copy" | "move" }) => {
         const resp = await ok(
           pathname(),
           dst,
-          selectedObjs().map((obj) => obj.name),
+          selectedFiles().map((obj) => obj.name),
           policy,
         )
         refresh()

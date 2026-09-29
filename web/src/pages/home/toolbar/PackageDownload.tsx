@@ -2,7 +2,7 @@ import "~/utils/zip-stream.js"
 import streamSaver from "streamsaver"
 import { useRouter } from "~/hooks"
 import { api, fsLink, fsList, pathBase, pathJoin } from "~/utils"
-import { selectedObjs as _selectedObjs } from "~/store"
+import { selectedFiles } from "~/store"
 import { createSignal, For, Show } from "solid-js"
 import {
   Box,
@@ -29,7 +29,7 @@ const PackageDownload = (props: { onClose: () => void }) => {
   const [status, setStatus] = createSignal(0)
   const [progress, setProgress] = createSignal({ current: 0, total: 0 })
   const { pathname } = useRouter()
-  const selectedObjs = _selectedObjs()
+  const selected = selectedFiles()
 
   const fetchFolderStructure = async (
     pre: string,
@@ -62,14 +62,14 @@ const PackageDownload = (props: { onClose: () => void }) => {
 
   const run = async () => {
     let saveName = pathBase(pathname())
-    if (selectedObjs.length === 1) saveName = selectedObjs[0].name
+    if (selected.length === 1) saveName = selected[0].name
     if (!saveName) saveName = "Home"
 
     setCur("Fetching folder structure")
     setStatus(2)
     const downFiles: FileItem[] = []
     const rootResults = await Promise.all(
-      selectedObjs.map((obj) => fetchFolderStructure("", obj)),
+      selected.map((obj) => fetchFolderStructure("", obj)),
     )
     for (const res of rootResults) {
       if (typeof res === "string") {
@@ -147,7 +147,7 @@ const PackageDownload = (props: { onClose: () => void }) => {
         }
 
         let name = trimSlash(file.path)
-        if (selectedObjs.length === 1) name = name.replace(`${saveName}/`, "")
+        if (selected.length === 1) name = name.replace(`${saveName}/`, "")
 
         setProgress({ current: fileIdx + 1, total: downFiles.length })
         setCur(

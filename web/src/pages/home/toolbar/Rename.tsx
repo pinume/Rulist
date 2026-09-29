@@ -2,7 +2,7 @@ import { Checkbox, createDisclosure } from "@hope-ui/solid"
 import { createSignal, onCleanup, Show } from "solid-js"
 import { ModalInput } from "~/components"
 import { useFetch, usePath, useRouter } from "~/hooks"
-import { oneChecked, selectedObjs } from "~/store"
+import { oneSelected, selectedFiles } from "~/store"
 import { bus, fsRename, handleRespWithNotifySuccess, pathJoin } from "~/utils"
 
 export const Rename = () => {
@@ -13,7 +13,7 @@ export const Rename = () => {
   const [overwrite, setOverwrite] = createSignal(false)
   const handler = (name: string) => {
     if (name === "rename") {
-      if (!oneChecked()) {
+      if (!oneSelected()) {
         bus.emit("tool", "batchRename")
         return
       }
@@ -33,14 +33,14 @@ export const Rename = () => {
             Overwrite existing files
           </Checkbox>
         }
-        isRenamingFile={!selectedObjs()[0].is_dir}
+        isRenamingFile={!selectedFiles()[0].is_dir}
         opened={isOpen()}
         onClose={onClose}
-        defaultValue={selectedObjs()[0]?.name ?? ""}
+        defaultValue={selectedFiles()[0]?.name ?? ""}
         loading={loading()}
         onSubmit={async (name) => {
           const resp = await ok(
-            pathJoin(pathname(), selectedObjs()[0].name),
+            pathJoin(pathname(), selectedFiles()[0].name),
             name,
             overwrite(),
           )

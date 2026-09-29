@@ -1,16 +1,16 @@
 import axios, { Canceler } from "axios"
 import {
-  ObjStore,
+  FileStore,
   LIST_PAGE_SIZE,
   OrderBy,
-  State,
+  ViewState,
   loadSortState,
   getHistoryKey,
   hasHistory,
   recoverHistory,
   clearHistory,
   shouldKeepState,
-  objStore,
+  fileStore,
 } from "~/store"
 import { fsGet, fsList, handleRespWithoutNotify, pathJoin } from "~/utils"
 import { useFetch } from "./useFetch"
@@ -45,8 +45,8 @@ export const usePath = () => {
         new axios.CancelToken((c) => {
           cancelList = c
         }),
-        arg?.orderBy ?? objStore.orderBy,
-        arg?.reverse ?? objStore.reverse,
+        arg?.orderBy ?? fileStore.orderBy,
+        arg?.reverse ?? fileStore.reverse,
       )
     },
   )
@@ -72,9 +72,9 @@ export const usePath = () => {
   ) => {
     cancelObj?.()
     cancelList?.()
-    ObjStore.setErr("")
+    FileStore.setErr("")
     const { orderBy, reverse } = loadSortState(path)
-    ObjStore.setSort(orderBy, reverse)
+    FileStore.setSort(orderBy, reverse)
     if (hasHistory(path)) {
       console.log(`handle [${getHistoryKey(path)}] from history`)
       return recoverHistory(path)
@@ -89,18 +89,18 @@ export const usePath = () => {
 
   // handle enter obj that don't know if it is dir or file
   const handleObj = async (path: string) => {
-    shouldKeepState() || ObjStore.setState(State.FetchingObj)
+    shouldKeepState() || FileStore.setState(ViewState.Loading)
     const resp = await getObj(path)
     handleRespWithoutNotify(
       resp,
       (data) => {
-        ObjStore.setObj(data)
+        FileStore.setFile(data)
         if (data.is_dir) {
           setPathAs(path)
           handleFolder(path)
         } else {
-          ObjStore.setRawUrl(data.raw_url)
-          shouldKeepState() || ObjStore.setState(State.File)
+          FileStore.setRawUrl(data.raw_url)
+          shouldKeepState() || FileStore.setState(ViewState.File)
         }
       },
       handleErr,
@@ -112,10 +112,10 @@ export const usePath = () => {
     path: string,
     force?: boolean,
     page = 1,
-    orderBy = objStore.orderBy,
-    reverse = objStore.reverse,
+    orderBy = fileStore.orderBy,
+    reverse = fileStore.reverse,
   ) => {
-    shouldKeepState() || ObjStore.setState(State.FetchingObjs)
+    shouldKeepState() || FileStore.setState(ViewState.Loading)
     const resp = await getObjs({ path, force, page, orderBy, reverse })
     handleRespWithoutNotify(
       resp,
@@ -125,9 +125,9 @@ export const usePath = () => {
           void handleFolder(path, force, lastPage, orderBy, reverse)
           return
         }
-        ObjStore.setListing(data.content ?? [], data.total, page)
-        ObjStore.setWrite(data.write)
-        shouldKeepState() || ObjStore.setState(State.Folder)
+        FileStore.setListing(data.content ?? [], data.total, page)
+        FileStore.setWrite(data.write)
+        shouldKeepState() || FileStore.setState(ViewState.Folder)
       },
       handleErr,
     )
@@ -135,7 +135,7 @@ export const usePath = () => {
 
   const handleErr = (msg: string, code?: number) => {
     if (code === undefined || code >= 0) {
-      ObjStore.setErr(msg)
+      FileStore.setErr(msg)
     }
   }
   return {
@@ -146,7 +146,7 @@ export const usePath = () => {
       const path = pathname()
       const scroll = window.scrollY
       clearHistory(path)
-      await handlePathChange(path, force, objStore.page)
+      await handlePathChange(path, force, fileStore.page)
       window.scroll({ top: scroll, behavior: "smooth" })
     },
   }

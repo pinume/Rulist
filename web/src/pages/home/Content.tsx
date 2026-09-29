@@ -2,7 +2,7 @@ import { useColorModeValue, VStack } from "@hope-ui/solid"
 import { createEffect, lazy, Match, on, Suspense, Switch } from "solid-js"
 import { Error, FullLoading } from "~/components"
 import { useObjTitle, usePath, useRouter } from "~/hooks"
-import { objStore, recordHistory, State } from "~/store"
+import { fileStore, recordHistory, ViewState } from "~/store"
 
 const Folder = lazy(() => import("./folder/Folder"))
 const File = lazy(() => import("./file/File"))
@@ -35,16 +35,16 @@ export const Content = () => {
     >
       <Suspense fallback={<FullLoading />}>
         <Switch>
-          <Match when={objStore.err}>
-            <Error msg={objStore.err} />
+          <Match when={fileStore.err}>
+            <Error msg={fileStore.err} />
           </Match>
-          <Match when={[State.FetchingObj, State.FetchingObjs].includes(objStore.state)}>
+          <Match when={[ViewState.Loading, ViewState.Loading].includes(fileStore.state)}>
             <FullLoading />
           </Match>
-          <Match when={objStore.state === State.Folder}>
+          <Match when={fileStore.state === ViewState.Folder}>
             <Folder />
           </Match>
-          <Match when={objStore.state === State.File}>
+          <Match when={fileStore.state === ViewState.File}>
             <File />
           </Match>
         </Switch>

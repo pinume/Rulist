@@ -1,5 +1,4 @@
-export * from "./obj"
+export * from "./files"
 export * from "./settings"
 export * from "./user"
-export * from "./local_settings"
 export * from "./history"

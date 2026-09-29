@@ -3,7 +3,7 @@ import { FiUploadCloud } from "solid-icons/fi"
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js"
 import { Portal } from "solid-js/web"
 import { useRouter } from "~/hooks"
-import { getMainColor, objStore, State, userCan } from "~/store"
+import { getMainColor, fileStore, ViewState, userCan } from "~/store"
 import { notify } from "~/utils"
 import {
   enqueueFilesForUpload,
@@ -16,9 +16,9 @@ export const DropZone = () => {
   let dragCounter = 0
 
   const canWrite = () =>
-    objStore.state === State.Folder &&
+    fileStore.state === ViewState.Folder &&
     userCan("write_content") &&
-    !!objStore.write
+    !!fileStore.write
 
   const hasOpenModal = () =>
     !!document.querySelector(".hope-modal__overlay, .hope-modal__content")
@@ -33,7 +33,7 @@ export const DropZone = () => {
 
   createEffect(() => {
     pathname()
-    objStore.state
+    fileStore.state
     resetDrag()
   })
 

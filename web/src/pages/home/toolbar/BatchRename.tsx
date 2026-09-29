@@ -24,7 +24,7 @@ import {
   validateFilename,
 } from "~/utils"
 import { createSignal, For, onCleanup, Show } from "solid-js"
-import { selectedObjs } from "~/store"
+import { selectedFiles } from "~/store"
 import { RenameEntry } from "~/types"
 
 const validationMessage = (error?: string) =>
@@ -127,7 +127,7 @@ export const BatchRename = () => {
       let tempNum = newName()
       const hasNumberPlaceholder = srcName().includes("{number}")
       const paddingLength = parseInt(paddingZeros()) || 0
-      matches = selectedObjs().map((obj) => {
+      matches = selectedFiles().map((obj) => {
         const lastDotIndex = obj.name.lastIndexOf(".")
         const suffix = lastDotIndex !== -1 ? obj.name.substring(lastDotIndex) : ""
         const paddedNum = paddingLength > 0 ? tempNum.padStart(paddingLength, "0") : tempNum
@@ -138,7 +138,7 @@ export const BatchRename = () => {
         return { src_name: obj.name, new_name: newFileName }
       })
     } else {
-      matches = selectedObjs()
+      matches = selectedFiles()
         .filter((obj) => obj.name.includes(srcName()))
         .map((obj) => ({
           src_name: obj.name,

@@ -19,16 +19,16 @@ import {
   countMsg,
   directoryFilter,
   getMainColor,
-  local,
   saveSortState,
-  setLocal,
-  ObjStore,
+  FileStore,
+  folderSortPosition,
+  setFolderSortPosition,
   OrderBy,
-  objStore,
+  fileStore,
   selectAll,
   selectedMsg,
   userCan,
-  visibleObjIndexes,
+  visibleFileIndexes,
 } from "~/store"
 import { Col, cols, ListItem } from "./ListItem"
 import { bus } from "~/utils"
@@ -136,30 +136,30 @@ export const ListTitle = (props: {
               <MenuLabel fontSize="$xs" color="$neutral9" px="$3" py="$1">
                 Sort by
               </MenuLabel>
-              <MenuItem cursor="pointer" onSelect={() => updateSort("name", objStore.reverse)}>
+              <MenuItem cursor="pointer" onSelect={() => updateSort("name", fileStore.reverse)}>
                 <HStack w="$full" justifyContent="space-between" alignItems="center">
                   <Text
                     fontSize="$sm"
-                    color={objStore.orderBy === "name" ? getMainColor() : undefined}
-                    fontWeight={objStore.orderBy === "name" ? "semibold" : "normal"}
+                    color={fileStore.orderBy === "name" ? getMainColor() : undefined}
+                    fontWeight={fileStore.orderBy === "name" ? "semibold" : "normal"}
                   >
                     File name
                   </Text>
-                  <Show when={objStore.orderBy === "name"}>
+                  <Show when={fileStore.orderBy === "name"}>
                     <Icon as={FiCheck} color={getMainColor()} />
                   </Show>
                 </HStack>
               </MenuItem>
-              <MenuItem cursor="pointer" onSelect={() => updateSort("modified", objStore.reverse)}>
+              <MenuItem cursor="pointer" onSelect={() => updateSort("modified", fileStore.reverse)}>
                 <HStack w="$full" justifyContent="space-between" alignItems="center">
                   <Text
                     fontSize="$sm"
-                    color={objStore.orderBy === "modified" ? getMainColor() : undefined}
-                    fontWeight={objStore.orderBy === "modified" ? "semibold" : "normal"}
+                    color={fileStore.orderBy === "modified" ? getMainColor() : undefined}
+                    fontWeight={fileStore.orderBy === "modified" ? "semibold" : "normal"}
                   >
                     Modified
                   </Text>
-                  <Show when={objStore.orderBy === "modified"}>
+                  <Show when={fileStore.orderBy === "modified"}>
                     <Icon as={FiCheck} color={getMainColor()} />
                   </Show>
                 </HStack>
@@ -170,30 +170,30 @@ export const ListTitle = (props: {
               <MenuLabel fontSize="$xs" color="$neutral9" px="$3" py="$1">
                 Sort order
               </MenuLabel>
-              <MenuItem cursor="pointer" onSelect={() => updateSort(objStore.orderBy, false)}>
+              <MenuItem cursor="pointer" onSelect={() => updateSort(fileStore.orderBy, false)}>
                 <HStack w="$full" justifyContent="space-between" alignItems="center">
                   <Text
                     fontSize="$sm"
-                    color={!objStore.reverse ? getMainColor() : undefined}
-                    fontWeight={!objStore.reverse ? "semibold" : "normal"}
+                    color={!fileStore.reverse ? getMainColor() : undefined}
+                    fontWeight={!fileStore.reverse ? "semibold" : "normal"}
                   >
                     A to Z
                   </Text>
-                  <Show when={!objStore.reverse}>
+                  <Show when={!fileStore.reverse}>
                     <Icon as={FiCheck} color={getMainColor()} />
                   </Show>
                 </HStack>
               </MenuItem>
-              <MenuItem cursor="pointer" onSelect={() => updateSort(objStore.orderBy, true)}>
+              <MenuItem cursor="pointer" onSelect={() => updateSort(fileStore.orderBy, true)}>
                 <HStack w="$full" justifyContent="space-between" alignItems="center">
                   <Text
                     fontSize="$sm"
-                    color={objStore.reverse ? getMainColor() : undefined}
-                    fontWeight={objStore.reverse ? "semibold" : "normal"}
+                    color={fileStore.reverse ? getMainColor() : undefined}
+                    fontWeight={fileStore.reverse ? "semibold" : "normal"}
                   >
                     Z to A
                   </Text>
-                  <Show when={objStore.reverse}>
+                  <Show when={fileStore.reverse}>
                     <Icon as={FiCheck} color={getMainColor()} />
                   </Show>
                 </HStack>
@@ -207,19 +207,19 @@ export const ListTitle = (props: {
               <MenuItem
                 cursor="pointer"
                 onSelect={() => {
-                  setLocal("folder_sort_position", "top")
-                  props.sortCallback(objStore.orderBy, objStore.reverse)
+                  setFolderSortPosition("top")
+                  props.sortCallback(fileStore.orderBy, fileStore.reverse)
                 }}
               >
                 <HStack w="$full" justifyContent="space-between" alignItems="center">
                   <Text
                     fontSize="$sm"
-                    color={(local["folder_sort_position"] || "top") === "top" ? getMainColor() : undefined}
-                    fontWeight={(local["folder_sort_position"] || "top") === "top" ? "semibold" : "normal"}
+                    color={(folderSortPosition() || "top") === "top" ? getMainColor() : undefined}
+                    fontWeight={(folderSortPosition() || "top") === "top" ? "semibold" : "normal"}
                   >
                     On top
                   </Text>
-                  <Show when={(local["folder_sort_position"] || "top") === "top"}>
+                  <Show when={(folderSortPosition() || "top") === "top"}>
                     <Icon as={FiCheck} color={getMainColor()} />
                   </Show>
                 </HStack>
@@ -227,19 +227,19 @@ export const ListTitle = (props: {
               <MenuItem
                 cursor="pointer"
                 onSelect={() => {
-                  setLocal("folder_sort_position", "mixed")
-                  props.sortCallback(objStore.orderBy, objStore.reverse)
+                  setFolderSortPosition("mixed")
+                  props.sortCallback(fileStore.orderBy, fileStore.reverse)
                 }}
               >
                 <HStack w="$full" justifyContent="space-between" alignItems="center">
                   <Text
                     fontSize="$sm"
-                    color={local["folder_sort_position"] === "mixed" ? getMainColor() : undefined}
-                    fontWeight={local["folder_sort_position"] === "mixed" ? "semibold" : "normal"}
+                    color={folderSortPosition() === "mixed" ? getMainColor() : undefined}
+                    fontWeight={folderSortPosition() === "mixed" ? "semibold" : "normal"}
                   >
                     Mixed with files
                   </Text>
-                  <Show when={local["folder_sort_position"] === "mixed"}>
+                  <Show when={folderSortPosition() === "mixed"}>
                     <Icon as={FiCheck} color={getMainColor()} />
                   </Show>
                 </HStack>
@@ -260,11 +260,11 @@ const ListLayout = () => {
     <VStack class="list" w="$full" spacing="$0">
       <ListTitle
         sortCallback={(orderBy, reverse) => {
-          ObjStore.setSort(orderBy, reverse)
+          FileStore.setSort(orderBy, reverse)
           void handleFolder(pathname(), false, 1, orderBy, reverse)
         }}
-        initialOrder={objStore.orderBy}
-        initialReverse={objStore.reverse}
+        initialOrder={fileStore.orderBy}
+        initialReverse={fileStore.reverse}
       />
       <Show when={selectedMsg()}>
         <HStack
@@ -280,17 +280,17 @@ const ListLayout = () => {
           <Text size="sm" fontWeight="semibold" mr="auto">
             {selectedMsg()}
           </Text>
-          <Show when={userCan("copy") && objStore.write}>
+          <Show when={userCan("copy") && fileStore.write}>
             <Button size="sm" variant="ghost" color={getMainColor()} onClick={() => bus.emit("tool", "copy")}>
               Copy
             </Button>
           </Show>
-          <Show when={userCan("move") && objStore.write}>
+          <Show when={userCan("move") && fileStore.write}>
             <Button size="sm" variant="ghost" color={getMainColor()} onClick={() => bus.emit("tool", "move")}>
               Move
             </Button>
           </Show>
-          <Show when={userCan("delete") && objStore.write}>
+          <Show when={userCan("delete") && fileStore.write}>
             <Button size="sm" variant="ghost" color="$danger9" onClick={() => bus.emit("tool", "delete")}>
               Delete
             </Button>
@@ -300,10 +300,10 @@ const ListLayout = () => {
           </Button>
         </HStack>
       </Show>
-      <For each={visibleObjIndexes()}>
-        {(index) => <ListItem obj={objStore.objs[index]} index={index} />}
+      <For each={visibleFileIndexes()}>
+        {(index) => <ListItem obj={fileStore.files[index]} index={index} />}
       </For>
-      <Show when={directoryFilter().trim() && visibleObjIndexes().length === 0}>
+      <Show when={directoryFilter().trim() && visibleFileIndexes().length === 0}>
         <Text size="sm" color="$neutral11" p="$4">
           No matching files on this page
         </Text>
@@ -325,7 +325,7 @@ const ListLayout = () => {
       >
         <Text size="xs" color="$neutral10">
           {directoryFilter().trim()
-            ? `${visibleObjIndexes().length} matches on this page`
+            ? `${visibleFileIndexes().length} matches on this page`
             : countMsg()}
         </Text>
       </HStack>

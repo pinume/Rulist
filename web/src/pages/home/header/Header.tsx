@@ -19,9 +19,9 @@ import {
   clearDirectoryFilter,
   directoryFilter,
   getLogo,
-  objStore,
+  fileStore,
   setDirectoryFilter,
-  State,
+  ViewState,
 } from "~/store"
 import { Container } from "../Container"
 import { LinkWithBase } from "~/components"
@@ -52,7 +52,7 @@ export const Header = () => {
       target instanceof Element &&
       !!target.closest('input, textarea, [contenteditable="true"]')
     const onKeyDown = (event: KeyboardEvent) => {
-      if (objStore.state !== State.Folder || modalOpen()) return
+      if (fileStore.state !== ViewState.Folder || modalOpen()) return
       if (
         event.key === "/" &&
         !event.ctrlKey &&
@@ -110,7 +110,7 @@ export const Header = () => {
             />
           </HStack>
           <HStack spacing="$2" alignItems="center">
-            <Show when={objStore.state === State.Folder}>
+            <Show when={fileStore.state === ViewState.Folder}>
               <Input
                 ref={searchInput}
                 aria-label="Search files on this page"

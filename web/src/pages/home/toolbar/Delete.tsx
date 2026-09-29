@@ -10,7 +10,7 @@ import {
 } from "@hope-ui/solid"
 import { onCleanup } from "solid-js"
 import { useFetch, usePath, useRouter } from "~/hooks"
-import { selectedObjs } from "~/store"
+import { selectedFiles } from "~/store"
 import { bus, fsRemove, handleRespWithNotifySuccess } from "~/utils"
 
 export const Delete = () => {
@@ -40,7 +40,7 @@ export const Delete = () => {
             colorScheme="danger"
             loading={loading()}
             onClick={async () => {
-              const resp = await ok(pathname(), selectedObjs().map((obj) => obj.name))
+              const resp = await ok(pathname(), selectedFiles().map((obj) => obj.name))
               refresh()
               handleRespWithNotifySuccess(resp, onClose)
             }}
