@@ -15,7 +15,7 @@ import {
   Text,
   VStack,
 } from "@hope-ui/solid"
-import { Obj } from "~/types"
+import { FileEntry } from "~/types"
 
 streamSaver.mitm = "/streamer/mitm.html"
 const trimSlash = (str: string) => str.replace(/^\/+|\/+$/g, "")
@@ -33,7 +33,7 @@ const PackageDownload = (props: { onClose: () => void }) => {
 
   const fetchFolderStructure = async (
     pre: string,
-    obj: Obj,
+    obj: FileEntry,
   ): Promise<FileItem[] | string> => {
     if (!obj.is_dir) return [{ path: pathJoin(pre, obj.name) }]
     const dirPath = pathJoin(pathname(), pre, obj.name)

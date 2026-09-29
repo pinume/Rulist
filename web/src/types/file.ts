@@ -1,4 +1,4 @@
-export enum ObjType {
+export enum FileType {
   UNKNOWN,
   FOLDER,
   // OFFICE,
@@ -8,22 +8,22 @@ export enum ObjType {
   IMAGE,
 }
 
-export interface Obj {
+export interface FileEntry {
   name: string
   size: number
   is_dir: boolean
   modified: string
   sign?: string
   raw_url?: string
-  type: ObjType
+  type: FileType
   permissions?: string
 }
 
-export type StoreObj = Obj & {
+export type FileItem = FileEntry & {
   selected?: boolean
 }
 
-export type RenameObj = {
+export type RenameEntry = {
   src_name: string
   new_name: string
 }

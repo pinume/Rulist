@@ -3,9 +3,9 @@ import {
   PEmptyResp,
   FsGetResp,
   FsListResp,
-  Obj,
+  FileEntry,
   PResp,
-  RenameObj,
+  RenameEntry,
 } from "~/types"
 import { r } from "."
 
@@ -46,7 +46,7 @@ export const fsList = (
   )
 }
 
-export const fsDirs = (path = "/", forceRoot = false): PResp<Obj[]> => {
+export const fsDirs = (path = "/", forceRoot = false): PResp<FileEntry[]> => {
   return r.post("/fs/dirs", { path, force_root: forceRoot })
 }
 
@@ -64,7 +64,7 @@ export const fsRename = (
 
 export const fsBatchRename = (
   src_dir: string,
-  rename_objects: RenameObj[],
+  rename_objects: RenameEntry[],
 ): PEmptyResp => {
   return r.post("/fs/batch_rename", { src_dir, rename_objects })
 }

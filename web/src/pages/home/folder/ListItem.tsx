@@ -20,7 +20,7 @@ import {
   setLastClickedIndex,
   userCan,
 } from "~/store"
-import { StoreObj } from "~/types"
+import { FileItem } from "~/types"
 import {
   bus,
   colorAlpha,
@@ -55,7 +55,7 @@ export const cols: Col[] = [
   },
 ]
 
-export const ListItem = (props: { obj: StoreObj; index: number }) => {
+export const ListItem = (props: { obj: FileItem; index: number }) => {
   const { isHide } = useUtil()
   if (isHide(props.obj)) return null
   const { rawLink } = useLink()

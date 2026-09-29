@@ -1,6 +1,6 @@
 import { VStack } from "@hope-ui/solid"
 import { Nav } from "./Nav"
-import { Obj } from "./Obj"
+import { Content } from "./Content"
 import { Container } from "./Container"
 import { DropZone } from "./DropZone"
 
@@ -17,7 +17,7 @@ export const Body = () => {
         gap="$3"
       >
         <Nav />
-        <Obj />
+        <Content />
       </VStack>
       <DropZone />
     </Container>

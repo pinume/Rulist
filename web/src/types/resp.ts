@@ -1,4 +1,4 @@
-import { Obj } from "."
+import { FileEntry } from "."
 
 export interface Resp<T> {
   code: number
@@ -7,12 +7,12 @@ export interface Resp<T> {
 }
 
 export type FsListResp = Resp<{
-  content: Obj[]
+  content: FileEntry[]
   total: number
   write: boolean
 }>
 
-export type FsGetResp = Resp<Obj & { raw_url: string }>
+export type FsGetResp = Resp<FileEntry & { raw_url: string }>
 
 export type EmptyResp = Resp<{}>
 

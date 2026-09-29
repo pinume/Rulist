@@ -1,5 +1,5 @@
 import { getHideFiles } from "~/store"
-import { Obj } from "~/types"
+import { FileEntry } from "~/types"
 import { notify, pathJoin } from "~/utils"
 import { useRouter } from "."
 
@@ -16,7 +16,7 @@ export const useUtil = () => {
         )
       }
     },
-    isHide: (obj: Obj) => {
+    isHide: (obj: FileEntry) => {
       const fullPath = pathJoin(pathname(), obj.name)
       return getHideFiles().some((reg) => reg.test(fullPath))
     },

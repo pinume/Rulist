@@ -6,7 +6,7 @@ import { objStore, recordHistory, State } from "~/store"
 
 const Folder = lazy(() => import("./folder/Folder"))
 const File = lazy(() => import("./file/File"))
-export const Obj = () => {
+export const Content = () => {
   const cardBg = useColorModeValue("white", "$neutral3")
   const { pathname } = useRouter()
   const { handlePathChange } = usePath()

@@ -1,6 +1,6 @@
 import { Box, Button, HStack, Icon, Text, VStack } from "@hope-ui/solid"
 import { FiDownload, FiExternalLink } from "solid-icons/fi"
-import { PreviewMeta, ObjType } from "~/types"
+import { FileType, PreviewMeta } from "~/types"
 import { getFileSize, startDownload } from "~/utils"
 import { getIconByObj, getIconColorByObj } from "~/utils/icon"
 
@@ -17,9 +17,9 @@ export const UnsupportedPreview = (props: { meta: PreviewMeta }) => (
       alignItems="center"
     >
       <Icon
-        as={getIconByObj({ type: ObjType.UNKNOWN, name: props.meta.name })}
+          as={getIconByObj({ type: FileType.UNKNOWN, name: props.meta.name })}
         boxSize="$16"
-        color={getIconColorByObj({ type: ObjType.UNKNOWN, name: props.meta.name })}
+          color={getIconColorByObj({ type: FileType.UNKNOWN, name: props.meta.name })}
       />
       <Text fontWeight="$semibold" size="lg" textAlign="center" noOfLines={2}>
         {props.meta.name}

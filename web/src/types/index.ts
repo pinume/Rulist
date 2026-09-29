@@ -1,4 +1,4 @@
-export * from "./obj"
+export * from "./file"
 export * from "./resp"
 export * from "./user"
 export * from "./preview"

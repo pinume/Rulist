@@ -25,14 +25,14 @@ import {
 } from "~/utils"
 import { createSignal, For, onCleanup, Show } from "solid-js"
 import { selectedObjs } from "~/store"
-import { RenameObj } from "~/types"
+import { RenameEntry } from "~/types"
 
 const validationMessage = (error?: string) =>
   error === "invalid_filename_chars"
     ? 'File names cannot contain: / \\ ? < > * : | "'
     : "Please enter a value"
 
-const RenameItem = (props: { obj: RenameObj; index: number }) => (
+const RenameItem = (props: { obj: RenameEntry; index: number }) => (
   <div style={{ width: "100%" }}>
     <HStack
       class="list-item"
@@ -76,7 +76,7 @@ export const BatchRename = () => {
   const [srcName, setSrcName] = createSignal("")
   const [newName, setNewName] = createSignal("")
   const [paddingZeros, setPaddingZeros] = createSignal("")
-  const [matchNames, setMatchNames] = createSignal<RenameObj[]>([])
+  const [matchNames, setMatchNames] = createSignal<RenameEntry[]>([])
   const [validationErrorSrc, setValidationErrorSrc] = createSignal<string>("")
   const [validationErrorNew, setValidationErrorNew] = createSignal<string>("")
 
@@ -122,7 +122,7 @@ export const BatchRename = () => {
       return
     }
 
-    let matches: RenameObj[]
+    let matches: RenameEntry[]
     if (type() === "2") {
       let tempNum = newName()
       const hasNumberPlaceholder = srcName().includes("{number}")

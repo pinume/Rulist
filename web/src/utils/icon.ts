@@ -23,7 +23,7 @@ import {
 } from "solid-icons/fa"
 import { IoFolder } from "solid-icons/io"
 import { ImAndroid } from "solid-icons/im"
-import { Obj, ObjType } from "~/types"
+import { FileEntry, FileType } from "~/types"
 import { ext } from "./path"
 import {
   VscodeIconsFileTypeAi2,
@@ -61,7 +61,7 @@ const iconMap = {
 }
 
 export const getIconByTypeAndName = (type: number, name: string) => {
-  if (type !== ObjType.FOLDER) {
+  if (type !== FileType.FOLDER) {
     for (const [extensions, icon] of Object.entries(iconMap)) {
       if (extensions.split(",").includes(ext(name).toLowerCase())) {
         return icon
@@ -69,27 +69,27 @@ export const getIconByTypeAndName = (type: number, name: string) => {
     }
   }
   switch (type) {
-    case ObjType.FOLDER:
+    case FileType.FOLDER:
       return IoFolder
-    case ObjType.VIDEO:
+    case FileType.VIDEO:
       return BsFileEarmarkPlayFill
-    case ObjType.AUDIO:
+    case FileType.AUDIO:
       return BsFileEarmarkMusicFill
-    case ObjType.TEXT:
+    case FileType.TEXT:
       return BsFileEarmarkFontFill
-    case ObjType.IMAGE:
+    case FileType.IMAGE:
       return BsFileEarmarkImageFill
     default:
       return BsFileEarmarkMinusFill
   }
 }
 
-export const getIconByObj = (obj: Pick<Obj, "type" | "name">) => {
+export const getIconByObj = (obj: Pick<FileEntry, "type" | "name">) => {
   return getIconByTypeAndName(obj.type, obj.name)
 }
 
-export const getIconColorByObj = (obj: Pick<Obj, "type" | "name">) => {
-  if (obj.type === ObjType.FOLDER) return getMainColor()
+export const getIconColorByObj = (obj: Pick<FileEntry, "type" | "name">) => {
+  if (obj.type === FileType.FOLDER) return getMainColor()
   const name = obj.name.toLowerCase()
   if (/\.(zip|tar|gz|tgz|bz2|xz|7z|rar)$/.test(name)) return "#d97706"
   if (/\.(html|htm)$/.test(name)) return "#0284c7"
@@ -107,17 +107,17 @@ export const getIconColorByObj = (obj: Pick<Obj, "type" | "name">) => {
   )
     return "#0d9488"
   if (
-    obj.type === ObjType.IMAGE ||
+    obj.type === FileType.IMAGE ||
     /\.(jpg|jpeg|png|gif|bmp|webp|svg|ico|tiff|heic)$/.test(name)
   )
     return "#8b5cf6"
   if (
-    obj.type === ObjType.VIDEO ||
+    obj.type === FileType.VIDEO ||
     /\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v|rmvb|ts)$/.test(name)
   )
     return "#ef4444"
   if (
-    obj.type === ObjType.AUDIO ||
+    obj.type === FileType.AUDIO ||
     /\.(mp3|flac|ogg|m4a|wav|opus|aac|wma)$/.test(name)
   )
     return "#10b981"

@@ -9,7 +9,7 @@ import {
   useColorModeValue,
 } from "@hope-ui/solid"
 import { FiDownload, FiExternalLink } from "solid-icons/fi"
-import { PreviewMeta, ObjType } from "~/types"
+import { FileType, PreviewMeta } from "~/types"
 import { formatDate, getFileSize, startDownload } from "~/utils"
 import { getIconByObj, getIconColorByObj } from "~/utils/icon"
 
@@ -42,8 +42,8 @@ export const PreviewHeader = (props: { meta: PreviewMeta }) => {
     >
       <HStack spacing="$3" minW="0" flex="1">
         <Icon
-          as={getIconByObj({ type: ObjType.UNKNOWN, name: props.meta.name })}
-          color={getIconColorByObj({ type: ObjType.UNKNOWN, name: props.meta.name })}
+          as={getIconByObj({ type: FileType.UNKNOWN, name: props.meta.name })}
+          color={getIconColorByObj({ type: FileType.UNKNOWN, name: props.meta.name })}
           boxSize="$7"
           flexShrink={0}
         />

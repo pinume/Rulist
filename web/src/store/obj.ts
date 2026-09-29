@@ -1,6 +1,6 @@
 import { createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
-import { Obj, ObjType, StoreObj } from "~/types"
+import { FileEntry, FileItem, FileType } from "~/types"
 import { local } from "./local_settings"
 
 export type OrderBy = "name" | "size" | "modified"
@@ -41,9 +41,9 @@ export enum State {
   File,
 }
 const initialObjStore = {
-  obj: {} as Obj,
+  obj: {} as FileEntry,
   raw_url: "",
-  objs: [] as StoreObj[],
+  objs: [] as FileItem[],
   total: 0,
   page: 1,
   orderBy: "name" as OrderBy,
@@ -57,7 +57,7 @@ const [objStore, setObjStore] = createStore<
   }
 >(initialObjStore)
 
-const setListing = (objs: Obj[], total: number, page: number) => {
+const setListing = (objs: FileEntry[], total: number, page: number) => {
   if (objStore.page !== page) setDirectoryFilter("")
   setObjStore({ objs, total, page })
   setObjStore("obj", "is_dir", true)
@@ -65,7 +65,7 @@ const setListing = (objs: Obj[], total: number, page: number) => {
 
 export const ObjStore = {
   set: (data: object) => setObjStore(data),
-  setObj: (obj: Obj) => setObjStore("obj", obj),
+  setObj: (obj: FileEntry) => setObjStore("obj", obj),
   setRawUrl: (raw_url: string) => setObjStore("raw_url", raw_url),
   setListing,
   setSort: (orderBy: OrderBy, reverse: boolean) => setObjStore({ orderBy, reverse }),
@@ -156,7 +156,7 @@ export const visibleObjIndexes = createMemo(() => {
     return 0
   })
 })
-const getCountStr = (objs: StoreObj[], prefix: "count" | "selected", filterType?: ObjType) => {
+const getCountStr = (objs: FileItem[], prefix: "count" | "selected", filterType?: FileType) => {
   if (filterType) objs = objs.filter((obj) => obj.is_dir || obj.type === filterType)
   if (objs.length === 0) return ""
   const folders = objs.filter((o) => o.is_dir).length
@@ -167,10 +167,10 @@ const getCountStr = (objs: StoreObj[], prefix: "count" | "selected", filterType?
   return `${label}: ${files} files`
 }
 
-export const countMsg = (filterType?: ObjType) =>
+export const countMsg = (filterType?: FileType) =>
   getCountStr(objStore.objs, "count", filterType)
 
-export const selectedMsg = (filterType?: ObjType) => {
+export const selectedMsg = (filterType?: FileType) => {
   const selectedList = selectedObjs()
   return selectedList.length > 0
     ? getCountStr(selectedList, "selected", filterType)
