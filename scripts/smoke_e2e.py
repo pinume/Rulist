@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Run a self-contained HTTP smoke test against a built Rulist binary."""
 
+import base64
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -9,6 +12,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -94,8 +98,16 @@ def main():
         guest_root = tmp_path / "guest-root"
         guest_root.mkdir()
         (storage_dir / "admin-only.txt").write_text("admin\n")
+        for folder in ("copy-src", "copy-dst", "move-src", "move-dst"):
+            (storage_dir / folder).mkdir()
+        (storage_dir / "copy-src" / "exists.txt").write_text("source copy\n")
+        (storage_dir / "copy-dst" / "exists.txt").write_text("destination copy\n")
+        (storage_dir / "move-src" / "exists.txt").write_text("source move\n")
+        (storage_dir / "move-dst" / "exists.txt").write_text("destination move\n")
         (guest_root / "guest-only.txt").write_text("guest\n")
         (guest_root / "signed.txt").write_text("signed\n")
+        (guest_root / "copy-source.txt").write_text("copy without write permission\n")
+        (guest_root / "copy-target").mkdir()
         subprocess.run(
             [str(BINARY), "--data-dir", str(data_dir), "interactive"],
             input=(
@@ -114,6 +126,10 @@ def main():
             if guest is None or guest[1] != str(guest_root.resolve()):
                 raise AssertionError(f"interactive CLI did not create guest root: {guest}")
             guest_id = guest[0]
+            connection.execute(
+                "UPDATE users SET permission = ? WHERE id = ?",
+                (1 << 6, guest_id),
+            )
             tables = {
                 row[0]
                 for row in connection.execute(
@@ -156,6 +172,13 @@ def main():
                 ):
                     raise AssertionError(f"unexpected public settings: {settings}")
 
+                status, _ = http(f"{base}/api/not-exist")
+                expect(404, status, "unknown API route")
+                status, page = http(f"{base}/unknown-page")
+                expect(200, status, "SPA route")
+                if b"<html" not in page.lower():
+                    raise AssertionError("unknown frontend route did not return HTML")
+
                 status, _ = http(
                     f"{base}/api/fs/put",
                     "PUT",
@@ -193,6 +216,10 @@ def main():
                 admin_names = {item["name"] for item in listing["data"]["content"]}
                 if "admin-only.txt" not in admin_names or "guest-only.txt" in admin_names:
                     raise AssertionError(f"admin listing crossed user roots: {admin_names}")
+                status, _ = api(base, "/api/fs/get", {"path": "/missing.txt"}, token)
+                expect(404, status, "missing file")
+                status, _ = api(base, "/api/fs/mkdir", {"path": ""}, token)
+                expect(400, status, "empty mkdir path")
 
                 status, guest_login = api(
                     base,
@@ -206,6 +233,35 @@ def main():
                 guest_names = {item["name"] for item in guest_listing["data"]["content"]}
                 if "guest-only.txt" not in guest_names or "admin-only.txt" in guest_names:
                     raise AssertionError(f"guest listing crossed user roots: {guest_names}")
+                status, _ = api(
+                    base,
+                    "/api/fs/copy",
+                    {
+                        "src_dir": "/",
+                        "dst_dir": "/copy-target",
+                        "names": ["copy-source.txt"],
+                        "conflict_policy": "cancel",
+                    },
+                    guest_token,
+                )
+                expect(200, status, "copy without write permission")
+                copied_path = guest_root / "copy-target" / "copy-source.txt"
+                if copied_path.read_text() != "copy without write permission\n":
+                    raise AssertionError("copy without write permission produced wrong contents")
+                status, _ = api(
+                    base, "/api/fs/mkdir", {"path": "/not-allowed"}, guest_token
+                )
+                expect(403, status, "mkdir without write permission")
+                status, _ = http(
+                    f"{base}/api/fs/put",
+                    "PUT",
+                    b"not allowed",
+                    {
+                        "Authorization": f"Bearer {guest_token}",
+                        "File-Path": quote("/not-allowed.txt", safe=""),
+                    },
+                )
+                expect(403, status, "upload without write permission")
                 status, _ = api(
                     base,
                     "/api/fs/list",
@@ -277,6 +333,28 @@ def main():
 
                 status, link = api(base, "/api/fs/link", {"path": "/smoke.txt"}, token)
                 expect(200, status, "signed link")
+                config = json.loads((data_dir / "config.json").read_text())
+                with sqlite3.connect(data_dir / "data.db") as connection:
+                    user_context = connection.execute(
+                        "SELECT pwd_ts, local_path FROM users WHERE id = ?",
+                        (admin["id"],),
+                    ).fetchone()
+                pwd_ts, local_path = user_context
+                expires = int(time.time()) - 1
+                context = f"uid={admin['id']}:pwd_ts={pwd_ts}:root={local_path}"
+                payload = f"/smoke.txt:{context}:{expires}".encode()
+                key = hashlib.sha256(
+                    f"{config['jwt_secret']}:rulist-link-signer".encode()
+                ).digest()
+                digest = hmac.new(key, payload, hashlib.sha256).digest()
+                expired_sign = (
+                    base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+                    + f":{expires}"
+                )
+                status, _ = http(
+                    f"{base}/d/smoke.txt?sign={quote(expired_sign, safe='')}&uid={admin['id']}"
+                )
+                expect(403, status, "expired signed link")
                 query = parse_qs(urlsplit(link["data"]["url"]).query)
                 if query.get("uid") != [str(admin["id"])] or "sign" not in query:
                     raise AssertionError(f"signed link lacks its user identity: {link}")
@@ -304,6 +382,23 @@ def main():
                 expect(409, status, "duplicate upload")
                 if (storage_dir / "smoke.txt").read_bytes() != CONTENT:
                     raise AssertionError("duplicate upload changed the original file")
+
+                for route, src_dir, dst_dir in (
+                    ("/api/fs/copy", "/copy-src", "/copy-dst"),
+                    ("/api/fs/move", "/move-src", "/move-dst"),
+                ):
+                    status, _ = api(
+                        base,
+                        route,
+                        {
+                            "src_dir": src_dir,
+                            "dst_dir": dst_dir,
+                            "names": ["exists.txt"],
+                            "conflict_policy": "cancel",
+                        },
+                        token,
+                    )
+                    expect(409, status, f"{route} existing target conflict")
 
                 status, _ = http(f"{base}/api/auth/logout", headers={"Authorization": f"Bearer {token}"})
                 expect(200, status, "logout")
