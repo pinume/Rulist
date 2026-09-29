@@ -4,7 +4,9 @@ use axum::response::Response;
 use serde::Deserialize;
 use std::path::Path;
 
-use crate::db::{ROLE_ADMIN, User, create_user_direct, delete_user, get_all_users, get_user_by_id};
+use crate::db::{
+    ROLE_ADMIN, User, create_user, delete_user, get_all_users, get_user_by_id, update_user,
+};
 use crate::server::{SharedState, api_error, api_success, authenticate_user};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -62,21 +64,16 @@ fn local_path(path: &str) -> anyhow::Result<String> {
 }
 
 fn validate_password_request(password: &str, allow_empty: bool) -> Result<(), Response> {
-    if password.is_empty() && !allow_empty {
-        return Err(api_error(
-            StatusCode::BAD_REQUEST,
-            400,
-            "Password cannot be empty unless passwordless login is enabled",
-        ));
-    }
-    if !password.is_empty() && !crate::auth::valid_password(password) {
-        return Err(api_error(
-            StatusCode::BAD_REQUEST,
-            400,
-            "Password length must be between 8 and 128 characters",
-        ));
-    }
-    Ok(())
+    crate::auth::validate_password(
+        password,
+        false,
+        if allow_empty {
+            1 << crate::db::PERM_ALLOW_EMPTY_PASSWORD
+        } else {
+            0
+        },
+    )
+    .map_err(|message| api_error(StatusCode::BAD_REQUEST, 400, message))
 }
 
 pub async fn admin_user_list_handler(
@@ -163,7 +160,7 @@ pub async fn admin_user_create_handler(
             return api_error(StatusCode::BAD_REQUEST, 400, "Invalid local directory");
         }
     };
-    match create_user_direct(
+    match create_user(
         &state.pool,
         username,
         password,
@@ -262,9 +259,17 @@ pub async fn admin_user_update_handler(
     if let Some(disabled) = req.disabled {
         target.disabled = disabled;
     }
-    match sqlx::query("UPDATE `x_users` SET `username` = ?, `pwd_hash` = ?, `pwd_ts` = ?, `local_path` = ?, `password_unset` = ?, `disabled` = ?, `permission` = ? WHERE `id` = ?")
-        .bind(&target.username).bind(&target.pwd_hash).bind(target.pwd_ts).bind(path).bind(target.password_unset).bind(target.disabled).bind(target.permission).bind(id).execute(&state.pool).await {
-        Ok(_) => api_success(()), Err(err) => { tracing::error!(error = %err, "failed to update user"); api_error(StatusCode::INTERNAL_SERVER_ERROR, 500, "Internal server error") }
+    target.local_path = path;
+    match update_user(&state.pool, &target).await {
+        Ok(_) => api_success(()),
+        Err(err) => {
+            tracing::error!(error = %err, "failed to update user");
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            )
+        }
     }
 }
 

@@ -17,6 +17,23 @@ pub fn valid_password(password: &str) -> bool {
     (8..=128).contains(&password.len())
 }
 
+pub fn validate_password(
+    password: &str,
+    is_admin: bool,
+    permission: i32,
+) -> Result<(), &'static str> {
+    if password.is_empty() {
+        return if !is_admin && permission & (1 << crate::db::PERM_ALLOW_EMPTY_PASSWORD) != 0 {
+            Ok(())
+        } else {
+            Err("Password cannot be empty unless passwordless login is enabled")
+        };
+    }
+    valid_password(password)
+        .then_some(())
+        .ok_or("Password length must be between 8 and 128 characters")
+}
+
 pub fn rand_string(n: usize) -> String {
     if n == 0 {
         return String::new();

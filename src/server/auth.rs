@@ -2,9 +2,7 @@ use axum::extract::{Json, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 
-use crate::auth::{
-    generate_jwt, hash_identifier, hash_password, matching_totp_step, parse_jwt, verify_password,
-};
+use crate::auth::{generate_jwt, hash_identifier, matching_totp_step, parse_jwt, verify_password};
 use crate::db::PERM_ALLOW_EMPTY_PASSWORD;
 use crate::db::get_user_by_name;
 use crate::server::{SharedState, api_error, api_success, authenticate_user};
@@ -34,13 +32,6 @@ pub struct UpdateCurrentReq {
 
 fn login_attempt_key(username: &str) -> String {
     hash_identifier(username.trim())
-}
-
-fn now_ts() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
 }
 
 async fn verify_password_bounded(password: &str, pwd_hash: &str) -> Result<bool, StatusCode> {
@@ -170,16 +161,8 @@ pub async fn login_handler(
         let Some(step) = matching_totp_step(secret, otp_code) else {
             return api_error(StatusCode::UNAUTHORIZED, 400, "invalid otp code");
         };
-        let accepted = match sqlx::query(
-            "UPDATE `x_users` SET `last_otp_step` = ? WHERE `id` = ? AND `last_otp_step` < ?",
-        )
-        .bind(step)
-        .bind(user.id)
-        .bind(step)
-        .execute(&state.pool)
-        .await
-        {
-            Ok(result) => result.rows_affected() == 1,
+        let accepted = match crate::db::accept_otp_step(&state.pool, user.id, step).await {
+            Ok(accepted) => accepted,
             Err(err) => {
                 tracing::error!(error = %err, "failed to record accepted otp step");
                 return api_error(
@@ -308,7 +291,7 @@ pub async fn update_current_handler(
                 "Password cannot be empty in personal profile",
             );
         }
-        if !crate::auth::valid_password(new_password) {
+        if crate::auth::validate_password(new_password, user.is_admin(), user.permission).is_err() {
             return api_error(
                 StatusCode::BAD_REQUEST,
                 400,
@@ -326,17 +309,11 @@ pub async fn update_current_handler(
                 "Username length cannot exceed 64 characters",
             );
         }
-        let exists: Result<Option<i64>, _> =
-            sqlx::query_scalar("SELECT `id` FROM `x_users` WHERE `username` = ? AND `id` != ?")
-                .bind(clean_name)
-                .bind(user.id)
-                .fetch_optional(&state.pool)
-                .await;
-        match exists {
-            Ok(Some(_)) => {
+        match crate::db::username_taken(&state.pool, clean_name, user.id).await {
+            Ok(true) => {
                 return api_error(StatusCode::CONFLICT, 409, "Username already exists");
             }
-            Ok(None) => {}
+            Ok(false) => {}
             Err(err) => {
                 tracing::error!(error = %err, "failed to check existing username");
                 return api_error(
@@ -352,77 +329,30 @@ pub async fn update_current_handler(
         return api_success(());
     }
 
-    let mut tx = match state.pool.begin().await {
-        Ok(tx) => tx,
-        Err(err) => {
-            tracing::error!(error = %err, "failed to start profile update transaction");
-            return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Internal server error",
-            );
-        }
-    };
-
-    if let Some(new_password) = &req.password
-        && password_changed
+    match crate::db::update_profile(
+        &state.pool,
+        &user,
+        username_changed.then_some(clean_name),
+        password_changed.then_some(req.password.as_deref().unwrap_or_default()),
+    )
+    .await
     {
-        let encoded_pwd = hash_password(new_password);
-        let now = now_ts();
-        let update = sqlx::query(
-            "UPDATE `x_users` SET `pwd_hash` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?), `password_unset` = 0 WHERE `id` = ? AND `pwd_ts` = ?",
-        )
-        .bind(&encoded_pwd)
-        .bind(now)
-        .bind(user.id)
-        .bind(user.pwd_ts)
-        .execute(&mut *tx)
-        .await;
-
-        match update {
-            Ok(result) if result.rows_affected() == 0 => {
-                let _ = tx.rollback().await;
-                return api_error(
-                    StatusCode::CONFLICT,
-                    409,
-                    "Password has been changed concurrently, please log in again",
-                );
-            }
-            Ok(_) => {}
-            Err(err) => {
-                tracing::error!(error = %err, "failed to update user password in transaction");
-                return api_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    500,
-                    "Internal server error",
-                );
-            }
+        Ok(false) => {
+            return api_error(
+                StatusCode::CONFLICT,
+                409,
+                "Password has been changed concurrently, please log in again",
+            );
         }
-    }
-
-    if username_changed {
-        if let Err(err) = sqlx::query("UPDATE `x_users` SET `username` = ? WHERE `id` = ?")
-            .bind(clean_name)
-            .bind(user.id)
-            .execute(&mut *tx)
-            .await
-        {
-            tracing::error!(error = %err, "failed to update username in transaction");
+        Ok(true) => {}
+        Err(err) => {
+            tracing::error!(error = %err, "failed to update profile");
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 500,
                 "Internal server error",
             );
         }
-    }
-
-    if let Err(err) = tx.commit().await {
-        tracing::error!(error = %err, "failed to commit profile update transaction");
-        return api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            500,
-            "Internal server error",
-        );
     }
 
     api_success(())

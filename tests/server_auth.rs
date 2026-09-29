@@ -159,7 +159,7 @@ async fn database_rejects_disabling_passwordless_for_unset_password() {
         .await
         .unwrap();
     let permission = 1 << PERM_ALLOW_EMPTY_PASSWORD;
-    let user_id = db::create_user_direct(
+    let user_id = db::create_user(
         &pool,
         "guarded-guest",
         "",
@@ -171,13 +171,63 @@ async fn database_rejects_disabling_passwordless_for_unset_password() {
     .await
     .unwrap();
 
-    let error = db::set_user_permission(&pool, user_id, 0)
+    let error = db::set_user_permissions(&pool, user_id, 0)
         .await
         .unwrap_err();
     let err_msg = error.to_string();
     assert!(
         err_msg.contains("CHECK constraint failed") || err_msg.contains("non-empty password"),
         "unexpected error message: {err_msg}"
+    );
+}
+
+#[tokio::test]
+async fn password_and_permission_change_is_atomic() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("guest");
+    tokio::fs::create_dir_all(&root).await.unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
+        .await
+        .unwrap();
+    let id = db::create_user(
+        &pool,
+        "guest",
+        "GuestPass123!",
+        0,
+        Some(root.to_str().unwrap()),
+        0,
+        false,
+    )
+    .await
+    .unwrap();
+    db::set_user_password_and_permission(&pool, id, "", 1 << PERM_ALLOW_EMPTY_PASSWORD)
+        .await
+        .unwrap();
+    let user = db::get_user_by_id(&pool, id).await.unwrap().unwrap();
+    assert!(user.password_unset);
+    assert_ne!(user.permission & (1 << PERM_ALLOW_EMPTY_PASSWORD), 0);
+}
+
+#[tokio::test]
+async fn database_rejects_admin_mutations() {
+    let temp = tempfile::tempdir().unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
+        .await
+        .unwrap();
+    let admin = db::get_admin(&pool).await.unwrap().unwrap();
+    assert!(db::delete_user(&pool, admin.id).await.is_err());
+    assert!(
+        db::create_user(
+            &pool,
+            "other-admin",
+            "GuestPass123!",
+            db::ROLE_ADMIN,
+            Some(temp.path().to_str().unwrap()),
+            0,
+            false
+        )
+        .await
+        .is_err()
     );
 }
 
@@ -219,7 +269,7 @@ async fn disabling_passwordless_login_requires_a_nonempty_password() {
         .await
         .unwrap();
     let permission = 1 << PERM_ALLOW_EMPTY_PASSWORD;
-    let user_id = db::create_user_direct(
+    let user_id = db::create_user(
         &pool,
         "guest",
         "",
@@ -346,7 +396,7 @@ async fn user_update_rejects_invalid_local_path_without_mutating_user() {
     db::set_admin_password(&pool, "AdminPass123!")
         .await
         .unwrap();
-    let user_id = db::create_user_direct(
+    let user_id = db::create_user(
         &pool,
         "rollback-guest",
         "GuestPass123!",

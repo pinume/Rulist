@@ -99,7 +99,9 @@ pub async fn run() -> Result<()> {
         Commands::Interactive => {
             let (config, _) = config::Config::load_or_create(&data_dir)?;
             let pool = init_database(&config, &data_dir).await?;
-            if let Err(error) = interactive::run_interactive_console(&pool, &data_dir).await {
+            if let Err(error) =
+                interactive::run_interactive_console(&pool, &data_dir, &config).await
+            {
                 if error
                     .downcast_ref::<io::Error>()
                     .is_some_and(|error| error.kind() == io::ErrorKind::UnexpectedEof)

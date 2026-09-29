@@ -1,576 +1,323 @@
-use crate::auth;
-use crate::db::{self, DbPool, PERM_ALLOW_EMPTY_PASSWORD, ROLE_ADMIN, User};
+use crate::{
+    auth,
+    config::Config,
+    db::{self, DbPool, PERM_ALLOW_EMPTY_PASSWORD, User},
+};
 use anyhow::Result;
-use std::io::{self, IsTerminal, Write};
-use std::path::{Path, PathBuf};
+use std::{
+    io::{self, IsTerminal, Write},
+    path::{Path, PathBuf},
+};
 
-struct PermItem {
-    bit: i32,
-    name: &'static str,
-}
-
-const PERM_ITEMS: &[PermItem] = &[
-    PermItem {
-        bit: 3,
-        name: "新建与上传",
-    },
-    PermItem {
-        bit: 4,
-        name: "重命名",
-    },
-    PermItem {
-        bit: 5,
-        name: "移动",
-    },
-    PermItem {
-        bit: 6,
-        name: "复制",
-    },
-    PermItem {
-        bit: 7,
-        name: "删除",
-    },
-    PermItem {
-        bit: 8,
-        name: "覆盖同名文件",
-    },
+const PERMS: &[(i32, &str)] = &[
+    (3, "新建与上传"),
+    (4, "重命名"),
+    (5, "移动"),
+    (6, "复制"),
+    (7, "删除"),
+    (8, "覆盖"),
 ];
-
-pub fn format_permissions(role: i32, perm: i32) -> String {
-    if role == ROLE_ADMIN {
-        return "完全控制 (管理员)".to_string();
+pub fn format_permissions(role: i32, permission: i32) -> String {
+    if role == db::ROLE_ADMIN {
+        return "完全控制 (管理员)".into();
     }
-
-    let file_perm = perm & !(1 << PERM_ALLOW_EMPTY_PASSWORD);
-    let allow_empty = perm & (1 << PERM_ALLOW_EMPTY_PASSWORD) != 0;
-    let base = match file_perm {
-        504 => "全部文件权限".to_string(),
-        0 => "只读浏览".to_string(),
-        _ => {
-            let names: Vec<_> = PERM_ITEMS
-                .iter()
-                .filter(|item| perm & (1 << item.bit) != 0)
-                .map(|item| item.name)
-                .collect();
-            if names.is_empty() {
-                "无文件权限".to_string()
-            } else {
-                names.join(",")
-            }
-        }
-    };
-
-    if allow_empty {
-        format!("{base},免密")
+    let names: Vec<_> = PERMS
+        .iter()
+        .filter(|(bit, _)| permission & (1 << bit) != 0)
+        .map(|(_, name)| *name)
+        .collect();
+    let mut text = if names.is_empty() {
+        "只读浏览".into()
     } else {
-        base
+        names.join(",")
+    };
+    if permission & (1 << PERM_ALLOW_EMPTY_PASSWORD) != 0 {
+        text.push_str(",免密");
     }
+    text
 }
-
 fn prompt(label: &str) -> io::Result<String> {
     print!("{label}");
     io::stdout().flush()?;
     let mut input = String::new();
-    let n = io::stdin().read_line(&mut input)?;
-    if n == 0 {
+    if io::stdin().read_line(&mut input)? == 0 {
         return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
     }
-    Ok(input.trim().to_string())
+    Ok(input.trim().into())
 }
-
-fn prompt_default(label: &str, default: &str) -> io::Result<String> {
-    print!("{label} [{default}]: ");
-    io::stdout().flush()?;
-    let mut input = String::new();
-    let n = io::stdin().read_line(&mut input)?;
-    if n == 0 {
-        return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
-    }
-    let value = input.trim();
-    Ok(if value.is_empty() {
-        default.to_string()
-    } else {
-        value.to_string()
-    })
-}
-
-fn prompt_password(label: &str) -> io::Result<String> {
+fn password(label: &str) -> io::Result<String> {
     if io::stdin().is_terminal() {
         rpassword::prompt_password(label)
     } else {
         prompt(label)
     }
 }
-
-fn pause() {
-    print!("\n按回车键继续...");
-    let _ = io::stdout().flush();
-    let mut buf = String::new();
-    let _ = io::stdin().read_line(&mut buf);
-}
-
-fn resolve_local_path(input: &str, default_home: &str) -> PathBuf {
-    let trimmed = input.trim();
-    if trimmed.is_empty() {
-        return PathBuf::from(default_home);
-    }
-    if trimmed.starts_with(default_home) {
-        return PathBuf::from(trimmed);
-    }
-    if trimmed.starts_with('~') {
-        return PathBuf::from(default_home)
-            .join(trimmed.trim_start_matches('~').trim_start_matches('/'));
-    }
-    let path = Path::new(trimmed);
-    if path.is_absolute() {
-        return path.to_path_buf();
-    }
-    PathBuf::from(default_home).join(trimmed.trim_start_matches('/'))
-}
-
-fn parse_perm_input(input: &str) -> Option<i32> {
-    let trimmed = input.trim();
-    if trimmed.eq_ignore_ascii_case("all") {
-        return Some(
-            PERM_ITEMS
-                .iter()
-                .fold(0, |perm, item| perm | (1 << item.bit)),
-        );
-    }
-    if trimmed.eq_ignore_ascii_case("none") || trimmed == "0" {
-        return Some(0);
-    }
-
-    let mut perm = 0;
-    if trimmed.contains(|c: char| c.is_whitespace() || c == ',') {
-        for part in trimmed.split(|c: char| c.is_whitespace() || c == ',') {
-            if part.is_empty() {
-                continue;
-            }
-            let num = part.parse::<usize>().ok()?;
-            if !(1..=PERM_ITEMS.len()).contains(&num) {
-                return None;
-            }
-            perm |= 1 << PERM_ITEMS[num - 1].bit;
-        }
+fn local_path(input: &str) -> Result<String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    let input = input.trim();
+    let path = if input == "~" || input.is_empty() {
+        PathBuf::from(home)
+    } else if let Some(rest) = input.strip_prefix("~/") {
+        PathBuf::from(home).join(rest)
+    } else if Path::new(input).is_absolute() {
+        PathBuf::from(input)
     } else {
-        for ch in trimmed.chars() {
-            let num = ch.to_digit(10)? as usize;
-            if !(1..=PERM_ITEMS.len()).contains(&num) {
-                return None;
-            }
-            perm |= 1 << PERM_ITEMS[num - 1].bit;
-        }
-    }
-    Some(perm)
+        PathBuf::from(home).join(input)
+    };
+    let path = path.canonicalize()?;
+    anyhow::ensure!(path.is_dir(), "路径不是目录");
+    Ok(path.to_string_lossy().into_owned())
 }
-
-fn select_permissions(allow_empty_default: bool) -> io::Result<Option<i32>> {
-    println!();
-    println!("--------------------------------------------------");
-    println!("权限列表:");
-    println!("--------------------------------------------------");
-    for (idx, item) in PERM_ITEMS.iter().enumerate() {
-        println!("  {}. {}", idx + 1, item.name);
-    }
-    println!("--------------------------------------------------");
-
-    loop {
-        let input = prompt("请输入权限序号 (如 1 2 3，all 全选，0 无权限，q 返回): ")?;
-        if input.eq_ignore_ascii_case("q") || input == "cancel" {
-            return Ok(None);
-        }
-        let Some(mut perm) = parse_perm_input(&input) else {
-            println!("输入无效，请输入 1-{} 的序号、all 或 0。", PERM_ITEMS.len());
-            continue;
-        };
-
-        let default = if allow_empty_default { "y" } else { "n" };
-        let allow_empty = prompt_default("允许免密登录？(y/n)", default)?;
-        if allow_empty.eq_ignore_ascii_case("q") || allow_empty == "cancel" {
-            return Ok(None);
-        }
-        if allow_empty.eq_ignore_ascii_case("y") {
-            perm |= 1 << PERM_ALLOW_EMPTY_PASSWORD;
-        }
-        return Ok(Some(perm));
-    }
-}
-
-pub async fn run_interactive_console(pool: &DbPool, _data_dir: &Path) -> Result<()> {
-    loop {
-        println!();
-        println!("==================================================");
-        println!("                Rulist 控制台管理");
-        println!("==================================================");
-        println!(" 1. 添加用户");
-        println!(" 2. 修改密码");
-        println!(" 3. 设置目录");
-        println!(" 4. 设置权限");
-        println!(" 5. 重置密码");
-        println!(" 6. 绑定 2FA");
-        println!(" 7. 解绑 2FA");
-        println!(" 8. 删除用户");
-        println!(" 0. 退出");
-        println!("==================================================");
-
-        let choice = prompt("请选择操作 [0-8]: ")?;
-        let handled = match choice.as_str() {
-            "1" => {
-                action_add_user(pool).await?;
-                true
-            }
-            "2" => {
-                action_change_password(pool).await?;
-                true
-            }
-            "3" => {
-                action_set_user_dir(pool).await?;
-                true
-            }
-            "4" => {
-                action_set_user_permissions(pool).await?;
-                true
-            }
-            "5" => {
-                action_reset_password(pool).await?;
-                true
-            }
-            "6" => {
-                action_bind_2fa(pool).await?;
-                true
-            }
-            "7" => {
-                action_unbind_2fa(pool).await?;
-                true
-            }
-            "8" => {
-                action_delete_user(pool).await?;
-                true
-            }
-            "0" | "q" | "exit" => {
-                println!("已退出 Rulist 交互控制台。");
-                break;
-            }
-            _ => {
-                println!("无效输入，请重新选择。");
-                false
-            }
-        };
-
-        if handled {
-            pause();
-        }
-    }
-
-    Ok(())
-}
-
-async fn select_user(pool: &DbPool, general_only: bool) -> Result<Option<User>> {
-    let mut users = db::get_all_users(pool).await?;
-    if general_only {
-        users.retain(|user| !user.is_admin());
-    }
-
-    println!();
-    println!("用户列表:");
-    if users.is_empty() {
-        println!("(暂无用户)");
+fn choose_permissions(default_empty: bool) -> io::Result<Option<i32>> {
+    println!("权限: 1上传 2重命名 3移动 4复制 5删除 6覆盖；all/0");
+    let input = prompt("选择 (q 返回): ")?;
+    if input.eq_ignore_ascii_case("q") {
         return Ok(None);
     }
-
-    for (index, user) in users.iter().enumerate() {
+    let mut permission = if input.eq_ignore_ascii_case("all") {
+        PERMS.iter().fold(0, |value, (bit, _)| value | (1 << bit))
+    } else if input == "0" {
+        0
+    } else {
+        let mut value = 0;
+        for part in input.split(|ch: char| ch.is_whitespace() || ch == ',') {
+            let Some((bit, _)) = part
+                .parse::<usize>()
+                .ok()
+                .and_then(|i| i.checked_sub(1))
+                .and_then(|i| PERMS.get(i))
+            else {
+                return Ok(None);
+            };
+            value |= 1 << bit;
+        }
+        value
+    };
+    let empty = prompt("允许免密登录? (y/N): ")?;
+    if empty.eq_ignore_ascii_case("y") || (empty.is_empty() && default_empty) {
+        permission |= 1 << PERM_ALLOW_EMPTY_PASSWORD;
+    }
+    Ok(Some(permission))
+}
+fn users(users: &[User]) {
+    for user in users {
         println!(
-            " {}. {} ({}, 2FA: {})",
-            index + 1,
+            "{} | {} | {} | {} | {} | 2FA:{} | {}",
+            user.id,
             user.username,
             if user.is_admin() {
                 "管理员"
             } else {
                 "普通用户"
             },
-            if user.otp { "已启用" } else { "未启用" }
+            user.local_path,
+            format_permissions(user.role, user.permission),
+            if user.otp { "开" } else { "关" },
+            if user.disabled { "禁用" } else { "启用" }
         );
     }
-
-    loop {
-        let input = prompt("请选择用户序号 (0、留空或 q 返回): ")?;
-        if input.is_empty() || input == "0" || input.eq_ignore_ascii_case("q") {
-            return Ok(None);
-        }
-        match input.parse::<usize>() {
-            Ok(index) if (1..=users.len()).contains(&index) => {
-                return Ok(Some(users[index - 1].clone()));
-            }
-            _ => println!("输入无效，请输入 1-{} 的序号。", users.len()),
-        }
-    }
 }
-
-async fn action_add_user(pool: &DbPool) -> Result<()> {
-    println!("\n>>> 添加用户");
-    let username = prompt("请输入用户名: ")?;
-    if username.is_empty() || username.eq_ignore_ascii_case("q") {
-        return Ok(());
-    }
-    if db::get_user_by_name(pool, &username).await?.is_some() {
-        println!("错误: 用户 '{username}' 已存在。");
-        return Ok(());
-    }
-
-    let default_home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let input = prompt_default("本地目录路径", &default_home)?;
-    let path = resolve_local_path(&input, &default_home);
-    if !path.exists() {
-        println!("目录不存在: {path:?}");
-        return Ok(());
-    }
-    if !path.is_dir() {
-        println!("路径不是目录: {path:?}");
-        return Ok(());
-    }
-    let local_path = match path.canonicalize() {
-        Ok(path) => path.to_string_lossy().into_owned(),
-        Err(error) => {
-            println!("路径无效: {error}");
+async fn select(pool: &DbPool) -> Result<Option<User>> {
+    let all = db::get_all_users(pool).await?;
+    users(&all);
+    let Ok(id) = prompt("用户 ID (留空返回): ")?.parse::<i64>() else {
+        return Ok(None);
+    };
+    Ok(all.into_iter().find(|user| user.id == id))
+}
+async fn set_password(pool: &DbPool, user: &mut User) -> Result<()> {
+    let value = password("新密码（random 自动生成）: ")?;
+    let value = if value.eq_ignore_ascii_case("random") {
+        let value = auth::rand_string(16);
+        println!("新密码: {value}");
+        value
+    } else {
+        value
+    };
+    if value.is_empty() {
+        if user.is_admin()
+            || !prompt("确认开启免密并设置空密码? (y/N): ")?.eq_ignore_ascii_case("y")
+        {
             return Ok(());
         }
-    };
-
-    let Some(permission) = select_permissions(false)? else {
-        println!("操作已取消。");
-        return Ok(());
-    };
-
-    let password = loop {
-        let password = prompt_password("请输入登录密码 (若已选免密可留空): ")?;
-        if password.is_empty() {
-            if permission & (1 << PERM_ALLOW_EMPTY_PASSWORD) != 0 {
-                break password;
-            }
-            println!("未开启免密登录，密码不能为空。");
-            continue;
+        user.permission |= 1 << PERM_ALLOW_EMPTY_PASSWORD;
+    }
+    match auth::validate_password(&value, user.is_admin(), user.permission) {
+        Ok(()) => {
+            db::set_user_password_and_permission(pool, user.id, &value, user.permission).await?;
+            *user = db::get_user_by_id(pool, user.id)
+                .await?
+                .expect("updated user exists");
         }
-        if !auth::valid_password(&password) {
-            println!("错误: 密码长度需在 8 到 128 位之间。");
-            continue;
-        }
-        if password != prompt_password("请再次输入确认密码: ")? {
-            println!("错误: 两次输入的密码不一致。");
-            continue;
-        }
-        break password;
-    };
-
-    let id = db::create_user_direct(
-        pool,
-        &username,
-        &password,
-        0,
-        Some(&local_path),
-        permission,
-        false,
-    )
-    .await?;
-
-    println!("\n用户 '{username}' 创建成功！");
-    println!("  ID: {id}");
-    println!("  目录: {local_path}");
-    println!("  权限: {}", format_permissions(0, permission));
+        Err(error) => println!("错误: {error}"),
+    }
     Ok(())
 }
-
-async fn action_change_password(pool: &DbPool) -> Result<()> {
-    println!("\n>>> 修改密码");
-    let Some(user) = select_user(pool, false).await? else {
-        return Ok(());
-    };
-
-    let password = loop {
-        let password = prompt_password("请输入新密码 (普通用户可留空设置免密): ")?;
-        if password.is_empty() {
-            if user.is_admin() {
-                println!("错误: 管理员账户不允许空密码。");
-                continue;
+async fn manage(pool: &DbPool, mut user: User) -> Result<()> {
+    loop {
+        println!(
+            "用户: {} | 目录: {} | 权限: {} | 状态: {} | 2FA: {}",
+            user.username,
+            user.local_path,
+            format_permissions(user.role, user.permission),
+            if user.disabled { "禁用" } else { "启用" },
+            if user.otp { "开" } else { "关" }
+        );
+        println!(
+            "管理 {}: 1密码 2目录 3权限 4 2FA 5启用/禁用 6删除 0返回",
+            user.username
+        );
+        match prompt("选择: ")?.as_str() {
+            "1" => set_password(pool, &mut user).await?,
+            "2" => {
+                let path = local_path(&prompt("目录: ")?)?;
+                db::set_user_local_path(pool, user.id, &path).await?;
+                user = match db::get_user_by_id(pool, user.id).await? {
+                    Some(user) => user,
+                    None => break,
+                };
             }
-            if prompt_default("确认设置为空密码并开启免密登录？(y/N)", "n")?
-                .eq_ignore_ascii_case("y")
-            {
-                db::set_user_permission(
-                    pool,
-                    user.id,
-                    user.permission | (1 << PERM_ALLOW_EMPTY_PASSWORD),
-                )
-                .await?;
-                break password;
+            "3" if !user.is_admin() => {
+                if let Some(permission) =
+                    choose_permissions(user.permission & (1 << PERM_ALLOW_EMPTY_PASSWORD) != 0)?
+                {
+                    if user.password_unset && permission & (1 << PERM_ALLOW_EMPTY_PASSWORD) == 0 {
+                        let value = password("需设置非空密码（random 自动生成）: ")?;
+                        let generated = value.eq_ignore_ascii_case("random");
+                        let value = if generated {
+                            let value = auth::rand_string(16);
+                            println!("新密码: {value}");
+                            value
+                        } else {
+                            value
+                        };
+                        if value.is_empty()
+                            || auth::validate_password(&value, false, permission).is_err()
+                            || (!generated && value != password("确认密码: ")?)
+                        {
+                            println!("密码无效或不一致");
+                            continue;
+                        }
+                        db::set_user_password_and_permission(pool, user.id, &value, permission)
+                            .await?;
+                    } else {
+                        db::set_user_permissions(pool, user.id, permission).await?;
+                    }
+                    user = match db::get_user_by_id(pool, user.id).await? {
+                        Some(user) => user,
+                        None => break,
+                    };
+                }
             }
-            println!("操作已取消，请重新输入密码。");
-            continue;
+            "4" => {
+                if user.otp {
+                    if prompt("确认解绑 2FA? (y/N): ")?.eq_ignore_ascii_case("y") {
+                        db::disable_user_2fa(pool, user.id).await?;
+                        user = match db::get_user_by_id(pool, user.id).await? {
+                            Some(user) => user,
+                            None => break,
+                        };
+                    }
+                } else {
+                    if !prompt("确认绑定 2FA? (y/N): ")?.eq_ignore_ascii_case("y") {
+                        continue;
+                    }
+                    let secret = auth::generate_otp_secret();
+                    println!("密钥: {secret}");
+                    if let Some(step) = auth::matching_totp_step(&secret, &prompt("验证码: ")?) {
+                        db::enable_user_2fa(pool, user.id, &secret, step).await?;
+                        user = match db::get_user_by_id(pool, user.id).await? {
+                            Some(user) => user,
+                            None => break,
+                        };
+                    }
+                }
+            }
+            "5" if !user.is_admin() => {
+                if prompt("确认切换启用状态? (y/N): ")?.eq_ignore_ascii_case("y") {
+                    user.disabled = !user.disabled;
+                    db::update_user(pool, &user).await?;
+                    user = match db::get_user_by_id(pool, user.id).await? {
+                        Some(user) => user,
+                        None => break,
+                    };
+                }
+            }
+            "6" if !user.is_admin() => {
+                if prompt("确认删除? (y/N): ")?.eq_ignore_ascii_case("y") {
+                    db::delete_user(pool, user.id).await?;
+                    break;
+                }
+            }
+            "0" | "q" => break,
+            _ => println!("无效或管理员不可执行该操作"),
         }
-        if !auth::valid_password(&password) {
-            println!("错误: 密码长度需在 8 到 128 位之间。");
-            continue;
-        }
-        if password != prompt_password("请再次输入确认密码: ")? {
-            println!("错误: 两次输入的密码不一致。");
-            continue;
-        }
-        break password;
-    };
-
-    db::set_user_password(pool, &user.username, &password).await?;
-    println!("用户 '{}' 的密码已更新。", user.username);
+    }
     Ok(())
 }
-
-async fn action_set_user_dir(pool: &DbPool) -> Result<()> {
-    println!("\n>>> 设置目录");
-    let Some(user) = select_user(pool, false).await? else {
-        return Ok(());
-    };
-
-    let default_home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let input = prompt_default("请输入新的本地目录路径", &default_home)?;
-    let path = resolve_local_path(&input, &default_home);
-    if !path.exists() {
-        println!("目录不存在: {path:?}");
+async fn add(pool: &DbPool) -> Result<()> {
+    let username = prompt("用户名: ")?;
+    if username.is_empty() {
         return Ok(());
     }
-    if !path.is_dir() {
-        println!("路径不是目录: {path:?}");
-        return Ok(());
-    }
-
-    let path = path.canonicalize()?.to_string_lossy().into_owned();
-    db::set_user_dir(pool, user.id, &path).await?;
-    println!("用户 '{}' 的目录已更新为: {path}", user.username);
-    Ok(())
-}
-
-async fn action_set_user_permissions(pool: &DbPool) -> Result<()> {
-    println!("\n>>> 设置权限");
-    let Some(user) = select_user(pool, true).await? else {
+    let path = local_path(&prompt("目录: ")?)?;
+    let Some(permission) = choose_permissions(false)? else {
         return Ok(());
     };
-
+    let value = password("密码: ")?;
+    if let Err(error) = auth::validate_password(&value, false, permission) {
+        println!("错误: {error}");
+        return Ok(());
+    }
+    if !value.is_empty() && value != password("确认密码: ")? {
+        println!("两次密码不一致");
+        return Ok(());
+    }
+    if !prompt("确认创建用户? (y/N): ")?.eq_ignore_ascii_case("y") {
+        return Ok(());
+    }
+    db::create_user(pool, &username, &value, 0, Some(&path), permission, false).await?;
+    Ok(())
+}
+async fn service_info(config: &Config, data_dir: &Path, pool: &DbPool) -> Result<()> {
+    let users = db::get_all_users(pool).await?;
+    let admin_dir = users
+        .iter()
+        .find(|user| user.is_admin())
+        .map(|user| user.local_path.as_str())
+        .unwrap_or("-");
     println!(
-        "当前权限: {}",
-        format_permissions(user.role, user.permission)
-    );
-    let allow_empty = user.permission & (1 << PERM_ALLOW_EMPTY_PASSWORD) != 0;
-    let Some(permission) = select_permissions(allow_empty)? else {
-        println!("操作已取消。");
-        return Ok(());
-    };
-
-    db::set_user_permission(pool, user.id, permission).await?;
-    println!(
-        "用户 '{}' 的权限已更新为: {}",
-        user.username,
-        format_permissions(user.role, permission)
+        "版本: v{}\n数据目录: {}\n数据库: {}\n监听: {}:{}\n管理员目录: {}\n用户数: {}\n配置: {}",
+        env!("CARGO_PKG_VERSION"),
+        data_dir.display(),
+        config.resolved_db_path(data_dir).display(),
+        config.server.address,
+        config.server.port,
+        admin_dir,
+        users.len(),
+        data_dir.join("config.json").display()
     );
     Ok(())
 }
-
-async fn action_reset_password(pool: &DbPool) -> Result<()> {
-    println!("\n>>> 重置密码");
-    let Some(user) = select_user(pool, false).await? else {
-        return Ok(());
-    };
-
-    if !prompt_default(
-        &format!("确定要重置用户 '{}' 的密码吗？(y/N)", user.username),
-        "n",
-    )?
-    .eq_ignore_ascii_case("y")
-    {
-        println!("操作已取消。");
-        return Ok(());
+pub async fn run_interactive_console(
+    pool: &DbPool,
+    data_dir: &Path,
+    config: &Config,
+) -> Result<()> {
+    loop {
+        println!("\n1. 用户列表\n2. 添加用户\n3. 管理用户\n4. 服务信息\n0. 退出");
+        match prompt("选择: ")?.as_str() {
+            "1" => users(&db::get_all_users(pool).await?),
+            "2" => add(pool).await?,
+            "3" => {
+                if let Some(user) = select(pool).await? {
+                    manage(pool, user).await?
+                }
+            }
+            "4" => service_info(config, data_dir, pool).await?,
+            "0" | "q" | "exit" => break,
+            _ => println!("无效输入"),
+        }
     }
-
-    let password = auth::rand_string(16);
-    db::set_user_password(pool, &user.username, &password).await?;
-    println!("密码已重置。2FA 状态保持不变。");
-    println!("用户名: {}", user.username);
-    println!("新密码: {password}");
-    Ok(())
-}
-
-async fn action_bind_2fa(pool: &DbPool) -> Result<()> {
-    println!("\n>>> 绑定 2FA");
-    let Some(user) = select_user(pool, false).await? else {
-        return Ok(());
-    };
-    if user.otp {
-        println!("用户 '{}' 已启用 2FA。", user.username);
-        return Ok(());
-    }
-
-    let secret = auth::generate_otp_secret();
-    println!("\n请在身份验证器中手动添加以下信息：");
-    println!("密钥: {secret}");
-    println!("类型: TOTP");
-    println!("位数: 6");
-    println!("周期: 30 秒");
-    println!("算法: SHA1");
-    println!("\n只有验证码验证成功后才会保存此密钥。");
-
-    let code = prompt("请输入身份验证器生成的 6 位验证码 (留空取消): ")?;
-    if code.is_empty() || code.eq_ignore_ascii_case("q") {
-        println!("操作已取消，2FA 未启用。");
-        return Ok(());
-    }
-
-    let Some(step) = auth::matching_totp_step(&secret, &code) else {
-        println!("验证码无效，2FA 未启用。");
-        return Ok(());
-    };
-
-    db::enable_user_2fa(pool, user.id, &secret, step).await?;
-    println!("用户 '{}' 的 2FA 已启用。", user.username);
-    Ok(())
-}
-
-async fn action_unbind_2fa(pool: &DbPool) -> Result<()> {
-    println!("\n>>> 解绑 2FA");
-    let Some(user) = select_user(pool, false).await? else {
-        return Ok(());
-    };
-    if !user.otp {
-        println!("用户 '{}' 未启用 2FA。", user.username);
-        return Ok(());
-    }
-    if !prompt_default(
-        &format!("确定要解绑用户 '{}' 的 2FA 吗？(y/N)", user.username),
-        "n",
-    )?
-    .eq_ignore_ascii_case("y")
-    {
-        println!("操作已取消。");
-        return Ok(());
-    }
-
-    db::cancel_user_2fa(pool, user.id).await?;
-    println!("用户 '{}' 的 2FA 已解绑。", user.username);
-    Ok(())
-}
-
-async fn action_delete_user(pool: &DbPool) -> Result<()> {
-    println!("\n>>> 删除用户");
-    let Some(user) = select_user(pool, true).await? else {
-        return Ok(());
-    };
-    if !prompt_default(
-        &format!("确定要彻底删除用户 '{}' 吗？(y/N)", user.username),
-        "n",
-    )?
-    .eq_ignore_ascii_case("y")
-    {
-        println!("操作已取消。");
-        return Ok(());
-    }
-
-    db::delete_user(pool, user.id).await?;
-    println!("用户 '{}' 已删除。", user.username);
     Ok(())
 }
