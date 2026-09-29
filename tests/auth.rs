@@ -1,7 +1,17 @@
 use rulist::auth::{
     ARGON2_PREFIX, base32_decode, compute_totp, generate_jwt, hash_password, parse_jwt,
-    verify_password,
+    valid_password, verify_password,
 };
+
+#[test]
+fn password_length_uses_unicode_characters() {
+    assert!(valid_password("密码你好世界安全"));
+    assert!(valid_password(&"😀".repeat(8)));
+    assert!(valid_password(&"a".repeat(8)));
+    assert!(!valid_password(&"😀".repeat(7)));
+    assert!(!valid_password(&"a".repeat(7)));
+    assert!(!valid_password(&"中".repeat(129)));
+}
 
 #[test]
 fn argon2_hash_round_trip_and_rejects_wrong_password() {

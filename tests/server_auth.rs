@@ -123,6 +123,39 @@ async fn filesystem_handlers_map_io_errors_and_conflicts_to_http_statuses() {
 }
 
 #[tokio::test]
+async fn username_length_uses_unicode_characters() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("files");
+    tokio::fs::create_dir_all(&root).await.unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+
+    db::create_user(
+        &pool,
+        &"用".repeat(64),
+        "FilesPass123!",
+        0,
+        Some(root.to_str().unwrap()),
+        0,
+        false,
+    )
+    .await
+    .unwrap();
+    assert!(
+        db::create_user(
+            &pool,
+            &"用".repeat(65),
+            "FilesPass123!",
+            0,
+            Some(root.to_str().unwrap()),
+            0,
+            false,
+        )
+        .await
+        .is_err()
+    );
+}
+
+#[tokio::test]
 async fn spa_fallback_returns_404_for_unknown_api_and_stream_paths() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("files");

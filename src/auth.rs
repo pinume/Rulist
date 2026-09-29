@@ -14,7 +14,7 @@ const ARGON2_PARALLELISM: u32 = 1;
 const ARGON2_KEY_LEN: usize = 32;
 
 pub fn valid_password(password: &str) -> bool {
-    (8..=128).contains(&password.len())
+    (8..=128).contains(&password.chars().count())
 }
 
 pub fn validate_password(

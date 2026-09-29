@@ -23,7 +23,7 @@ fn canonical_local_path(path: &str) -> Result<String> {
 
 fn validate_username(username: &str) -> Result<()> {
     let username = username.trim();
-    if username.is_empty() || username.len() > 64 {
+    if username.is_empty() || username.chars().count() > 64 {
         bail!("username must be 1 to 64 characters");
     }
     Ok(())
