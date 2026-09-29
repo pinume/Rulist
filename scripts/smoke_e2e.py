@@ -23,6 +23,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 BINARY = Path(sys.argv[1]) if len(sys.argv) == 2 else ROOT / "target" / "debug" / "rulist"
 CONTENT = b"Rulist E2E smoke test\n"
+COPY_PERMISSION_INDEX = 6  # Keep in sync with src/permissions.rs.
 
 
 def pick_port():
@@ -128,7 +129,7 @@ def main():
             guest_id = guest[0]
             connection.execute(
                 "UPDATE users SET permission = ? WHERE id = ?",
-                (1 << 6, guest_id),
+                (1 << COPY_PERMISSION_INDEX, guest_id),
             )
             tables = {
                 row[0]

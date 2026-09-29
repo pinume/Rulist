@@ -6,7 +6,7 @@ use axum::http::{Request, StatusCode, header};
 use rulist::auth::{compute_totp, generate_jwt, generate_otp_secret};
 use rulist::config::Config;
 use rulist::db;
-use rulist::permissions::ALLOW_EMPTY_PASSWORD;
+use rulist::permissions::{ALLOW_EMPTY_PASSWORD, COPY, MOVE, WRITE_CONTENT};
 use rulist::server::{AppState, build_app};
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -70,7 +70,7 @@ async fn filesystem_handlers_map_io_errors_and_conflicts_to_http_statuses() {
         "FilesPass123!",
         0,
         Some(root.to_str().unwrap()),
-        (1 << 3) | (1 << 5) | (1 << 6),
+        (1 << WRITE_CONTENT) | (1 << MOVE) | (1 << COPY),
         false,
     )
     .await

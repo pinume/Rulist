@@ -80,7 +80,7 @@ async fn init_schema(pool: &DbPool) -> Result<()> {
         validate_unversioned_schema(pool).await?;
     }
 
-    for statement in [
+    let create_users_table = format!(
         r#"
         CREATE TABLE IF NOT EXISTS `users` (
             `id` INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -96,13 +96,18 @@ async fn init_schema(pool: &DbPool) -> Result<()> {
                     `password_unset` = 0
                     OR (
                         `role` != 2
-                        AND (`permission` & 512) != 0
+                        AND (`permission` & {}) != 0
                     )
                 ),
             `otp_secret` TEXT,
             `last_otp_step` INTEGER NOT NULL DEFAULT -1
         )
         "#,
+        1 << crate::permissions::ALLOW_EMPTY_PASSWORD
+    );
+    sqlx::query(&create_users_table).execute(pool).await?;
+
+    for statement in [
         r#"
         CREATE TABLE IF NOT EXISTS `login_attempts` (
             `username_hash` TEXT PRIMARY KEY,
