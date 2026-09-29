@@ -101,6 +101,46 @@ fn user_fs(user: &crate::db::User) -> Result<LocalFs, anyhow::Error> {
     LocalFs::new(&user.local_path, false)
 }
 
+fn filesystem_error_details(
+    err: &anyhow::Error,
+    action: &'static str,
+) -> (StatusCode, i32, &'static str) {
+    let kind = err
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<std::io::Error>())
+        .map(std::io::Error::kind);
+    let result = match kind {
+        Some(std::io::ErrorKind::NotFound) => (StatusCode::NOT_FOUND, 404, "File not found"),
+        Some(std::io::ErrorKind::PermissionDenied) => {
+            (StatusCode::FORBIDDEN, 403, "Permission denied")
+        }
+        Some(std::io::ErrorKind::InvalidInput | std::io::ErrorKind::NotADirectory) => {
+            (StatusCode::BAD_REQUEST, 400, "Invalid filesystem request")
+        }
+        Some(std::io::ErrorKind::AlreadyExists) => {
+            (StatusCode::CONFLICT, 409, "File already exists")
+        }
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            500,
+            "Internal server error",
+        ),
+    };
+
+    if result.0.is_server_error() {
+        tracing::error!(error = %err, action, "filesystem operation failed");
+    } else {
+        tracing::debug!(error = %err, action, "filesystem operation failed");
+    }
+
+    result
+}
+
+fn filesystem_error_response(err: &anyhow::Error, action: &'static str) -> Response {
+    let (status, code, message) = filesystem_error_details(err, action);
+    api_error(status, code, message)
+}
+
 pub(crate) fn sign_context(user: &crate::db::User) -> String {
     format!(
         "uid={}:pwd_ts={}:root={}",
@@ -177,12 +217,8 @@ pub async fn list_handler(
             api_success(resp)
         }
         Err(err) => {
-            tracing::error!(error = %err, path = %path, "failed to list directory");
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Internal server error",
-            )
+            tracing::debug!(path = %path, "failed to list directory");
+            filesystem_error_response(&err, "list")
         }
     }
 }
@@ -225,12 +261,8 @@ pub async fn get_handler(
             api_success(file)
         }
         Err(err) => {
-            tracing::error!(error = %err, path = %path, "failed to get file");
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Internal server error",
-            )
+            tracing::debug!(path = %path, "failed to get file");
+            filesystem_error_response(&err, "get")
         }
     }
 }
@@ -255,12 +287,8 @@ pub async fn dirs_handler(
     let files = match fs.list(&path).await {
         Ok(f) => f,
         Err(err) => {
-            tracing::error!(error = %err, path = %path, "failed to list dirs");
-            return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Internal server error",
-            );
+            tracing::debug!(path = %path, "failed to list dirs");
+            return filesystem_error_response(&err, "list directories");
         }
     };
 
@@ -301,12 +329,8 @@ pub async fn mkdir_handler(
     match fs.mkdir(&path).await {
         Ok(_) => api_success(serde_json::Value::Null),
         Err(err) => {
-            tracing::error!(error = %err, path = %path, "failed to create directory");
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Internal server error",
-            )
+            tracing::debug!(path = %path, "failed to create directory");
+            filesystem_error_response(&err, "mkdir")
         }
     }
 }
@@ -400,7 +424,7 @@ pub async fn move_handler(
         if dst_exists {
             match policy {
                 ConflictPolicy::Cancel => {
-                    return api_error(StatusCode::FORBIDDEN, 403, format!("file [{name}] exists"));
+                    return api_error(StatusCode::CONFLICT, 409, format!("file [{name}] exists"));
                 }
                 ConflictPolicy::Skip => {
                     continue;
@@ -414,10 +438,11 @@ pub async fn move_handler(
     for (completed, (src, dst)) in moves.into_iter().enumerate() {
         let overwrite = policy == ConflictPolicy::Overwrite;
         if let Err(err) = fs.move_to_safe(&src, &dst, overwrite).await {
-            tracing::error!(error = %err, src = %src, dst = %dst, "failed to move file");
+            let (status, code, _) = filesystem_error_details(&err, "move");
+            tracing::debug!(src = %src, dst = %dst, "failed to move file");
             return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
+                status,
+                code,
                 format!("Move failed for {src}; {completed} item(s) already moved"),
             );
         }
@@ -464,7 +489,7 @@ pub async fn copy_handler(
         if dst_exists {
             match policy {
                 ConflictPolicy::Cancel => {
-                    return api_error(StatusCode::FORBIDDEN, 403, format!("file [{name}] exists"));
+                    return api_error(StatusCode::CONFLICT, 409, format!("file [{name}] exists"));
                 }
                 ConflictPolicy::Skip => {
                     continue;
@@ -478,10 +503,11 @@ pub async fn copy_handler(
     for (completed, (src, dst)) in copies.into_iter().enumerate() {
         let overwrite = policy == ConflictPolicy::Overwrite;
         if let Err(err) = fs.copy_to_safe(&src, &dst, overwrite).await {
-            tracing::error!(error = %err, src = %src, dst = %dst, "failed to copy file");
+            let (status, code, _) = filesystem_error_details(&err, "copy");
+            tracing::debug!(src = %src, dst = %dst, "failed to copy file");
             return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
+                status,
+                code,
                 format!("Copy failed for {src}; {completed} item(s) already copied"),
             );
         }
@@ -512,10 +538,11 @@ pub async fn remove_handler(
     for (completed, name) in req.names.into_iter().enumerate() {
         let target = format!("{}/{}", dir.trim_end_matches('/'), name);
         if let Err(err) = fs.remove(&target).await {
-            tracing::error!(error = %err, target = %target, "failed to remove target");
+            let (status, code, _) = filesystem_error_details(&err, "delete");
+            tracing::debug!(target = %target, "failed to remove target");
             return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
+                status,
+                code,
                 format!("Delete failed for {target}; {completed} item(s) already deleted"),
             );
         }
