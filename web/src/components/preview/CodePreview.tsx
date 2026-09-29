@@ -82,7 +82,7 @@ export const CodePreview = (props: {
       <Box
         p="$3"
         overflowX={wrap() ? "hidden" : "auto"}
-        fontFamily='"Maple Mono NF CN", monospace'
+        fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace"
         fontSize="$xs"
         lineHeight="1.6"
         color={codeColor()}

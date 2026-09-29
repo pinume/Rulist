@@ -173,11 +173,12 @@ export const globalStyles = globalCss({
       outlineOffset: "2px",
     },
   html: {
-    fontFamily: `"Maple Mono NF CN","Noto Sans Mono CJK SC",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace !important`,
     width: "100%",
     minHeight: "100%",
   },
   body: {
+    fontFamily:
+      'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
     width: "100%",
     minHeight: "100%",
   },
