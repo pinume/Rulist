@@ -10,7 +10,7 @@ import {
 } from "@hope-ui/solid"
 import { Show } from "solid-js"
 import { LinkWithPush } from "~/components"
-import { useFiles, useRouter, useUtil } from "~/hooks"
+import { useFiles, useRouter } from "~/hooks"
 import {
   mainColor,
   config,
@@ -59,8 +59,6 @@ export const cols: Col[] = [
 ]
 
 export const ListItem = (props: { obj: FileItem; index: number }) => {
-  const { isHide } = useUtil()
-  if (isHide(props.obj)) return null
   const { rememberDirectory } = useFiles()
   const { pathname, pushHref, to } = useRouter()
   const hasAnyAction = () => {

@@ -30,7 +30,7 @@ import {
   JSXElement,
   onMount,
 } from "solid-js"
-import { useFetch, useUtil } from "~/hooks"
+import { useFetch } from "~/hooks"
 import { mainColor } from "~/store"
 import { DirEntry } from "~/types"
 import {
@@ -97,7 +97,6 @@ export const FolderTree = (props: FolderTreeProps) => {
 }
 
 const FolderTreeNode = (props: { path: string }) => {
-  const { isHidePath } = useUtil()
   const [children, setChildren] = createSignal<DirEntry[]>()
   const {
     value,
@@ -147,7 +146,7 @@ const FolderTreeNode = (props: { path: string }) => {
   })
 
   const isHiddenFolder = () =>
-    (hidePath?.(props.path) || isHidePath(props.path)) && !isMatchedFolder(value())
+    hidePath?.(props.path) && !isMatchedFolder(value())
   return (
     <Show when={showHiddenFolder || !isHiddenFolder()}>
       <Box>

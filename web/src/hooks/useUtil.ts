@@ -1,10 +1,6 @@
-import { hideFilePatterns } from "~/store"
-import { FileEntry } from "~/types"
-import { notify, pathJoin } from "~/utils"
-import { useRouter } from "."
+import { notify } from "~/utils"
 
 export const useUtil = () => {
-  const { pathname } = useRouter()
   return {
     copy: async (text: string) => {
       try {
@@ -16,10 +12,5 @@ export const useUtil = () => {
         )
       }
     },
-    isHide: (obj: FileEntry) => {
-      const fullPath = pathJoin(pathname(), obj.name)
-      return hideFilePatterns().some((reg) => reg.test(fullPath))
-    },
-    isHidePath: (path: string) => hideFilePatterns().some((reg) => reg.test(path)),
   }
 }

@@ -168,7 +168,6 @@ def main():
                 if (
                     settings["site_title"] != "Rulist"
                     or settings["package_download"] is not True
-                    or not isinstance(settings["hide_files"], list)
                 ):
                     raise AssertionError(f"unexpected public settings: {settings}")
 

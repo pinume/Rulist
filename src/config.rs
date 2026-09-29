@@ -54,7 +54,6 @@ impl Default for SchemeConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct SiteConfig {
     #[serde(default = "default_site_title")]
     pub site_title: String,
@@ -64,8 +63,6 @@ pub struct SiteConfig {
     pub favicon: String,
     #[serde(default = "default_main_color")]
     pub main_color: String,
-    #[serde(default = "default_hide_files")]
-    pub hide_files: Vec<String>,
     #[serde(default = "default_package_download")]
     pub package_download: bool,
     #[serde(default = "default_robots_txt")]
@@ -86,10 +83,6 @@ fn default_main_color() -> String {
     "#1890ff".to_string()
 }
 
-fn default_hide_files() -> Vec<String> {
-    vec!["/\\/README.md/i".to_string()]
-}
-
 const fn default_package_download() -> bool {
     true
 }
@@ -105,7 +98,6 @@ impl Default for SiteConfig {
             logo: default_logo(),
             favicon: String::new(),
             main_color: default_main_color(),
-            hide_files: default_hide_files(),
             package_download: default_package_download(),
             robots_txt: default_robots_txt(),
             announcement: String::new(),
@@ -149,7 +141,7 @@ impl Default for Config {
 
 impl Config {
     fn validate(&self) -> Result<(), anyhow::Error> {
-        if self.jwt_secret.as_bytes().len() < 32 {
+        if self.jwt_secret.len() < 32 {
             anyhow::bail!("jwt_secret must be at least 32 bytes");
         }
         Ok(())

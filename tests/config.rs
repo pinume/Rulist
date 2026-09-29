@@ -4,7 +4,7 @@ use rulist::config::Config;
 fn fresh_config_has_final_sections_and_legacy_config_is_rejected() {
     let temp = tempfile::tempdir().unwrap();
     let (config, config_path) = Config::load_or_create(temp.path()).unwrap();
-    let content = std::fs::read_to_string(config_path).unwrap();
+    let content = std::fs::read_to_string(&config_path).unwrap();
     let json: serde_json::Value = serde_json::from_str(&content).unwrap();
     assert_eq!(
         json.as_object()
@@ -30,6 +30,15 @@ fn fresh_config_has_final_sections_and_legacy_config_is_rejected() {
     assert_eq!(config.database.db_file, "data.db");
     assert!(config.site.robots_txt.contains("Allow: /"));
 
+    let mut old_config: serde_json::Value = serde_json::from_str(&content).unwrap();
+    old_config["site"]["retired_setting"] = serde_json::json!(["unused"]);
+    std::fs::write(
+        &config_path,
+        serde_json::to_vec_pretty(&old_config).unwrap(),
+    )
+    .unwrap();
+    assert!(Config::load_or_create(temp.path()).is_ok());
+
     std::fs::write(
         temp.path().join("config.json"),
         r#"{"security":{"jwt_secret":"legacy"}}"#,
@@ -42,8 +51,10 @@ fn fresh_config_has_final_sections_and_legacy_config_is_rejected() {
 fn jwt_secret_must_be_at_least_32_bytes_and_invalid_config_is_preserved() {
     for secret in [String::new(), "s".repeat(31)] {
         let temp = tempfile::tempdir().unwrap();
-        let mut config = Config::default();
-        config.jwt_secret = secret;
+        let config = Config {
+            jwt_secret: secret,
+            ..Config::default()
+        };
         let content = serde_json::to_vec_pretty(&config).unwrap();
         let path = temp.path().join("config.json");
         std::fs::write(&path, &content).unwrap();
@@ -53,8 +64,10 @@ fn jwt_secret_must_be_at_least_32_bytes_and_invalid_config_is_preserved() {
     }
 
     let temp = tempfile::tempdir().unwrap();
-    let mut config = Config::default();
-    config.jwt_secret = "s".repeat(32);
+    let config = Config {
+        jwt_secret: "s".repeat(32),
+        ..Config::default()
+    };
     std::fs::write(
         temp.path().join("config.json"),
         serde_json::to_vec_pretty(&config).unwrap(),

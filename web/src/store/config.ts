@@ -1,4 +1,4 @@
-import { createMemo, createSignal } from "solid-js"
+import { createSignal } from "solid-js"
 import { PublicConfig } from "~/types"
 
 export const [config, setConfig] = createSignal<PublicConfig | null>(null)
@@ -22,15 +22,3 @@ export const logos = () => {
 }
 
 export const mainColor = () => config()?.main_color || "#1890ff"
-
-export const hideFilePatterns = createMemo(() =>
-  (config()?.hide_files ?? []).flatMap((item) => {
-    const match = item.match(/^\/(.*)\/([a-z]*)$/)
-    try {
-      return [new RegExp(match?.[1] ?? item, match?.[2] ?? "")]
-    } catch (error) {
-      console.warn("[config] invalid regex in hide_files:", item, error)
-      return []
-    }
-  }),
-)
