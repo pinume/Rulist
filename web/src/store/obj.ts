@@ -43,7 +43,6 @@ export enum State {
 const initialObjStore = {
   obj: {} as Obj,
   raw_url: "",
-  related: [] as Obj[],
   objs: [] as StoreObj[],
   readme: "",
   header: "",
@@ -58,7 +57,6 @@ const initialObjStore = {
 const [objStore, setObjStore] = createStore<
   typeof initialObjStore & {
     write?: boolean
-    write_content_bypass?: boolean
   }
 >(initialObjStore)
 
@@ -77,10 +75,7 @@ export const ObjStore = {
   setSort: (orderBy: OrderBy, reverse: boolean) => setObjStore({ orderBy, reverse }),
   setReadme: (readme: string) => setObjStore("readme", readme),
   setHeader: (header: string) => setObjStore("header", header),
-  setRelated: (related: Obj[]) => setObjStore("related", related),
   setWrite: (write: boolean) => setObjStore("write", write),
-  setWriteContentBypass: (write_content_bypass: boolean) =>
-    setObjStore("write_content_bypass", write_content_bypass),
   setState: (state: State) => setObjStore("state", state),
   setErr: (err: string) => setObjStore("err", err),
 }

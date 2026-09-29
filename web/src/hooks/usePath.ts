@@ -105,7 +105,6 @@ export const usePath = () => {
         } else {
           ObjStore.setReadme(data.readme)
           ObjStore.setHeader(data.header)
-          ObjStore.setRelated(data.related ?? [])
           ObjStore.setRawUrl(data.raw_url)
           shouldKeepState() || ObjStore.setState(State.File)
         }
@@ -136,7 +135,6 @@ export const usePath = () => {
         ObjStore.setReadme(data.readme)
         ObjStore.setHeader(data.header)
         ObjStore.setWrite(data.write)
-        ObjStore.setWriteContentBypass(data.write_content_bypass)
         ObjStore.setProvider(data.provider)
         shouldKeepState() || ObjStore.setState(State.Folder)
       },

@@ -17,7 +17,7 @@ export const DropZone = () => {
 
   const canWrite = () =>
     objStore.state === State.Folder &&
-    (userCan("write_content") || !!objStore.write_content_bypass) &&
+    userCan("write_content") &&
     !!objStore.write
 
   const hasOpenModal = () =>

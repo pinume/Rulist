@@ -22,7 +22,7 @@ export const AddMenu = () => {
   const canWrite = createMemo(
     () =>
       objStore.state === State.Folder &&
-      (userCan("write_content") || objStore.write_content_bypass) &&
+      userCan("write_content") &&
       objStore.write,
   )
 
