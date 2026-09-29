@@ -13,7 +13,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
 use tokio_util::io::ReaderStream;
 
 use crate::db::get_user_by_id;
-use crate::driver::local::LocalDriver;
+use crate::filesystem::local::LocalFs;
 use crate::server::{SharedState, authenticate_user, encode_url_path};
 use crate::sign::verify_sign;
 
@@ -98,7 +98,7 @@ async fn stream_file(
             )
                 .into_response();
         }
-        match LocalDriver::new(&user.local_path, false) {
+        match LocalFs::new(&user.local_path, false) {
             Ok(fs) => fs,
             Err(_) => return (StatusCode::NOT_FOUND, "File not found").into_response(),
         }
@@ -106,7 +106,7 @@ async fn stream_file(
         let Some(user) = authenticate_user(&headers, &state).await else {
             return StatusCode::UNAUTHORIZED.into_response();
         };
-        match LocalDriver::new(&user.local_path, false) {
+        match LocalFs::new(&user.local_path, false) {
             Ok(fs) => fs,
             Err(_) => return (StatusCode::NOT_FOUND, "File not found").into_response(),
         }

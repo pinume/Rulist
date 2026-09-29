@@ -1,13 +1,13 @@
 use tokio::io::AsyncReadExt;
 
-use crate::driver::local::LocalDriver;
+use crate::filesystem::local::LocalFs;
 use crate::preview::types::{PreviewType, ProcessedContent};
 
 pub const MAX_DOCUMENT_PREVIEW_SIZE: u64 = 4 * 1024 * 1024; // 4MB
 static SEMAPHORE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(16);
 
 pub async fn process_file(
-    fs: &LocalDriver,
+    fs: &LocalFs,
     path: &str,
     preview_type: PreviewType,
     file_size: i64,

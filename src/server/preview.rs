@@ -2,7 +2,7 @@ use axum::extract::{Json, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 
-use crate::driver::local::LocalDriver;
+use crate::filesystem::local::LocalFs;
 use crate::preview::{
     PreviewMeta, PreviewReq, PreviewResponse, PreviewStrategy, detect_from_path, processor,
 };
@@ -25,7 +25,7 @@ pub async fn preview_handler(
         Ok(path) => path,
         Err(_) => return permission_denied(),
     };
-    let fs = match LocalDriver::new(&user.local_path, false) {
+    let fs = match LocalFs::new(&user.local_path, false) {
         Ok(fs) => fs,
         Err(_) => return api_error(StatusCode::NOT_FOUND, 404, "File root not found"),
     };

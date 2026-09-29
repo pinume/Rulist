@@ -6,7 +6,6 @@ use axum::http::{Request, StatusCode, header};
 use rulist::auth::{compute_totp, generate_otp_secret};
 use rulist::config::Config;
 use rulist::db;
-use rulist::driver::StorageManager;
 use rulist::model::PERM_ALLOW_EMPTY_PASSWORD;
 use rulist::server::{AppState, build_app};
 use serde_json::{Value, json};
@@ -38,11 +37,9 @@ async fn json_request(
 }
 
 async fn app_for(pool: &db::DbPool) -> axum::Router {
-    let storage = StorageManager::load_from_db(pool).await.unwrap();
     build_app(Arc::new(AppState {
         pool: pool.clone(),
         config: Config::default(),
-        storage,
     }))
 }
 
@@ -192,11 +189,9 @@ async fn signing_secret_is_not_an_admin_credential() {
         .unwrap();
     let config = Config::default();
     let signing_secret = config.security.signing_secret.clone();
-    let storage = StorageManager::load_from_db(&pool).await.unwrap();
     let app = build_app(Arc::new(AppState {
         pool: pool.clone(),
         config,
-        storage,
     }));
 
     let (status, body) = json_request(
@@ -411,7 +406,7 @@ async fn server_rejects_addresses_other_than_exact_localhost() {
         config.server.address = host.to_string();
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(1),
-            rulist::server::run_server(config, pool.clone(), StorageManager::default()),
+            rulist::server::run_server(config, pool.clone()),
         )
         .await
         .expect("server should reject the address before binding");

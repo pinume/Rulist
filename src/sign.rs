@@ -15,7 +15,7 @@ fn derive_key(token: &str) -> [u8; 32] {
     Sha256::digest(format!("{}{}", token, SIGN_SALT).as_bytes()).into()
 }
 
-/// Sign a path with expiration (5 minutes by default) and storage context
+/// Sign a path with expiration (5 minutes by default) and user context.
 pub fn sign_path(token: &str, path: &str, context: &str) -> Result<String> {
     if token.trim().is_empty() {
         return Err(anyhow!("signing token is missing"));
@@ -28,7 +28,7 @@ pub fn sign_path(token: &str, path: &str, context: &str) -> Result<String> {
     Ok(sign_path_with_expire(token, path, context, expires))
 }
 
-/// Sign path with explicit expiration timestamp and storage context
+/// Sign a path with explicit expiration timestamp and user context.
 pub fn sign_path_with_expire(token: &str, path: &str, context: &str, expires: i64) -> String {
     let key = derive_key(token);
     let mut mac = HmacSha256::new_from_slice(&key).expect("valid hmac key");
@@ -43,7 +43,7 @@ pub fn sign_path_with_expire(token: &str, path: &str, context: &str, expires: i6
     format!("{}:{}", b64, expires)
 }
 
-/// Verify signature for a given path and storage context
+/// Verify signature for a given path and user context.
 pub fn verify_sign(token: &str, path: &str, context: &str, sign: &str) -> Result<()> {
     if token.trim().is_empty() {
         return Err(anyhow!("signing token is missing"));

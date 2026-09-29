@@ -1,15 +1,15 @@
-use rulist::driver::local::LocalDriver;
+use rulist::filesystem::local::LocalFs;
 
-fn driver_with_hidden(root: &std::path::Path, show_hidden: bool) -> LocalDriver {
-    LocalDriver::new(root.to_str().unwrap(), show_hidden).unwrap()
+fn driver_with_hidden(root: &std::path::Path, show_hidden: bool) -> LocalFs {
+    LocalFs::new(root, show_hidden).unwrap()
 }
 
-fn driver(root: &std::path::Path) -> LocalDriver {
+fn driver(root: &std::path::Path) -> LocalFs {
     driver_with_hidden(root, false)
 }
 
 #[tokio::test]
-async fn rejects_traversal_and_storage_root_removal() {
+async fn rejects_traversal_and_filesystem_root_removal() {
     let temp = tempfile::tempdir().unwrap();
     let driver = driver(temp.path());
 

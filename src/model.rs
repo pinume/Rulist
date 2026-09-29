@@ -67,14 +67,6 @@ impl User {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Storage {
-    pub id: i64,
-    pub mount_path: String,
-    pub local_path: String,
-    pub show_hidden: bool,
-}
-
 pub const TYPE_UNKNOWN: i32 = 0;
 pub const TYPE_FOLDER: i32 = 1;
 pub const TYPE_VIDEO: i32 = 2;

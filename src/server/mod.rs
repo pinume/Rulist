@@ -15,7 +15,6 @@ use tracing::info;
 
 use crate::config::Config;
 use crate::db::DbPool;
-use crate::driver::StorageManager;
 use crate::model::ApiResponse;
 
 pub use routes::build_app;
@@ -24,20 +23,14 @@ pub(crate) use security::{authenticate_user, encode_url_path, permitted, user_pa
 pub struct AppState {
     pub pool: DbPool,
     pub config: Config,
-    pub storage: StorageManager,
 }
 
 pub type SharedState = Arc<AppState>;
 
-pub async fn run_server(
-    config: Config,
-    pool: DbPool,
-    storage: StorageManager,
-) -> Result<(), anyhow::Error> {
+pub async fn run_server(config: Config, pool: DbPool) -> Result<(), anyhow::Error> {
     let state = Arc::new(AppState {
         pool,
         config: config.clone(),
-        storage,
     });
     let app = build_app(state);
 

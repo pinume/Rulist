@@ -10,7 +10,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 pub mod auth;
 pub mod config;
 pub mod db;
-pub mod driver;
+pub mod filesystem;
 pub mod interactive;
 pub mod model;
 pub mod preview;
@@ -72,7 +72,7 @@ struct ServerArgs {
 fn initial_home_path() -> Result<PathBuf> {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
-        .context("HOME is not set; cannot initialize the default storage mount")?;
+        .context("HOME is not set; cannot initialize the administrator directory")?;
     let home = home
         .canonicalize()
         .with_context(|| format!("failed to resolve current user's HOME directory: {home:?}"))?;
@@ -156,10 +156,7 @@ pub async fn run() -> Result<()> {
 
             let pool = init_database(&config, &data_dir).await?;
 
-            info!("loading storage manager...");
-            let storage = driver::StorageManager::load_from_db(&pool).await?;
-
-            server::run_server(config, pool, storage).await?;
+            server::run_server(config, pool).await?;
         }
     }
 

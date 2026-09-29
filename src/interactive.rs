@@ -212,11 +212,10 @@ pub async fn run_interactive_console(pool: &DbPool, _data_dir: &Path) -> Result<
         println!(" 6. 绑定 2FA");
         println!(" 7. 解绑 2FA");
         println!(" 8. 删除用户");
-        println!(" 9. 查看挂载");
         println!(" 0. 退出");
         println!("==================================================");
 
-        let choice = prompt("请选择操作 [0-9]: ")?;
+        let choice = prompt("请选择操作 [0-8]: ")?;
         let handled = match choice.as_str() {
             "1" => {
                 action_add_user(pool).await?;
@@ -248,10 +247,6 @@ pub async fn run_interactive_console(pool: &DbPool, _data_dir: &Path) -> Result<
             }
             "8" => {
                 action_delete_user(pool).await?;
-                true
-            }
-            "9" => {
-                action_list_storages(pool).await?;
                 true
             }
             "0" | "q" | "exit" => {
@@ -567,7 +562,7 @@ async fn action_delete_user(pool: &DbPool) -> Result<()> {
         return Ok(());
     };
     if !prompt_default(
-        &format!("确定要彻底删除用户 '{}' 及其挂载点吗？(y/N)", user.username),
+        &format!("确定要彻底删除用户 '{}' 吗？(y/N)", user.username),
         "n",
     )?
     .eq_ignore_ascii_case("y")
@@ -578,27 +573,5 @@ async fn action_delete_user(pool: &DbPool) -> Result<()> {
 
     db::delete_user(pool, user.id).await?;
     println!("用户 '{}' 已删除。", user.username);
-    Ok(())
-}
-
-async fn action_list_storages(pool: &DbPool) -> Result<()> {
-    println!("\n>>> 查看挂载");
-    let storages = db::get_storages(pool).await?;
-    if storages.is_empty() {
-        println!("暂无存储挂载点。");
-        return Ok(());
-    }
-
-    println!(
-        "{:<4} {:<18} {:<10} {}",
-        "ID", "MOUNT PATH", "HIDDEN", "LOCAL PATH"
-    );
-    println!("{}", "-".repeat(70));
-    for storage in storages {
-        println!(
-            "{:<4} {:<18} {:<10} {}",
-            storage.id, storage.mount_path, storage.show_hidden, storage.local_path
-        );
-    }
     Ok(())
 }

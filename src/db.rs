@@ -38,14 +38,6 @@ async fn init_schema(pool: &DbPool) -> Result<()> {
         )
         "#,
         r#"
-        CREATE TABLE IF NOT EXISTS `x_storages` (
-            `id` INTEGER PRIMARY KEY AUTOINCREMENT,
-            `mount_path` TEXT NOT NULL UNIQUE,
-            `local_path` TEXT NOT NULL,
-            `show_hidden` NUMERIC NOT NULL DEFAULT 0
-        )
-        "#,
-        r#"
         CREATE TABLE IF NOT EXISTS `x_login_attempts` (
             `username_hash` TEXT PRIMARY KEY,
             `failed_count` INTEGER NOT NULL,
@@ -241,15 +233,6 @@ pub async fn get_user_by_id(pool: &DbPool, id: i64) -> Result<Option<User>> {
         user.update_otp();
     }
     Ok(user)
-}
-
-pub async fn get_storages(pool: &DbPool) -> Result<Vec<crate::model::Storage>> {
-    let storages = sqlx::query_as::<_, crate::model::Storage>(
-        "SELECT `id`, `mount_path`, `local_path`, `show_hidden` FROM `x_storages` ORDER BY `id` ASC",
-    )
-    .fetch_all(pool)
-    .await?;
-    Ok(storages)
 }
 
 pub async fn delete_user(pool: &DbPool, user_id: i64) -> Result<()> {

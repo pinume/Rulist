@@ -3,8 +3,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use tokio::io::AsyncWriteExt;
 
-use crate::driver::local::LocalDriver;
-use crate::driver::local::RenameError;
+use crate::filesystem::local::{LocalFs, RenameError};
 use crate::model::{
     BatchRenameReq, ConflictPolicy, DirItem, FsDirNamesReq, FsDirsReq, FsGetReq, FsLinkReq,
     FsLinkResp, FsListReq, FsListResp, FsMoveCopyReq, FsRenameReq, sort_files_by, sorted_file_page,
@@ -20,8 +19,8 @@ pub(crate) fn signing_secret(state: &SharedState) -> &str {
     &state.config.security.signing_secret
 }
 
-fn user_fs(user: &crate::model::User) -> Result<LocalDriver, anyhow::Error> {
-    LocalDriver::new(&user.local_path, false)
+fn user_fs(user: &crate::model::User) -> Result<LocalFs, anyhow::Error> {
+    LocalFs::new(&user.local_path, false)
 }
 
 fn sign_context(user: &crate::model::User) -> String {

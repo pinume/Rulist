@@ -6,10 +6,10 @@ use tokio::fs;
 
 use crate::model::FileObj;
 
-use super::local_ops::{copy_path_safe, move_path_safe, remove_path_recursive};
+use super::ops::{copy_path_safe, move_path_safe, remove_path_recursive};
 
 #[derive(Debug, Clone)]
-pub struct LocalDriver {
+pub struct LocalFs {
     pub root_path: PathBuf,
     pub show_hidden: bool,
 }
@@ -35,22 +35,18 @@ impl std::fmt::Display for RenameError {
 
 impl std::error::Error for RenameError {}
 
-impl LocalDriver {
-    pub fn new(root_path: &str, show_hidden: bool) -> Result<Self> {
-        let root_str = root_path.trim();
-        if root_str.is_empty() {
+impl LocalFs {
+    pub fn new(root_path: impl AsRef<Path>, show_hidden: bool) -> Result<Self> {
+        let root_path = root_path.as_ref();
+        if root_path.as_os_str().is_empty() {
             return Err(anyhow!("local_path cannot be empty"));
         }
-        let path = Path::new(root_str);
-        if !path.is_absolute() {
+        if !root_path.is_absolute() {
             return Err(anyhow!("local_path must be an absolute path"));
-        }
-        if !path.exists() {
-            return Err(anyhow!("local_path does not exist"));
         }
 
         Ok(Self {
-            root_path: path.canonicalize().unwrap_or_else(|_| path.to_path_buf()),
+            root_path: root_path.to_path_buf(),
             show_hidden,
         })
     }
@@ -184,7 +180,7 @@ impl LocalDriver {
 
     pub async fn remove(&self, subpath: &str) -> Result<()> {
         if subpath.trim_matches('/').is_empty() {
-            return Err(anyhow!("cannot remove storage root"));
+            return Err(anyhow!("cannot remove filesystem root"));
         }
         let full_path = self.safe_resolve(subpath)?;
         remove_path_recursive(&full_path).await
@@ -197,7 +193,9 @@ impl LocalDriver {
         overwrite: bool,
     ) -> Result<(), RenameError> {
         if subpath.trim_matches('/').is_empty() {
-            return Err(RenameError::BadRequest("cannot rename storage root".into()));
+            return Err(RenameError::BadRequest(
+                "cannot rename filesystem root".into(),
+            ));
         }
         if !crate::server::valid_name(new_name) || self.hidden_name_denied(new_name) {
             return Err(RenameError::BadRequest(format!(
@@ -394,7 +392,7 @@ impl LocalDriver {
         overwrite: bool,
     ) -> Result<()> {
         if src_subpath.trim_matches('/').is_empty() || dst_subpath.trim_matches('/').is_empty() {
-            return Err(anyhow!("cannot move storage root"));
+            return Err(anyhow!("cannot move filesystem root"));
         }
         let src_path = self.safe_resolve(src_subpath)?;
         let dst_path = self.safe_resolve(dst_subpath)?;
@@ -412,7 +410,7 @@ impl LocalDriver {
         overwrite: bool,
     ) -> Result<()> {
         if src_subpath.trim_matches('/').is_empty() || dst_subpath.trim_matches('/').is_empty() {
-            return Err(anyhow!("cannot copy storage root"));
+            return Err(anyhow!("cannot copy filesystem root"));
         }
         let src_path = self.safe_resolve(src_subpath)?;
         let dst_path = self.safe_resolve(dst_subpath)?;
