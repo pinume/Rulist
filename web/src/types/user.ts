@@ -6,13 +6,12 @@ export enum UserRole {
 export interface User {
   id: number
   username: string
-  password: string
   local_path: string
   role: UserRole
   permission: number
   disabled: boolean
   password_unset: boolean
-  // otp: boolean;
+  otp: boolean
 }
 
 export const UserPermissionBits = {
