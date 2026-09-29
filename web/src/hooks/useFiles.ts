@@ -11,6 +11,8 @@ import {
   clearHistory,
   shouldKeepState,
   fileStore,
+  isKnownDirectoryPath,
+  rememberDirectoryPath as rememberKnownDirectoryPath,
 } from "~/store"
 import { fsGet, fsList, handleRespWithoutNotify, pathJoin } from "~/utils"
 import { useFetch } from "./useFetch"
@@ -19,9 +21,8 @@ import { useRouter } from "./useRouter"
 let cancelFile: Canceler
 let cancelList: Canceler
 
-const directoryPaths: Record<string, boolean> = {}
 export const useFiles = () => {
-  const { pathname, to } = useRouter()
+  const { pathname } = useRouter()
   const [, getFile] = useFetch((path: string) =>
     fsGet(
       path,
@@ -33,7 +34,6 @@ export const useFiles = () => {
   const [, listFiles] = useFetch(
     (arg?: {
       path: string
-      force?: boolean
       page?: number
       orderBy?: OrderBy
       reverse?: boolean
@@ -56,20 +56,16 @@ export const useFiles = () => {
       path = pathJoin(pathname(), path)
     }
     if (dir) {
-      directoryPaths[path] = true
+      rememberKnownDirectoryPath(path, true)
     } else {
-      delete directoryPaths[path]
+      rememberKnownDirectoryPath(path, false)
     }
   }
 
   // load a pathname
   // if confirm current path is dir, fetch List directly
   // if not, fetch get then determine if it is dir or file
-  const loadPath = (
-    path: string,
-    force?: boolean,
-    page = 1,
-  ) => {
+  const loadPath = (path: string, page = 1) => {
     cancelFile?.()
     cancelList?.()
     FileStore.setErr("")
@@ -78,9 +74,9 @@ export const useFiles = () => {
     if (hasHistory(path)) {
       console.log(`handle [${getHistoryKey(path)}] from history`)
       return recoverHistory(path)
-    } else if (directoryPaths[path]) {
+    } else if (isKnownDirectoryPath(path)) {
       console.log(`handle [${getHistoryKey(path)}] as folder`)
-      return loadFolder(path, force, page)
+      return loadFolder(path, page)
     } else {
       console.log(`handle [${getHistoryKey(path)}] as file`)
       return loadFile(path)
@@ -110,19 +106,18 @@ export const useFiles = () => {
   // enter a folder
   const loadFolder = async (
     path: string,
-    force?: boolean,
     page = 1,
     orderBy = fileStore.orderBy,
     reverse = fileStore.reverse,
   ) => {
     shouldKeepState() || FileStore.setState(ViewState.Loading)
-    const resp = await listFiles({ path, force, page, orderBy, reverse })
+    const resp = await listFiles({ path, page, orderBy, reverse })
     handleRespWithoutNotify(
       resp,
       (data) => {
         const lastPage = Math.max(1, Math.ceil(data.total / LIST_PAGE_SIZE))
         if (page > lastPage) {
-          void loadFolder(path, force, lastPage, orderBy, reverse)
+          void loadFolder(path, lastPage, orderBy, reverse)
           return
         }
         FileStore.setListing(data.content ?? [], data.total, page)
@@ -142,11 +137,11 @@ export const useFiles = () => {
     loadPath,
     loadFolder,
     rememberDirectory,
-    refresh: async (force?: boolean) => {
+    refresh: async () => {
       const path = pathname()
       const scroll = window.scrollY
       clearHistory(path)
-      await loadPath(path, force, fileStore.page)
+      await loadPath(path, fileStore.page)
       window.scroll({ top: scroll, behavior: "smooth" })
     },
   }

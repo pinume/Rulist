@@ -148,6 +148,13 @@ impl Default for Config {
 }
 
 impl Config {
+    fn validate(&self) -> Result<(), anyhow::Error> {
+        if self.jwt_secret.as_bytes().len() < 32 {
+            anyhow::bail!("jwt_secret must be at least 32 bytes");
+        }
+        Ok(())
+    }
+
     pub fn load_or_create(data_dir: &Path) -> Result<(Self, PathBuf), anyhow::Error> {
         fs::create_dir_all(data_dir)?;
         fs::set_permissions(data_dir, fs::Permissions::from_mode(0o700))?;
@@ -156,9 +163,12 @@ impl Config {
         if config_path.exists() {
             fs::set_permissions(&config_path, fs::Permissions::from_mode(0o600))?;
             let content = fs::read_to_string(&config_path)?;
-            Ok((serde_json::from_str(&content)?, config_path))
+            let config: Config = serde_json::from_str(&content)?;
+            config.validate()?;
+            Ok((config, config_path))
         } else {
             let config = Config::default();
+            config.validate()?;
             let json_str = serde_json::to_string_pretty(&config)?;
             let mut options = fs::OpenOptions::new();
             options.write(true).create_new(true);

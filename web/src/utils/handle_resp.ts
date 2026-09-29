@@ -1,5 +1,7 @@
 import { Resp } from "~/types"
+import { resetSessionState } from "~/store/reset"
 import { bus, notify } from "."
+import { changeToken } from "./request"
 
 export const handleResp = <T>(
   resp: Resp<T>,
@@ -15,6 +17,8 @@ export const handleResp = <T>(
   } else {
     notify_error && notify.error(resp.message)
     if (auth && resp.code === 401) {
+      changeToken()
+      resetSessionState()
       bus.emit(
         "to",
         `/@login?redirect=${encodeURIComponent(location.pathname)}`,

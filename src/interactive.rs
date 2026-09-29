@@ -236,7 +236,7 @@ async fn manage(pool: &DbPool, mut user: User) -> Result<()> {
             "5" if !user.is_admin() => {
                 if prompt("确认切换启用状态? (y/N): ")?.eq_ignore_ascii_case("y") {
                     user.disabled = !user.disabled;
-                    db::update_user(pool, &user).await?;
+                    db::set_user_disabled(pool, user.id, user.disabled).await?;
                     user = match db::get_user_by_id(pool, user.id).await? {
                         Some(user) => user,
                         None => break,

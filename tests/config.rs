@@ -37,3 +37,28 @@ fn fresh_config_has_final_sections_and_legacy_config_is_rejected() {
     .unwrap();
     assert!(Config::load_or_create(temp.path()).is_err());
 }
+
+#[test]
+fn jwt_secret_must_be_at_least_32_bytes_and_invalid_config_is_preserved() {
+    for secret in [String::new(), "s".repeat(31)] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut config = Config::default();
+        config.jwt_secret = secret;
+        let content = serde_json::to_vec_pretty(&config).unwrap();
+        let path = temp.path().join("config.json");
+        std::fs::write(&path, &content).unwrap();
+
+        assert!(Config::load_or_create(temp.path()).is_err());
+        assert_eq!(std::fs::read(path).unwrap(), content);
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let mut config = Config::default();
+    config.jwt_secret = "s".repeat(32);
+    std::fs::write(
+        temp.path().join("config.json"),
+        serde_json::to_vec_pretty(&config).unwrap(),
+    )
+    .unwrap();
+    assert!(Config::load_or_create(temp.path()).is_ok());
+}

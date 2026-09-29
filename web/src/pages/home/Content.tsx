@@ -38,7 +38,7 @@ export const Content = () => {
           <Match when={fileStore.err}>
             <Error msg={fileStore.err} />
           </Match>
-          <Match when={[ViewState.Loading, ViewState.Loading].includes(fileStore.state)}>
+          <Match when={fileStore.state === ViewState.Loading}>
             <FullLoading />
           </Match>
           <Match when={fileStore.state === ViewState.Folder}>

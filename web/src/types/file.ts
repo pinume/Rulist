@@ -19,6 +19,11 @@ export interface FileEntry {
   permissions?: string
 }
 
+export interface DirEntry {
+  name: string
+  modified: string
+}
+
 export type FileItem = FileEntry & {
   selected?: boolean
 }

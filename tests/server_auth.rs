@@ -60,9 +60,7 @@ async fn login_token(app: &axum::Router, username: &str, password: &str) -> Stri
 #[tokio::test]
 async fn two_factor_login_is_enforced_and_replay_safe() {
     let temp = tempfile::tempdir().unwrap();
-    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
-        .await
-        .unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
     db::set_admin_password(&pool, "TestPass123!").await.unwrap();
 
     let admin = db::get_admin(&pool).await.unwrap().unwrap();
@@ -126,9 +124,7 @@ async fn two_factor_login_is_enforced_and_replay_safe() {
 #[tokio::test]
 async fn unknown_user_login_is_recorded_before_password_verification() {
     let temp = tempfile::tempdir().unwrap();
-    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
-        .await
-        .unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
     let app = app_for(&pool).await;
 
     let (status, body) = json_request(
@@ -155,9 +151,7 @@ async fn database_rejects_disabling_passwordless_for_unset_password() {
     let user_root = temp.path().join("guarded-guest");
     tokio::fs::create_dir_all(&user_root).await.unwrap();
 
-    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
-        .await
-        .unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
     let permission = 1 << PERM_ALLOW_EMPTY_PASSWORD;
     let user_id = db::create_user(
         &pool,
@@ -186,9 +180,7 @@ async fn password_and_permission_change_is_atomic() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("guest");
     tokio::fs::create_dir_all(&root).await.unwrap();
-    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
-        .await
-        .unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
     let id = db::create_user(
         &pool,
         "guest",
@@ -211,11 +203,10 @@ async fn password_and_permission_change_is_atomic() {
 #[tokio::test]
 async fn database_rejects_admin_mutations() {
     let temp = tempfile::tempdir().unwrap();
-    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
-        .await
-        .unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
     let admin = db::get_admin(&pool).await.unwrap().unwrap();
     assert!(db::delete_user(&pool, admin.id).await.is_err());
+    assert!(db::set_user_disabled(&pool, admin.id, true).await.is_err());
     assert!(
         db::create_user(
             &pool,
@@ -229,14 +220,42 @@ async fn database_rejects_admin_mutations() {
         .await
         .is_err()
     );
+
+    let guest_root = temp.path().join("guest-root");
+    tokio::fs::create_dir(&guest_root).await.unwrap();
+    let guest_id = db::create_user(
+        &pool,
+        "toggle-guest",
+        "GuestPass123!",
+        0,
+        Some(guest_root.to_str().unwrap()),
+        0,
+        false,
+    )
+    .await
+    .unwrap();
+    db::set_user_disabled(&pool, guest_id, true).await.unwrap();
+    assert!(
+        db::get_user_by_id(&pool, guest_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .disabled
+    );
+    db::set_user_disabled(&pool, guest_id, false).await.unwrap();
+    assert!(
+        !db::get_user_by_id(&pool, guest_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .disabled
+    );
 }
 
 #[tokio::test]
 async fn current_user_returns_only_session_fields() {
     let temp = tempfile::tempdir().unwrap();
-    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
-        .await
-        .unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
     db::set_admin_password(&pool, "AdminPass123!")
         .await
         .unwrap();
@@ -269,9 +288,7 @@ async fn disabling_passwordless_login_requires_a_nonempty_password() {
     let user_root = temp.path().join("guest");
     tokio::fs::create_dir_all(&user_root).await.unwrap();
 
-    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
-        .await
-        .unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
     db::set_admin_password(&pool, "AdminPass123!")
         .await
         .unwrap();
@@ -322,9 +339,7 @@ async fn disabling_passwordless_login_requires_a_nonempty_password() {
 #[tokio::test]
 async fn admin_password_update_keeps_pwd_ts_monotonic() {
     let temp = tempfile::tempdir().unwrap();
-    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
-        .await
-        .unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
     db::set_admin_password(&pool, "AdminPass123!")
         .await
         .unwrap();
@@ -350,15 +365,13 @@ async fn admin_password_update_keeps_pwd_ts_monotonic() {
 }
 
 #[tokio::test]
-async fn user_update_rejects_invalid_local_path_without_mutating_user() {
+async fn user_local_path_update_rejects_invalid_path_without_mutating_user() {
     let temp = tempfile::tempdir().unwrap();
     let old_root = temp.path().join("old-root");
     let missing_root = temp.path().join("missing-root");
     tokio::fs::create_dir_all(&old_root).await.unwrap();
 
-    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
-        .await
-        .unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
     db::set_admin_password(&pool, "AdminPass123!")
         .await
         .unwrap();
@@ -375,13 +388,11 @@ async fn user_update_rejects_invalid_local_path_without_mutating_user() {
     .unwrap();
     let before = db::get_user_by_id(&pool, user_id).await.unwrap().unwrap();
 
-    let mut invalid = before.clone();
-    invalid.username = "changed-guest".to_string();
-    invalid.pwd_hash = rulist::auth::hash_password("ChangedPass123!");
-    invalid.permission = 7;
-    invalid.disabled = true;
-    invalid.local_path = missing_root.to_string_lossy().into_owned();
-    assert!(db::update_user(&pool, &invalid).await.is_err());
+    assert!(
+        db::set_user_local_path(&pool, user_id, &missing_root.to_string_lossy())
+            .await
+            .is_err()
+    );
 
     let after = db::get_user_by_id(&pool, user_id).await.unwrap().unwrap();
     assert_eq!(after.id, before.id);
@@ -401,9 +412,7 @@ async fn user_update_rejects_invalid_local_path_without_mutating_user() {
 #[tokio::test]
 async fn server_rejects_addresses_other_than_exact_localhost() {
     let temp = tempfile::tempdir().unwrap();
-    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
-        .await
-        .unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
 
     for host in ["127.0.0.2", "0.0.0.0"] {
         let mut config = Config::default();

@@ -1,6 +1,6 @@
 import { currentUser, fileStore, ViewState } from "~/store"
 import { FileEntry } from "~/types"
-import { api, encodePath, pathDir, pathJoin, standardizePath } from "~/utils"
+import { api, encodePath, pathDir, standardizePath } from "~/utils"
 import { useRouter } from "."
 
 // get download url by directory and file

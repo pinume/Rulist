@@ -1,5 +1,5 @@
 import { shouldKeepState, FileStore, fileStore, ViewState } from "~/store/files"
-import { encodePath } from "~/utils"
+import { encodePath } from "~/utils/path"
 
 interface History {
   state: object
@@ -49,6 +49,8 @@ export const clearHistory = (path: string) => {
     HistoryMap.delete(key)
   }
 }
+
+export const clearAllHistory = () => HistoryMap.clear()
 
 document.addEventListener(
   "click",

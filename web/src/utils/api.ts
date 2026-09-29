@@ -4,6 +4,7 @@ import {
   FsGetResp,
   FsListResp,
   FileEntry,
+  DirEntry,
   PResp,
   RenameEntry,
 } from "~/types"
@@ -46,7 +47,7 @@ export const fsList = (
   )
 }
 
-export const fsDirs = (path = "/"): PResp<FileEntry[]> => {
+export const fsDirs = (path = "/"): PResp<DirEntry[]> => {
   return r.post("/fs/dirs", { path })
 }
 

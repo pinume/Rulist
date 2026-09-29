@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 use std::{io, path::PathBuf};
 use tracing::info;
@@ -52,24 +52,10 @@ struct ServerArgs {
     host: Option<String>,
 }
 
-fn initial_home_path() -> Result<PathBuf> {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .context("HOME is not set; cannot initialize the administrator directory")?;
-    let home = home
-        .canonicalize()
-        .with_context(|| format!("failed to resolve current user's HOME directory: {home:?}"))?;
-    if !home.is_dir() {
-        anyhow::bail!("current user's HOME is not a directory: {home:?}");
-    }
-    Ok(home)
-}
-
 async fn init_database(config: &config::Config, data_dir: &std::path::Path) -> Result<db::DbPool> {
     let db_path = config.resolved_db_path(data_dir);
-    let home_path = initial_home_path()?;
     info!("initializing database at {:?}", db_path);
-    db::init_db(&db_path, &home_path).await
+    db::init_db(&db_path).await
 }
 
 pub async fn run() -> Result<()> {

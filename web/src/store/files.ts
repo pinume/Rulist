@@ -38,7 +38,7 @@ export enum ViewState {
   Folder,
   File,
 }
-const initialFileStore = {
+const createInitialFileStore = () => ({
   file: {} as FileEntry,
   raw_url: "",
   files: [] as FileItem[],
@@ -48,12 +48,11 @@ const initialFileStore = {
   reverse: false,
   state: ViewState.Initial,
   err: "",
-}
+  write: undefined as boolean | undefined,
+})
 const [fileStore, setFileStore] = createStore<
-  typeof initialFileStore & {
-    write?: boolean
-  }
->(initialFileStore)
+  ReturnType<typeof createInitialFileStore>
+>(createInitialFileStore())
 
 const setListing = (files: FileEntry[], total: number, page: number) => {
   if (fileStore.page !== page) setDirectoryFilter("")
@@ -77,6 +76,14 @@ let lastClickedIndex: number | null = null
 export const setLastClickedIndex = (index: number | null) => {
   lastClickedIndex = index
 }
+
+const directoryPaths: Record<string, boolean> = {}
+export const rememberDirectoryPath = (path: string, dir: boolean) => {
+  if (dir) directoryPaths[path] = true
+  else delete directoryPaths[path]
+}
+export const isKnownDirectoryPath = (path: string) =>
+  directoryPaths[path] === true
 
 export const selectRange = (targetIndex: number) => {
   const indexes = visibleFileIndexes()
@@ -130,7 +137,6 @@ export const visibleFileIndexes = createMemo(() => {
   const indexes = fileStore.files.flatMap((obj, index) =>
     !query || obj.name.toLowerCase().includes(query) ? [index] : [],
   )
-  const position = folderSortPosition()
   const orderBy = fileStore.orderBy
   const reverse = fileStore.reverse
 
@@ -138,7 +144,7 @@ export const visibleFileIndexes = createMemo(() => {
     const a = fileStore.files[i]
     const b = fileStore.files[j]
     if (!a || !b) return 0
-    if (position === "top" && a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
+    if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
     let res = 0
     if (orderBy === "size") {
       res = a.size - b.size
@@ -150,7 +156,6 @@ export const visibleFileIndexes = createMemo(() => {
     if (res === 0) res = a.name.localeCompare(b.name, undefined, { numeric: true })
     const orderedRes = reverse ? -res : res
     if (orderedRes !== 0) return orderedRes
-    if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
     return 0
   })
 })
@@ -175,16 +180,18 @@ export const selectedMsg = (filterType?: FileType) => {
     : ""
 }
 
+export const resetFileState = () => {
+  setFileStore(createInitialFileStore())
+  setDirectoryFilterValue("")
+  lastClickedIndex = null
+  for (const path of Object.keys(directoryPaths)) delete directoryPaths[path]
+  setUploadConfig({ asTask: false, overwrite: false })
+  setShouldKeepState(false)
+}
+
 export const [uploadConfig, setUploadConfig] = createStore({
   asTask: false,
   overwrite: false,
 })
 
 export const [shouldKeepState, setShouldKeepState] = createSignal(false)
-export const [folderSortPosition, setFolderSortPositionValue] = createSignal(
-  localStorage.getItem("folder_sort_position") || "top",
-)
-export const setFolderSortPosition = (value: string) => {
-  localStorage.setItem("folder_sort_position", value)
-  setFolderSortPositionValue(value)
-}

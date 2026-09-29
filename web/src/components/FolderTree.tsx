@@ -32,7 +32,7 @@ import {
 } from "solid-js"
 import { useFetch, useUtil } from "~/hooks"
 import { mainColor } from "~/store"
-import { FileEntry } from "~/types"
+import { DirEntry } from "~/types"
 import {
   pathBase,
   handleResp,
@@ -98,7 +98,7 @@ export const FolderTree = (props: FolderTreeProps) => {
 
 const FolderTreeNode = (props: { path: string }) => {
   const { isHidePath } = useUtil()
-  const [children, setChildren] = createSignal<FileEntry[]>()
+  const [children, setChildren] = createSignal<DirEntry[]>()
   const {
     value,
     onChange,

@@ -96,30 +96,46 @@ pub(crate) async fn validate_admin_invariants(pool: &DbPool) -> Result<()> {
     Ok(())
 }
 
-pub(crate) async fn seed_admin(pool: &DbPool, home_path: &std::path::Path) -> Result<()> {
+fn initial_home_path() -> Result<std::path::PathBuf> {
+    let home = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .context("HOME is not set; cannot initialize the administrator directory")?;
+    let home = home
+        .canonicalize()
+        .with_context(|| format!("failed to resolve current user's HOME directory: {home:?}"))?;
+    if !home.is_dir() {
+        bail!("current user's HOME is not a directory: {home:?}");
+    }
+    Ok(home)
+}
+
+pub(crate) async fn seed_admin(pool: &DbPool) -> Result<()> {
     let admin_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `users` WHERE `role` = ?")
         .bind(ROLE_ADMIN)
         .fetch_one(pool)
         .await?;
-    if admin_count == 0 {
-        let initial_pwd = rand_string(16);
-        let now_ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-        sqlx::query("INSERT INTO `users` (`username`, `pwd_hash`, `pwd_ts`, `local_path`, `role`, `disabled`, `permission`, `password_unset`) VALUES ('admin', ?, ?, ?, ?, 0, 0, 0)")
-            .bind(hash_password(&initial_pwd)).bind(now_ts).bind(home_path.to_string_lossy().into_owned()).bind(ROLE_ADMIN).execute(pool).await?;
-        println!(
-            "\n==================================================================\n\
-             Initial admin user created:\n\
-             Username: admin\n\
-             Password: {}\n\
-             Save this password and change it after first login.\n\
-             You can reset it later from the Rulist interactive console.\n\
-             ==================================================================\n",
-            initial_pwd
-        );
+    if admin_count != 0 {
+        return Ok(());
     }
+
+    let home_path = initial_home_path()?;
+    let initial_pwd = rand_string(16);
+    let now_ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    sqlx::query("INSERT INTO `users` (`username`, `pwd_hash`, `pwd_ts`, `local_path`, `role`, `disabled`, `permission`, `password_unset`) VALUES ('admin', ?, ?, ?, ?, 0, 0, 0)")
+        .bind(hash_password(&initial_pwd)).bind(now_ts).bind(home_path.to_string_lossy().into_owned()).bind(ROLE_ADMIN).execute(pool).await?;
+    println!(
+        "\n==================================================================\n\
+         Initial admin user created:\n\
+         Username: admin\n\
+         Password: {}\n\
+         Save this password and change it after first login.\n\
+         You can reset it later from the Rulist interactive console.\n\
+         ==================================================================\n",
+        initial_pwd
+    );
     Ok(())
 }
 
@@ -232,22 +248,18 @@ pub async fn accept_otp_step(pool: &DbPool, user_id: i64, step: i64) -> Result<b
     )
 }
 
-pub async fn update_user(pool: &DbPool, user: &User) -> Result<()> {
-    validate_username(&user.username)?;
-    let current = get_user_by_id(pool, user.id)
+pub async fn set_user_disabled(pool: &DbPool, user_id: i64, disabled: bool) -> Result<()> {
+    let current = get_user_by_id(pool, user_id)
         .await?
         .context("user not found")?;
-    if user.role != current.role
-        || (current.is_admin() && (user.username != "admin" || user.disabled))
-    {
-        bail!("administrator cannot be renamed, disabled, or changed");
+    if current.is_admin() {
+        bail!("administrator cannot be disabled");
     }
-    if user.password_unset && user.permission & (1 << PERM_ALLOW_EMPTY_PASSWORD) == 0 {
-        bail!("passwordless permission is required for an unset password");
-    }
-    let path = canonical_local_path(&user.local_path)?;
-    let result = sqlx::query("UPDATE `users` SET `username` = ?, `pwd_hash` = ?, `pwd_ts` = ?, `local_path` = ?, `password_unset` = ?, `disabled` = ?, `permission` = ? WHERE `id` = ?")
-        .bind(&user.username).bind(&user.pwd_hash).bind(user.pwd_ts).bind(path).bind(user.password_unset).bind(user.disabled).bind(user.permission).bind(user.id).execute(pool).await?;
+    let result = sqlx::query("UPDATE `users` SET `disabled` = ? WHERE `id` = ?")
+        .bind(disabled)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
     if result.rows_affected() != 1 {
         bail!("user not found");
     }

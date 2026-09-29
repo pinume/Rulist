@@ -62,6 +62,22 @@ def main():
         env = os.environ.copy()
         env["HOME"] = str(storage_dir.resolve())
 
+        no_home_env = env.copy()
+        no_home_env.pop("HOME", None)
+        no_home_data = tmp_path / "no-home-data"
+        no_home_init = subprocess.run(
+            [str(BINARY), "--data-dir", str(no_home_data), "interactive"],
+            input="0\n",
+            text=True,
+            capture_output=True,
+            env=no_home_env,
+        )
+        if no_home_init.returncode == 0 or "HOME is not set" not in no_home_init.stderr:
+            raise AssertionError(
+                "fresh initialization without HOME should fail clearly: "
+                f"stdout={no_home_init.stdout!r} stderr={no_home_init.stderr!r}"
+            )
+
         init_output = subprocess.run(
             [str(BINARY), "--data-dir", str(data_dir), "interactive"],
             input="0\n",
@@ -75,7 +91,27 @@ def main():
             raise AssertionError("interactive initialization did not print the admin password")
         initial_password = match.group(1)
 
+        guest_root = tmp_path / "guest-root"
+        guest_root.mkdir()
+        (storage_dir / "admin-only.txt").write_text("admin\n")
+        (guest_root / "guest-only.txt").write_text("guest\n")
+        subprocess.run(
+            [str(BINARY), "--data-dir", str(data_dir), "interactive"],
+            input=(
+                f"2\nguest\n{guest_root}\n0\n\nGuestPass123!\n"
+                "GuestPass123!\ny\n0\n"
+            ),
+            check=True,
+            text=True,
+            capture_output=True,
+            env=env,
+        )
         with sqlite3.connect(data_dir / "data.db") as connection:
+            guest = connection.execute(
+                "SELECT local_path FROM users WHERE username = 'guest'"
+            ).fetchone()
+            if guest != (str(guest_root.resolve()),):
+                raise AssertionError(f"interactive CLI did not create guest root: {guest}")
             tables = {
                 row[0]
                 for row in connection.execute(
@@ -94,7 +130,7 @@ def main():
                 [str(BINARY), "--data-dir", str(data_dir), "server", "--host", "127.0.0.1", "--port", str(port)],
                 stdout=log,
                 stderr=subprocess.STDOUT,
-                env=env,
+                env=no_home_env,
             )
             try:
                 for _ in range(50):
@@ -152,6 +188,29 @@ def main():
                 expect(200, status, "list")
                 if "smoke.txt" not in [item["name"] for item in listing["data"]["content"]]:
                     raise AssertionError(f"uploaded file is absent from list: {listing}")
+                admin_names = {item["name"] for item in listing["data"]["content"]}
+                if "admin-only.txt" not in admin_names or "guest-only.txt" in admin_names:
+                    raise AssertionError(f"admin listing crossed user roots: {admin_names}")
+
+                status, guest_login = api(
+                    base,
+                    "/api/auth/login",
+                    {"username": "guest", "password": "GuestPass123!"},
+                )
+                expect(200, status, "guest login")
+                guest_token = guest_login["data"]["token"]
+                status, guest_listing = api(base, "/api/fs/list", {"path": "/"}, guest_token)
+                expect(200, status, "guest list")
+                guest_names = {item["name"] for item in guest_listing["data"]["content"]}
+                if "guest-only.txt" not in guest_names or "admin-only.txt" in guest_names:
+                    raise AssertionError(f"guest listing crossed user roots: {guest_names}")
+                status, _ = api(
+                    base,
+                    "/api/fs/list",
+                    {"path": "/../admin-only.txt"},
+                    guest_token,
+                )
+                expect(403, status, "guest root traversal rejection")
 
                 status, preview = api(base, "/api/fs/preview", {"path": "/smoke.txt"}, token)
                 expect(200, status, "preview")

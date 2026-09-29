@@ -26,6 +26,7 @@ import {
 import { Container } from "../Container"
 import { LinkWithBase } from "~/components"
 import { authLogout, changeToken, handleResp, notify, pathJoin } from "~/utils"
+import { resetSessionState } from "~/store/reset"
 import { useRouter } from "~/hooks"
 import { AddMenu } from "./AddMenu"
 
@@ -164,6 +165,7 @@ export const Header = () => {
                 onClick={async () => {
                   handleResp(await authLogout(), () => {
                     changeToken()
+                    resetSessionState()
                     notify.success("Logged out successfully")
                     to("/@login?redirect=%2F")
                   })

@@ -21,8 +21,6 @@ import {
   mainColor,
   saveSortState,
   FileStore,
-  folderSortPosition,
-  setFolderSortPosition,
   OrderBy,
   fileStore,
   selectAll,
@@ -199,52 +197,6 @@ export const ListTitle = (props: {
                 </HStack>
               </MenuItem>
             </MenuGroup>
-            <Divider my="$1" />
-            <MenuGroup>
-              <MenuLabel fontSize="$xs" color="$neutral9" px="$3" py="$1">
-                Folders
-              </MenuLabel>
-              <MenuItem
-                cursor="pointer"
-                onSelect={() => {
-                  setFolderSortPosition("top")
-                  props.sortCallback(fileStore.orderBy, fileStore.reverse)
-                }}
-              >
-                <HStack w="$full" justifyContent="space-between" alignItems="center">
-                  <Text
-                    fontSize="$sm"
-                    color={(folderSortPosition() || "top") === "top" ? mainColor() : undefined}
-                    fontWeight={(folderSortPosition() || "top") === "top" ? "semibold" : "normal"}
-                  >
-                    On top
-                  </Text>
-                  <Show when={(folderSortPosition() || "top") === "top"}>
-                    <Icon as={FiCheck} color={mainColor()} />
-                  </Show>
-                </HStack>
-              </MenuItem>
-              <MenuItem
-                cursor="pointer"
-                onSelect={() => {
-                  setFolderSortPosition("mixed")
-                  props.sortCallback(fileStore.orderBy, fileStore.reverse)
-                }}
-              >
-                <HStack w="$full" justifyContent="space-between" alignItems="center">
-                  <Text
-                    fontSize="$sm"
-                    color={folderSortPosition() === "mixed" ? mainColor() : undefined}
-                    fontWeight={folderSortPosition() === "mixed" ? "semibold" : "normal"}
-                  >
-                    Mixed with files
-                  </Text>
-                  <Show when={folderSortPosition() === "mixed"}>
-                    <Icon as={FiCheck} color={mainColor()} />
-                  </Show>
-                </HStack>
-              </MenuItem>
-            </MenuGroup>
           </MenuContent>
         </Menu>
       </HStack>
@@ -261,7 +213,7 @@ const ListLayout = () => {
       <ListTitle
         sortCallback={(orderBy, reverse) => {
           FileStore.setSort(orderBy, reverse)
-          void loadFolder(pathname(), false, 1, orderBy, reverse)
+          void loadFolder(pathname(), 1, orderBy, reverse)
         }}
         initialOrder={fileStore.orderBy}
         initialReverse={fileStore.reverse}

@@ -25,6 +25,7 @@ import { Resp } from "~/types"
 import LoginBg from "./LoginBg"
 import { logos } from "~/store"
 import { pathJoin } from "~/utils"
+import { resetSessionState } from "~/store/reset"
 
 const Login = () => {
   const [lightLogo, darkLogo] = logos()
@@ -72,6 +73,7 @@ const Login = () => {
       resp,
       (data) => {
         notify.success("Signed in successfully")
+        resetSessionState()
         changeToken(data.token)
         const redirect = getSafeRedirect(searchParams["redirect"])
         to(redirect || "/", true)

@@ -60,7 +60,7 @@ async fn init_schema(pool: &DbPool) -> Result<()> {
     Ok(())
 }
 
-pub async fn init_db(db_path: &Path, home_path: &Path) -> Result<DbPool> {
+pub async fn init_db(db_path: &Path) -> Result<DbPool> {
     if let Some(parent) = db_path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -87,7 +87,7 @@ pub async fn init_db(db_path: &Path, home_path: &Path) -> Result<DbPool> {
 
     cleanup_revoked_tokens(&pool).await?;
     validate_admin_invariants(&pool).await?;
-    seed_admin(&pool, home_path).await?;
+    seed_admin(&pool).await?;
 
     Ok(pool)
 }

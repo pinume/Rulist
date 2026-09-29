@@ -11,7 +11,7 @@ const Pager = () => {
   const pageCount = () => Math.ceil(fileStore.total / LIST_PAGE_SIZE)
   const go = (page: number) => {
     selectAll(false)
-    void loadFolder(pathname(), false, page)
+    void loadFolder(pathname(), page)
   }
 
   return (
