@@ -12,8 +12,7 @@ Requirements:
 - pnpm 12.5.1
 
 ```bash
-./build-frontend.sh
-cargo build --release
+./scripts/build-release.sh
 ```
 
 ## Run
