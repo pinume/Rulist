@@ -1,7 +1,7 @@
 import { Show, createSignal, onCleanup } from "solid-js"
 import { Box, Icon } from "@hope-ui/solid"
 import { FiArrowUp } from "solid-icons/fi"
-import { getMainColor } from "~/store"
+import { mainColor } from "~/store"
 
 export const useScrollListener = (
   callback: (e?: Event) => void,
@@ -32,11 +32,11 @@ export const BackTop = () => {
         top="0"
         borderBottomRadius="50%"
         bgColor="$whiteAlpha12"
-        color={getMainColor()}
+        color={mainColor()}
         overflow="hidden"
         shadow="$lg"
-        _dark={{ bgColor: getMainColor(), color: "white" }}
-        _hover={{ bgColor: getMainColor(), color: "white" }}
+        _dark={{ bgColor: mainColor(), color: "white" }}
+        _hover={{ bgColor: mainColor(), color: "white" }}
       >
         <Icon
           _focus={{

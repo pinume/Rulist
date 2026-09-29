@@ -1,13 +1,13 @@
 import { useTitle } from "~/hooks"
-import { getSetting } from "~/store"
+import { config } from "~/store"
 import { notify } from "~/utils"
 import { Body } from "./Body"
 import { Header } from "./header/Header"
 import { Toolbar } from "./toolbar/Toolbar"
 
 const Index = () => {
-  useTitle(getSetting("site_title"))
-  const announcement = getSetting("announcement")
+  useTitle(() => config()?.site_title || "Rulist")
+  const announcement = config()?.announcement
   if (announcement) {
     notify.info(announcement)
   }

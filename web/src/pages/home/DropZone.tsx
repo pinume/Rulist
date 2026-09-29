@@ -3,7 +3,7 @@ import { FiUploadCloud } from "solid-icons/fi"
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js"
 import { Portal } from "solid-js/web"
 import { useRouter } from "~/hooks"
-import { getMainColor, fileStore, ViewState, can } from "~/store"
+import { mainColor, fileStore, ViewState, can } from "~/store"
 import { notify } from "~/utils"
 import {
   enqueueFilesForUpload,
@@ -119,11 +119,11 @@ export const DropZone = () => {
             rounded="$2xl"
             bg="$neutral1"
             border="2px dashed"
-            borderColor={getMainColor()}
+            borderColor={mainColor()}
             shadow="$2xl"
             maxW="90vw"
           >
-            <Box color={getMainColor()} fontSize="3.5rem">
+            <Box color={mainColor()} fontSize="3.5rem">
               <FiUploadCloud />
             </Box>
             <Heading size="lg">Drop files or folders to upload them to the current directory</Heading>

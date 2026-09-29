@@ -1,6 +1,6 @@
 import { Center, Spinner } from "@hope-ui/solid"
 import { mergeProps } from "solid-js"
-import { getMainColor } from "~/store"
+import { mainColor } from "~/store"
 export const FullScreenLoading = () => {
   return (
     <Center h="100vh">
@@ -8,7 +8,7 @@ export const FullScreenLoading = () => {
         thickness="4px"
         speed="0.65s"
         emptyColor="$neutral4"
-        color={getMainColor()}
+        color={mainColor()}
         size="xl"
       />
     </Center>
@@ -35,7 +35,7 @@ export const FullLoading = (props: {
         thickness={`${merged.thickness}px`}
         speed="0.65s"
         emptyColor="$neutral4"
-        color={getMainColor()}
+        color={mainColor()}
         size={merged.size as any}
       />
     </Center>

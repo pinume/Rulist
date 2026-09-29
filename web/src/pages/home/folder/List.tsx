@@ -18,7 +18,7 @@ import { usePath, useRouter } from "~/hooks"
 import {
   countMsg,
   directoryFilter,
-  getMainColor,
+  mainColor,
   saveSortState,
   FileStore,
   folderSortPosition,
@@ -140,13 +140,13 @@ export const ListTitle = (props: {
                 <HStack w="$full" justifyContent="space-between" alignItems="center">
                   <Text
                     fontSize="$sm"
-                    color={fileStore.orderBy === "name" ? getMainColor() : undefined}
+                    color={fileStore.orderBy === "name" ? mainColor() : undefined}
                     fontWeight={fileStore.orderBy === "name" ? "semibold" : "normal"}
                   >
                     File name
                   </Text>
                   <Show when={fileStore.orderBy === "name"}>
-                    <Icon as={FiCheck} color={getMainColor()} />
+                    <Icon as={FiCheck} color={mainColor()} />
                   </Show>
                 </HStack>
               </MenuItem>
@@ -154,13 +154,13 @@ export const ListTitle = (props: {
                 <HStack w="$full" justifyContent="space-between" alignItems="center">
                   <Text
                     fontSize="$sm"
-                    color={fileStore.orderBy === "modified" ? getMainColor() : undefined}
+                    color={fileStore.orderBy === "modified" ? mainColor() : undefined}
                     fontWeight={fileStore.orderBy === "modified" ? "semibold" : "normal"}
                   >
                     Modified
                   </Text>
                   <Show when={fileStore.orderBy === "modified"}>
-                    <Icon as={FiCheck} color={getMainColor()} />
+                    <Icon as={FiCheck} color={mainColor()} />
                   </Show>
                 </HStack>
               </MenuItem>
@@ -174,13 +174,13 @@ export const ListTitle = (props: {
                 <HStack w="$full" justifyContent="space-between" alignItems="center">
                   <Text
                     fontSize="$sm"
-                    color={!fileStore.reverse ? getMainColor() : undefined}
+                    color={!fileStore.reverse ? mainColor() : undefined}
                     fontWeight={!fileStore.reverse ? "semibold" : "normal"}
                   >
                     A to Z
                   </Text>
                   <Show when={!fileStore.reverse}>
-                    <Icon as={FiCheck} color={getMainColor()} />
+                    <Icon as={FiCheck} color={mainColor()} />
                   </Show>
                 </HStack>
               </MenuItem>
@@ -188,13 +188,13 @@ export const ListTitle = (props: {
                 <HStack w="$full" justifyContent="space-between" alignItems="center">
                   <Text
                     fontSize="$sm"
-                    color={fileStore.reverse ? getMainColor() : undefined}
+                    color={fileStore.reverse ? mainColor() : undefined}
                     fontWeight={fileStore.reverse ? "semibold" : "normal"}
                   >
                     Z to A
                   </Text>
                   <Show when={fileStore.reverse}>
-                    <Icon as={FiCheck} color={getMainColor()} />
+                    <Icon as={FiCheck} color={mainColor()} />
                   </Show>
                 </HStack>
               </MenuItem>
@@ -214,13 +214,13 @@ export const ListTitle = (props: {
                 <HStack w="$full" justifyContent="space-between" alignItems="center">
                   <Text
                     fontSize="$sm"
-                    color={(folderSortPosition() || "top") === "top" ? getMainColor() : undefined}
+                    color={(folderSortPosition() || "top") === "top" ? mainColor() : undefined}
                     fontWeight={(folderSortPosition() || "top") === "top" ? "semibold" : "normal"}
                   >
                     On top
                   </Text>
                   <Show when={(folderSortPosition() || "top") === "top"}>
-                    <Icon as={FiCheck} color={getMainColor()} />
+                    <Icon as={FiCheck} color={mainColor()} />
                   </Show>
                 </HStack>
               </MenuItem>
@@ -234,13 +234,13 @@ export const ListTitle = (props: {
                 <HStack w="$full" justifyContent="space-between" alignItems="center">
                   <Text
                     fontSize="$sm"
-                    color={folderSortPosition() === "mixed" ? getMainColor() : undefined}
+                    color={folderSortPosition() === "mixed" ? mainColor() : undefined}
                     fontWeight={folderSortPosition() === "mixed" ? "semibold" : "normal"}
                   >
                     Mixed with files
                   </Text>
                   <Show when={folderSortPosition() === "mixed"}>
-                    <Icon as={FiCheck} color={getMainColor()} />
+                    <Icon as={FiCheck} color={mainColor()} />
                   </Show>
                 </HStack>
               </MenuItem>
@@ -281,12 +281,12 @@ const ListLayout = () => {
             {selectedMsg()}
           </Text>
           <Show when={can("copy") && fileStore.write}>
-            <Button size="sm" variant="ghost" color={getMainColor()} onClick={() => bus.emit("tool", "copy")}>
+            <Button size="sm" variant="ghost" color={mainColor()} onClick={() => bus.emit("tool", "copy")}>
               Copy
             </Button>
           </Show>
           <Show when={can("move") && fileStore.write}>
-            <Button size="sm" variant="ghost" color={getMainColor()} onClick={() => bus.emit("tool", "move")}>
+            <Button size="sm" variant="ghost" color={mainColor()} onClick={() => bus.emit("tool", "move")}>
               Move
             </Button>
           </Show>

@@ -12,8 +12,8 @@ import {
 import { Portal } from "solid-js/web"
 import { Error, FullScreenLoading } from "~/components"
 import { useLoading, useRouter } from "~/hooks"
-import { setSettings } from "~/store"
-import { Resp } from "~/types"
+import { loadConfig } from "~/store"
+import { PublicConfig, Resp } from "~/types"
 import { bus, handleRespWithoutAuthAndNotify, r } from "~/utils"
 import { MustUser } from "./MustUser"
 import "./index.css"
@@ -35,8 +35,8 @@ const App: Component = () => {
   const [err, setErr] = createSignal<string[]>([])
   const [loading, data] = useLoading(async () => {
     handleRespWithoutAuthAndNotify(
-      (await r.get("/public/settings")) as Resp<Record<string, string>>,
-      setSettings,
+      (await r.get("/public/settings")) as Resp<PublicConfig>,
+      loadConfig,
       (e) => setErr(err().concat(e)),
     )
   })

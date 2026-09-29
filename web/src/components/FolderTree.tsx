@@ -31,7 +31,7 @@ import {
   onMount,
 } from "solid-js"
 import { useFetch, useUtil } from "~/hooks"
-import { getMainColor } from "~/store"
+import { mainColor } from "~/store"
 import { FileEntry } from "~/types"
 import {
   pathBase,
@@ -155,13 +155,13 @@ const FolderTreeNode = (props: { path: string }) => {
     <Show when={showHiddenFolder || !isHiddenFolder()}>
       <Box>
         <HStack spacing="$2">
-          <Show when={!loading()} fallback={<Spinner size="sm" color={getMainColor()} />}>
+          <Show when={!loading()} fallback={<Spinner size="sm" color={mainColor()} />}>
             <Show
               when={!emptyIconVisible()}
-              fallback={<Icon color={getMainColor()} as={BiSolidFolderOpen} />}
+              fallback={<Icon color={mainColor()} as={BiSolidFolderOpen} />}
             >
               <Icon
-                color={getMainColor()}
+                color={mainColor()}
                 as={BiSolidRightArrow}
                 transform={isOpen() ? "rotate(90deg)" : "none"}
                 transition="transform 0.2s"
@@ -247,7 +247,7 @@ const FolderNameInput = (props: {
 
   return (
     <HStack spacing="$2" w="$full" pl="$4" alignItems="center">
-      <Icon color={getMainColor()} as={BiSolidFolderOpen} />
+      <Icon color={mainColor()} as={BiSolidFolderOpen} />
       <Input
         ref={(el) => (inputRef = el)}
         value={folderName()}
@@ -270,7 +270,7 @@ const FolderNameInput = (props: {
           if (!folderName().trim()) props.onCancel()
         }}
       />
-      <Show when={!loading()} fallback={<Spinner size="sm" color={getMainColor()} />}>
+      <Show when={!loading()} fallback={<Spinner size="sm" color={mainColor()} />}>
         <Button
           aria-label="OK"
           size="sm"

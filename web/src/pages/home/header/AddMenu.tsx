@@ -14,7 +14,7 @@ import {
   RiDocumentFolderAddLine,
 } from "solid-icons/ri"
 import { createMemo, Show } from "solid-js"
-import { getMainColor, fileStore, ViewState, can } from "~/store"
+import { mainColor, fileStore, ViewState, can } from "~/store"
 import { bus } from "~/utils"
 import { enqueueFilesForUpload } from "../uploads/util"
 
@@ -80,8 +80,8 @@ export const AddMenu = () => {
             alignItems="center"
             justifyContent="center"
             _hover={{
-              color: getMainColor(),
-              borderColor: getMainColor(),
+              color: mainColor(),
+              borderColor: mainColor(),
               bgColor: useColorModeValue("$neutral3", "$neutral5")(),
               transform: "translateY(-1px)",
               shadow: "$sm",
@@ -119,7 +119,7 @@ export const AddMenu = () => {
         >
           <MenuItem
             cursor="pointer"
-            icon={<Icon as={RiDocumentFileUploadLine} boxSize="$4" color={getMainColor()} />}
+            icon={<Icon as={RiDocumentFileUploadLine} boxSize="$4" color={mainColor()} />}
             onSelect={handleUploadFiles}
             rounded="$md"
             py="$2"
@@ -130,7 +130,7 @@ export const AddMenu = () => {
           </MenuItem>
           <MenuItem
             cursor="pointer"
-            icon={<Icon as={RiDocumentFolderUploadLine} boxSize="$4" color={getMainColor()} />}
+            icon={<Icon as={RiDocumentFolderUploadLine} boxSize="$4" color={mainColor()} />}
             onSelect={handleUploadFolder}
             rounded="$md"
             py="$2"
@@ -141,7 +141,7 @@ export const AddMenu = () => {
           </MenuItem>
           <MenuItem
             cursor="pointer"
-            icon={<Icon as={RiDocumentFolderAddLine} boxSize="$4" color={getMainColor()} />}
+            icon={<Icon as={RiDocumentFolderAddLine} boxSize="$4" color={mainColor()} />}
             onSelect={handleCreateFolder}
             rounded="$md"
             py="$2"

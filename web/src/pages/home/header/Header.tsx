@@ -18,7 +18,7 @@ import {
 import {
   clearDirectoryFilter,
   directoryFilter,
-  getLogo,
+  logos,
   fileStore,
   setDirectoryFilter,
   ViewState,
@@ -32,7 +32,7 @@ import { AddMenu } from "./AddMenu"
 export const Header = () => {
   const { pathname, to } = useRouter()
   let searchInput: HTMLInputElement | undefined
-  const [lightLogo, darkLogo] = getLogo()
+  const [lightLogo, darkLogo] = logos()
   const logo = useColorModeValue(lightLogo, darkLogo)
 
   const logoSrc = createMemo(() => {

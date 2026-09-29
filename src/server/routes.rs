@@ -4,6 +4,7 @@ use axum::http::header::{HeaderName, HeaderValue, X_CONTENT_TYPE_OPTIONS};
 use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::routing::{get, post, put};
+use serde::Serialize;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
@@ -79,18 +80,30 @@ pub fn build_app(state: SharedState) -> Router {
         .with_state(state)
 }
 
+#[derive(Serialize)]
+struct PublicConfig {
+    site_title: String,
+    logo: String,
+    favicon: String,
+    main_color: String,
+    hide_files: Vec<String>,
+    package_download: bool,
+    announcement: String,
+    version: String,
+}
+
 async fn public_settings_handler(State(state): State<SharedState>) -> Response {
     let ui = &state.config.ui;
-    api_success(std::collections::HashMap::from([
-        ("site_title", ui.site_title.clone()),
-        ("logo", ui.logo.clone()),
-        ("favicon", ui.favicon.clone()),
-        ("main_color", ui.main_color.clone()),
-        ("hide_files", ui.hide_files.join("\n")),
-        ("package_download", ui.package_download.to_string()),
-        ("announcement", ui.announcement.clone()),
-        ("version", format!("v{}-rust", env!("CARGO_PKG_VERSION"))),
-    ]))
+    api_success(PublicConfig {
+        site_title: ui.site_title.clone(),
+        logo: ui.logo.clone(),
+        favicon: ui.favicon.clone(),
+        main_color: ui.main_color.clone(),
+        hide_files: ui.hide_files.clone(),
+        package_download: ui.package_download,
+        announcement: ui.announcement.clone(),
+        version: format!("v{}-rust", env!("CARGO_PKG_VERSION")),
+    })
 }
 
 async fn security_headers_middleware(request: Request, next: Next) -> Response {

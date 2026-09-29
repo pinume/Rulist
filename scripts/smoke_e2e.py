@@ -104,7 +104,11 @@ def main():
                 status, raw_settings = http(f"{base}/api/public/settings")
                 expect(200, status, "public settings")
                 settings = json.loads(raw_settings)["data"]
-                if settings["site_title"] != "Rulist" or settings["package_download"] != "true":
+                if (
+                    settings["site_title"] != "Rulist"
+                    or settings["package_download"] is not True
+                    or not isinstance(settings["hide_files"], list)
+                ):
                     raise AssertionError(f"unexpected public settings: {settings}")
 
                 status, _ = http(

@@ -12,8 +12,8 @@ import { Show } from "solid-js"
 import { LinkWithPush } from "~/components"
 import { useLink, usePath, useRouter, useUtil } from "~/hooks"
 import {
-  getMainColor,
-  getSettingBool,
+  mainColor,
+  config,
   fileStore,
   selectIndex,
   selectRange,
@@ -63,7 +63,7 @@ export const ListItem = (props: { obj: FileItem; index: number }) => {
   const { pushHref, to } = useRouter()
   const hasAnyAction = () => {
     if (!props.obj.is_dir) return true
-    if (getSettingBool("package_download")) return true
+    if (config()?.package_download) return true
     return fileStore.write &&
       (can("rename") || can("copy") || can("move") || can("delete"))
   }
@@ -82,11 +82,11 @@ export const ListItem = (props: { obj: FileItem; index: number }) => {
         transition="background-color 0.15s"
         _hover={{
           bgColor: props.obj.selected
-            ? colorAlpha(getMainColor(), 0.13)
+            ? colorAlpha(mainColor(), 0.13)
             : hoverColor(),
         }}
         cursor="pointer"
-        bgColor={props.obj.selected ? colorAlpha(getMainColor(), 0.13) : undefined}
+        bgColor={props.obj.selected ? colorAlpha(mainColor(), 0.13) : undefined}
         onClick={(e: MouseEvent) => {
           const target = e.target as HTMLElement | null
           if (target?.closest(".actions, .hope-menu__trigger, .hope-menu__content, .hope-menu__item")) return
@@ -201,7 +201,7 @@ export const ListItem = (props: { obj: FileItem; index: number }) => {
                 <Icon as={BsThreeDotsVertical} boxSize="$4" />
               </MenuTrigger>
               <MenuContent shadow="$md" zIndex={100}>
-                <Show when={!props.obj.is_dir || getSettingBool("package_download")}>
+                <Show when={!props.obj.is_dir || config()?.package_download}>
                   <MenuItem
                     cursor="pointer"
                     icon={<Icon as={operations.download.icon} color={operations.download.color} />}

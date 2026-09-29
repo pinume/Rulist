@@ -1,5 +1,5 @@
 import { createEffect } from "solid-js"
-import { getSetting } from "~/store"
+import { config } from "~/store"
 import { pathBase } from "~/utils"
 import { useRouter } from "./useRouter"
 
@@ -17,6 +17,6 @@ export const useObjTitle = () => {
   const { pathname } = useRouter()
   useTitle(
     () =>
-      `${pathname() === "/" ? "Home" : pathBase(pathname())} | ${getSetting("site_title")}`,
+      `${pathname() === "/" ? "Home" : pathBase(pathname())} | ${config()?.site_title || "Rulist"}`,
   )
 }

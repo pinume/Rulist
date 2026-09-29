@@ -1,4 +1,4 @@
-import { getHideFiles } from "~/store"
+import { hideFilePatterns } from "~/store"
 import { FileEntry } from "~/types"
 import { notify, pathJoin } from "~/utils"
 import { useRouter } from "."
@@ -18,8 +18,8 @@ export const useUtil = () => {
     },
     isHide: (obj: FileEntry) => {
       const fullPath = pathJoin(pathname(), obj.name)
-      return getHideFiles().some((reg) => reg.test(fullPath))
+      return hideFilePatterns().some((reg) => reg.test(fullPath))
     },
-    isHidePath: (path: string) => getHideFiles().some((reg) => reg.test(path)),
+    isHidePath: (path: string) => hideFilePatterns().some((reg) => reg.test(path)),
   }
 }

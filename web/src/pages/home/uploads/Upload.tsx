@@ -14,7 +14,7 @@ import {
 } from "@hope-ui/solid"
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { usePath, useRouter } from "~/hooks"
-import { getMainColor, uploadConfig, setUploadConfig } from "~/store"
+import { mainColor, uploadConfig, setUploadConfig } from "~/store"
 import {
   RiDocumentFolderUploadFill,
   RiDocumentFileUploadFill,
@@ -47,7 +47,7 @@ const UploadFile = (props: UploadFileProps & { onRetry?: () => void }) => (
     border="1px solid $neutral7"
     alignItems="start"
     p="$2"
-    _hover={{ border: `1px solid ${getMainColor()}` }}
+    _hover={{ border: `1px solid ${mainColor()}` }}
   >
     <Text css={{ wordBreak: "break-all" }}>{props.path}</Text>
     <HStack spacing="$2" w="$full" justifyContent="space-between">
@@ -73,7 +73,7 @@ const UploadFile = (props: UploadFileProps & { onRetry?: () => void }) => (
       value={props.progress}
       size="sm"
     >
-      <ProgressIndicator color={getMainColor()} rounded="$md" />
+      <ProgressIndicator color={mainColor()} rounded="$md" />
     </Progress>
     <Text color="$danger10">{props.msg}</Text>
   </VStack>
@@ -210,7 +210,7 @@ const Upload = () => {
         <VStack
           w="$full"
           justifyContent="center"
-          border={`2px dashed ${drag() ? getMainColor() : "$neutral8"}`}
+          border={`2px dashed ${drag() ? mainColor() : "$neutral8"}`}
           rounded="$lg"
           spacing="$4"
           p="$6"

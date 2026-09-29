@@ -10,7 +10,7 @@ import {
 } from "@hope-ui/solid"
 import { createSignal, lazy, onCleanup, Show, Suspense } from "solid-js"
 import { FullLoading } from "~/components"
-import { getSettingBool } from "~/store"
+import { config } from "~/store"
 import { bus, notify } from "~/utils"
 
 const PackageDownload = lazy(() => import("./PackageDownload"))
@@ -18,7 +18,7 @@ const PackageDownload = lazy(() => import("./PackageDownload"))
 export const PackageDownloadModal = () => {
   const handler = (name: string) => {
     if (name === "package_download" || name === "package_download_direct") {
-      if (!getSettingBool("package_download")) {
+      if (!config()?.package_download) {
         notify.warning("Archive download is disabled")
         return
       }

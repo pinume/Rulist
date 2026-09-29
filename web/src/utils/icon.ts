@@ -31,7 +31,7 @@ import {
 } from "~/components"
 import { SiAsciinema } from "solid-icons/si"
 import { FiGlobe } from "solid-icons/fi"
-import { getMainColor } from "~/store"
+import { mainColor } from "~/store"
 
 const iconMap = {
   "zip,tar,gz,tgz,bz2,xz,7z,rar": BsFileEarmarkZipFill,
@@ -89,7 +89,7 @@ export const getIconByObj = (obj: Pick<FileEntry, "type" | "name">) => {
 }
 
 export const getIconColorByObj = (obj: Pick<FileEntry, "type" | "name">) => {
-  if (obj.type === FileType.FOLDER) return getMainColor()
+  if (obj.type === FileType.FOLDER) return mainColor()
   const name = obj.name.toLowerCase()
   if (/\.(zip|tar|gz|tgz|bz2|xz|7z|rar)$/.test(name)) return "#d97706"
   if (/\.(html|htm)$/.test(name)) return "#0284c7"

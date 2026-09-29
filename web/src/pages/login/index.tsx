@@ -23,11 +23,11 @@ import {
 } from "~/utils"
 import { Resp } from "~/types"
 import LoginBg from "./LoginBg"
-import { getLogo } from "~/store"
+import { logos } from "~/store"
 import { pathJoin } from "~/utils"
 
 const Login = () => {
-  const [lightLogo, darkLogo] = getLogo()
+  const [lightLogo, darkLogo] = logos()
   const logo = useColorModeValue(lightLogo, darkLogo)
   const logoSrc = createMemo(() => {
     const value = logo()
