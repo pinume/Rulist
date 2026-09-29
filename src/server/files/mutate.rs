@@ -2,7 +2,7 @@ use axum::extract::{Json, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 
-use crate::filesystem::local::RenameError;
+use crate::filesystem::local::{LocalFs, RenameError};
 use crate::filesystem::valid_name;
 use crate::permissions::{COPY, DELETE, MOVE, OVERWRITE, RENAME, WRITE_CONTENT};
 use crate::server::{
@@ -150,6 +150,34 @@ fn validate_transfer_paths(src: &str, dst: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
+async fn prepare_transfer(
+    fs: &LocalFs,
+    src_dir: &str,
+    dst_dir: &str,
+    names: &[String],
+    policy: ConflictPolicy,
+) -> Result<Vec<(String, String)>, (StatusCode, i32, String)> {
+    let mut transfers = Vec::new();
+    for name in names {
+        let src = format!("{}/{}", src_dir.trim_end_matches('/'), name);
+        let dst = format!("{}/{}", dst_dir.trim_end_matches('/'), name);
+        if let Err(message) = validate_transfer_paths(&src, &dst) {
+            return Err((StatusCode::BAD_REQUEST, 400, message.to_string()));
+        }
+        if fs.get(&dst).await.is_ok() {
+            match policy {
+                ConflictPolicy::Cancel => {
+                    return Err((StatusCode::CONFLICT, 409, format!("file [{name}] exists")));
+                }
+                ConflictPolicy::Skip => continue,
+                ConflictPolicy::Overwrite => {}
+            }
+        }
+        transfers.push((src, dst));
+    }
+    Ok(transfers)
+}
+
 pub(crate) async fn move_handler(
     State(state): State<SharedState>,
     headers: HeaderMap,
@@ -177,27 +205,10 @@ pub(crate) async fn move_handler(
     };
 
     let policy = req.conflict_policy;
-    let mut moves = Vec::new();
-    for name in &req.names {
-        let src = format!("{}/{}", src_dir.trim_end_matches('/'), name);
-        let dst = format!("{}/{}", dst_dir.trim_end_matches('/'), name);
-        if let Err(msg) = validate_transfer_paths(&src, &dst) {
-            return api_error(StatusCode::BAD_REQUEST, 400, msg);
-        }
-        let dst_exists = fs.get(&dst).await.is_ok();
-        if dst_exists {
-            match policy {
-                ConflictPolicy::Cancel => {
-                    return api_error(StatusCode::CONFLICT, 409, format!("file [{name}] exists"));
-                }
-                ConflictPolicy::Skip => {
-                    continue;
-                }
-                ConflictPolicy::Overwrite => {}
-            }
-        }
-        moves.push((src, dst));
-    }
+    let moves = match prepare_transfer(&fs, &src_dir, &dst_dir, &req.names, policy).await {
+        Ok(moves) => moves,
+        Err((status, code, message)) => return api_error(status, code, message),
+    };
 
     for (completed, (src, dst)) in moves.into_iter().enumerate() {
         let overwrite = policy == ConflictPolicy::Overwrite;
@@ -242,27 +253,10 @@ pub(crate) async fn copy_handler(
     };
 
     let policy = req.conflict_policy;
-    let mut copies = Vec::new();
-    for name in &req.names {
-        let src = format!("{}/{}", src_dir.trim_end_matches('/'), name);
-        let dst = format!("{}/{}", dst_dir.trim_end_matches('/'), name);
-        if let Err(msg) = validate_transfer_paths(&src, &dst) {
-            return api_error(StatusCode::BAD_REQUEST, 400, msg);
-        }
-        let dst_exists = fs.get(&dst).await.is_ok();
-        if dst_exists {
-            match policy {
-                ConflictPolicy::Cancel => {
-                    return api_error(StatusCode::CONFLICT, 409, format!("file [{name}] exists"));
-                }
-                ConflictPolicy::Skip => {
-                    continue;
-                }
-                ConflictPolicy::Overwrite => {}
-            }
-        }
-        copies.push((src, dst));
-    }
+    let copies = match prepare_transfer(&fs, &src_dir, &dst_dir, &req.names, policy).await {
+        Ok(copies) => copies,
+        Err((status, code, message)) => return api_error(status, code, message),
+    };
 
     for (completed, (src, dst)) in copies.into_iter().enumerate() {
         let overwrite = policy == ConflictPolicy::Overwrite;
