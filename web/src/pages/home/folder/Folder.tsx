@@ -1,17 +1,17 @@
 import { Button, HStack, Text } from "@hope-ui/solid"
 import { lazy, Show } from "solid-js"
-import { usePath, useRouter } from "~/hooks"
+import { useFiles, useRouter } from "~/hooks"
 import { LIST_PAGE_SIZE, fileStore, selectAll } from "~/store"
 
 const ListLayout = lazy(() => import("./List"))
 
 const Pager = () => {
   const { pathname } = useRouter()
-  const { handleFolder } = usePath()
+  const { loadFolder } = useFiles()
   const pageCount = () => Math.ceil(fileStore.total / LIST_PAGE_SIZE)
   const go = (page: number) => {
     selectAll(false)
-    void handleFolder(pathname(), false, page)
+    void loadFolder(pathname(), false, page)
   }
 
   return (

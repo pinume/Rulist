@@ -9,14 +9,14 @@ import {
   createDisclosure,
 } from "@hope-ui/solid"
 import { onCleanup } from "solid-js"
-import { useFetch, usePath, useRouter } from "~/hooks"
+import { useFetch, useFiles, useRouter } from "~/hooks"
 import { selectedFiles } from "~/store"
 import { bus, fsRemove, handleRespWithNotifySuccess } from "~/utils"
 
 export const Delete = () => {
   const { isOpen, onOpen, onClose } = createDisclosure()
   const [loading, ok] = useFetch(fsRemove)
-  const { refresh } = usePath()
+  const { refresh } = useFiles()
   const { pathname } = useRouter()
   const handler = (name: string) => {
     if (name === "delete") onOpen()

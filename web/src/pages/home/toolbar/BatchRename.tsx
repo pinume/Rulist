@@ -14,7 +14,7 @@ import {
   RadioGroup,
   Input,
 } from "@hope-ui/solid"
-import { useFetch, usePath, useRouter } from "~/hooks"
+import { useFetch, useFiles, useRouter } from "~/hooks"
 import {
   bus,
   fsBatchRename,
@@ -71,7 +71,7 @@ export const BatchRename = () => {
   const { isOpen, onOpen, onClose } = createDisclosure()
   const [loading, ok] = useFetch(fsBatchRename)
   const { pathname } = useRouter()
-  const { refresh } = usePath()
+  const { refresh } = useFiles()
   const [type, setType] = createSignal("3")
   const [srcName, setSrcName] = createSignal("")
   const [newName, setNewName] = createSignal("")

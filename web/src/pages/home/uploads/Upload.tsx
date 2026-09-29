@@ -13,7 +13,7 @@ import {
   Stack,
 } from "@hope-ui/solid"
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js"
-import { usePath, useRouter } from "~/hooks"
+import { useFiles, useRouter } from "~/hooks"
 import { mainColor, uploadConfig, setUploadConfig } from "~/store"
 import {
   RiDocumentFolderUploadFill,
@@ -83,7 +83,7 @@ type UploadTask = UploadFileProps & { id: number }
 
 const Upload = () => {
   const { pathname } = useRouter()
-  const { refresh } = usePath()
+  const { refresh } = useFiles()
   const [drag, setDrag] = createSignal(false)
   const [uploading, setUploading] = createSignal(false)
   const [uploadFiles, setUploadFiles] = createStore<{ uploads: UploadTask[] }>({ uploads: [] })

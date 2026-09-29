@@ -1,6 +1,6 @@
 export * from "./useFetch"
 export * from "./useRouter"
 export * from "./useTitle"
-export * from "./usePath"
+export * from "./useFiles"
 export * from "./useLink"
 export * from "./useUtil"

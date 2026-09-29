@@ -1,7 +1,7 @@
 import { Checkbox, createDisclosure } from "@hope-ui/solid"
 import { createSignal, onCleanup, Show } from "solid-js"
 import { ModalInput } from "~/components"
-import { useFetch, usePath, useRouter } from "~/hooks"
+import { useFetch, useFiles, useRouter } from "~/hooks"
 import { oneSelected, selectedFiles } from "~/store"
 import { bus, fsRename, handleRespWithNotifySuccess, pathJoin } from "~/utils"
 
@@ -9,7 +9,7 @@ export const Rename = () => {
   const { isOpen, onOpen, onClose } = createDisclosure()
   const [loading, ok] = useFetch(fsRename)
   const { pathname } = useRouter()
-  const { refresh } = usePath()
+  const { refresh } = useFiles()
   const [overwrite, setOverwrite] = createSignal(false)
   const handler = (name: string) => {
     if (name === "rename") {

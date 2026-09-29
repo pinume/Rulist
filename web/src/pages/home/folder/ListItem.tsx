@@ -10,7 +10,7 @@ import {
 } from "@hope-ui/solid"
 import { Show } from "solid-js"
 import { LinkWithPush } from "~/components"
-import { useLink, usePath, useRouter, useUtil } from "~/hooks"
+import { useFiles, useLink, useRouter, useUtil } from "~/hooks"
 import {
   mainColor,
   config,
@@ -59,7 +59,7 @@ export const ListItem = (props: { obj: FileItem; index: number }) => {
   const { isHide } = useUtil()
   if (isHide(props.obj)) return null
   const { rawLink } = useLink()
-  const { setPathAs } = usePath()
+  const { rememberDirectory } = useFiles()
   const { pushHref, to } = useRouter()
   const hasAnyAction = () => {
     if (!props.obj.is_dir) return true
@@ -105,7 +105,9 @@ export const ListItem = (props: { obj: FileItem; index: number }) => {
           setLastClickedIndex(props.index)
           to(pushHref(props.obj.name))
         }}
-        onMouseEnter={() => setPathAs(props.obj.name, props.obj.is_dir, true)}
+        onMouseEnter={() =>
+          rememberDirectory(props.obj.name, props.obj.is_dir, true)
+        }
       >
         <HStack class="name-box" spacing="$1" w={cols[0].w}>
           <Icon

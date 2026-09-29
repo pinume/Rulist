@@ -20,7 +20,7 @@ let cancelObj: Canceler
 let cancelList: Canceler
 
 const IsDirRecord: Record<string, boolean> = {}
-export const usePath = () => {
+export const useFiles = () => {
   const { pathname, to } = useRouter()
   const [, getObj] = useFetch((path: string) =>
     fsGet(
@@ -51,7 +51,7 @@ export const usePath = () => {
     },
   )
   // set a path must be a dir
-  const setPathAs = (path: string, dir = true, push = false) => {
+  const rememberDirectory = (path: string, dir = true, push = false) => {
     if (push) {
       path = pathJoin(pathname(), path)
     }
@@ -62,10 +62,10 @@ export const usePath = () => {
     }
   }
 
-  // handle pathname change
+  // load a pathname
   // if confirm current path is dir, fetch List directly
   // if not, fetch get then determine if it is dir or file
-  const handlePathChange = (
+  const loadPath = (
     path: string,
     force?: boolean,
     page = 1,
@@ -80,7 +80,7 @@ export const usePath = () => {
       return recoverHistory(path)
     } else if (IsDirRecord[path]) {
       console.log(`handle [${getHistoryKey(path)}] as folder`)
-      return handleFolder(path, force, page)
+      return loadFolder(path, force, page)
     } else {
       console.log(`handle [${getHistoryKey(path)}] as obj`)
       return handleObj(path)
@@ -96,8 +96,8 @@ export const usePath = () => {
       (data) => {
         FileStore.setFile(data)
         if (data.is_dir) {
-          setPathAs(path)
-          handleFolder(path)
+          rememberDirectory(path)
+          loadFolder(path)
         } else {
           FileStore.setRawUrl(data.raw_url)
           shouldKeepState() || FileStore.setState(ViewState.File)
@@ -108,7 +108,7 @@ export const usePath = () => {
   }
 
   // enter a folder
-  const handleFolder = async (
+  const loadFolder = async (
     path: string,
     force?: boolean,
     page = 1,
@@ -122,7 +122,7 @@ export const usePath = () => {
       (data) => {
         const lastPage = Math.max(1, Math.ceil(data.total / LIST_PAGE_SIZE))
         if (page > lastPage) {
-          void handleFolder(path, force, lastPage, orderBy, reverse)
+          void loadFolder(path, force, lastPage, orderBy, reverse)
           return
         }
         FileStore.setListing(data.content ?? [], data.total, page)
@@ -139,14 +139,14 @@ export const usePath = () => {
     }
   }
   return {
-    handlePathChange,
-    handleFolder,
-    setPathAs,
+    loadPath,
+    loadFolder,
+    rememberDirectory,
     refresh: async (force?: boolean) => {
       const path = pathname()
       const scroll = window.scrollY
       clearHistory(path)
-      await handlePathChange(path, force, fileStore.page)
+      await loadPath(path, force, fileStore.page)
       window.scroll({ top: scroll, behavior: "smooth" })
     },
   }

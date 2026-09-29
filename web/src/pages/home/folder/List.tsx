@@ -14,7 +14,7 @@ import {
   VStack,
 } from "@hope-ui/solid"
 import { For, Show } from "solid-js"
-import { usePath, useRouter } from "~/hooks"
+import { useFiles, useRouter } from "~/hooks"
 import {
   countMsg,
   directoryFilter,
@@ -254,14 +254,14 @@ export const ListTitle = (props: {
 
 const ListLayout = () => {
   const { pathname } = useRouter()
-  const { handleFolder } = usePath()
+  const { loadFolder } = useFiles()
 
   return (
     <VStack class="list" w="$full" spacing="$0">
       <ListTitle
         sortCallback={(orderBy, reverse) => {
           FileStore.setSort(orderBy, reverse)
-          void handleFolder(pathname(), false, 1, orderBy, reverse)
+          void loadFolder(pathname(), false, 1, orderBy, reverse)
         }}
         initialOrder={fileStore.orderBy}
         initialReverse={fileStore.reverse}

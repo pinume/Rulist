@@ -1,7 +1,7 @@
 import { useColorModeValue, VStack } from "@hope-ui/solid"
 import { createEffect, lazy, Match, on, Suspense, Switch } from "solid-js"
 import { Error, FullLoading } from "~/components"
-import { useObjTitle, usePath, useRouter } from "~/hooks"
+import { useFiles, useObjTitle, useRouter } from "~/hooks"
 import { fileStore, recordHistory, ViewState } from "~/store"
 
 const Folder = lazy(() => import("./folder/Folder"))
@@ -9,14 +9,14 @@ const File = lazy(() => import("./file/File"))
 export const Content = () => {
   const cardBg = useColorModeValue("white", "$neutral3")
   const { pathname } = useRouter()
-  const { handlePathChange } = usePath()
+  const { loadPath } = useFiles()
   let lastPathname: string
   createEffect(
     on(pathname, async (pathname) => {
       if (lastPathname) recordHistory(lastPathname)
       lastPathname = pathname
       useObjTitle()
-      await handlePathChange(pathname)
+      await loadPath(pathname)
     }),
   )
 

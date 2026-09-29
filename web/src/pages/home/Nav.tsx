@@ -7,7 +7,7 @@ import {
 } from "@hope-ui/solid"
 import { Link } from "@solidjs/router"
 import { createMemo, For, Show } from "solid-js"
-import { usePath, useRouter } from "~/hooks"
+import { useFiles, useRouter } from "~/hooks"
 import { encodePath, pathJoin } from "~/utils"
 
 export const Nav = () => {
@@ -15,7 +15,7 @@ export const Nav = () => {
   const paths = createMemo(() => {
     return pathname().split("/").filter(Boolean)
   })
-  const { setPathAs } = usePath()
+  const { rememberDirectory } = useFiles()
 
   return (
     <Show when={paths().length > 0}>
@@ -50,7 +50,7 @@ export const Nav = () => {
               cursor="pointer"
               px="$1"
               py="$0_5"
-              onMouseEnter={() => setPathAs("/")}
+              onMouseEnter={() => rememberDirectory("/")}
             >
               Files
             </BreadcrumbLink>
@@ -78,7 +78,7 @@ export const Nav = () => {
                     currentPage={isLast()}
                     as={isLast() ? undefined : Link}
                     href={pathJoin(href)}
-                    onMouseEnter={() => setPathAs(path)}
+                    onMouseEnter={() => rememberDirectory(path)}
                   >
                     {name}
                   </BreadcrumbLink>
