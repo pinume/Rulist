@@ -10,7 +10,7 @@ import {
 } from "@hope-ui/solid"
 import { Show } from "solid-js"
 import { LinkWithPush } from "~/components"
-import { useFiles, useLink, useRouter, useUtil } from "~/hooks"
+import { useFiles, useRouter, useUtil } from "~/hooks"
 import {
   mainColor,
   config,
@@ -27,6 +27,9 @@ import {
   formatDate,
   getFileSize,
   hoverColor,
+  downloadPath,
+  notify,
+  pathJoin,
 } from "~/utils"
 import { getIconByFile, getIconColorByFile } from "~/utils/icon"
 import { BsThreeDotsVertical } from "solid-icons/bs"
@@ -58,9 +61,8 @@ export const cols: Col[] = [
 export const ListItem = (props: { obj: FileItem; index: number }) => {
   const { isHide } = useUtil()
   if (isHide(props.obj)) return null
-  const { rawLink } = useLink()
   const { rememberDirectory } = useFiles()
-  const { pushHref, to } = useRouter()
+  const { pathname, pushHref, to } = useRouter()
   const hasAnyAction = () => {
     if (!props.obj.is_dir) return true
     if (config()?.package_download) return true
@@ -211,8 +213,12 @@ export const ListItem = (props: { obj: FileItem; index: number }) => {
                         selectIndex(props.index, true, true)
                         bus.emit("tool", "package_download")
                       } else {
-                        const url = rawLink(props.obj, true)
-                        if (url) window.open(url, "_blank")
+                        void downloadPath(
+                          pathJoin(pathname(), props.obj.name),
+                          props.obj.name,
+                        ).catch((err) =>
+                          notify.error(err instanceof Error ? err.message : String(err)),
+                        )
                       }
                     }}
                   >

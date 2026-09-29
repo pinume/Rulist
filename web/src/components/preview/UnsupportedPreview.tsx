@@ -1,7 +1,7 @@
 import { Box, Button, HStack, Icon, Text, VStack } from "@hope-ui/solid"
 import { FiDownload, FiExternalLink } from "solid-icons/fi"
 import { FileType, PreviewMeta } from "~/types"
-import { getFileSize, startDownload } from "~/utils"
+import { downloadPath, getFileSize, notify, openPath } from "~/utils"
 import { getIconByFile, getIconColorByFile } from "~/utils/icon"
 
 export const UnsupportedPreview = (props: { meta: PreviewMeta }) => (
@@ -32,15 +32,20 @@ export const UnsupportedPreview = (props: { meta: PreviewMeta }) => (
         <Button
           leftIcon={<Icon as={FiDownload} />}
           colorScheme="accent"
-          onClick={() => startDownload(props.meta.raw_url, props.meta.name)}
+          onClick={() =>
+            void downloadPath(props.meta.path, props.meta.name).catch((err) =>
+              notify.error(err instanceof Error ? err.message : String(err)),
+            )
+          }
         >
           Download
         </Button>
         <Button
-          as="a"
-          href={props.meta.raw_url}
-          target="_blank"
-          rel="noopener noreferrer"
+          onClick={() =>
+            void openPath(props.meta.path).catch((err) =>
+              notify.error(err instanceof Error ? err.message : String(err)),
+            )
+          }
           variant="outline"
           leftIcon={<Icon as={FiExternalLink} />}
         >

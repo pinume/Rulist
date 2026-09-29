@@ -10,7 +10,13 @@ import {
 } from "@hope-ui/solid"
 import { FiDownload, FiExternalLink } from "solid-icons/fi"
 import { FileType, PreviewMeta } from "~/types"
-import { formatDate, getFileSize, startDownload } from "~/utils"
+import {
+  downloadPath,
+  formatDate,
+  getFileSize,
+  notify,
+  openPath,
+} from "~/utils"
 import { getIconByFile, getIconColorByFile } from "~/utils/icon"
 
 export const PreviewHeader = (props: { meta: PreviewMeta }) => {
@@ -26,6 +32,9 @@ export const PreviewHeader = (props: { meta: PreviewMeta }) => {
     if (props.meta.permissions) parts.push(props.meta.permissions)
     return parts.join(" · ")
   }
+
+  const reportLinkError = (err: unknown) =>
+    notify.error(err instanceof Error ? err.message : String(err))
 
   return (
     <HStack
@@ -67,17 +76,19 @@ export const PreviewHeader = (props: { meta: PreviewMeta }) => {
             size="sm"
             colorScheme="accent"
             leftIcon={<Icon as={FiDownload} />}
-            onClick={() => startDownload(props.meta.raw_url, props.meta.name)}
+            onClick={() =>
+              void downloadPath(
+                props.meta.path,
+                props.meta.name,
+              ).catch(reportLinkError)
+            }
           >
             Download
           </Button>
         </Tooltip>
         <Tooltip label="Open raw file">
           <IconButton
-            as="a"
-            href={props.meta.raw_url}
-            target="_blank"
-            rel="noopener noreferrer"
+            onClick={() => void openPath(props.meta.path).catch(reportLinkError)}
             size="sm"
             variant="ghost"
             aria-label="Open raw file"

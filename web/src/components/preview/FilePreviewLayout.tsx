@@ -9,7 +9,7 @@ import {
 import { Match, Switch } from "solid-js"
 import { FiAlertTriangle, FiDownload } from "solid-icons/fi"
 import { PreviewMeta, ProcessedContent } from "~/types"
-import { startDownload } from "~/utils"
+import { downloadPath, notify } from "~/utils"
 import { AudioPreview } from "./AudioPreview"
 import { CodePreview } from "./CodePreview"
 import { IframePreview } from "./IframePreview"
@@ -26,6 +26,10 @@ export const FilePreviewLayout = (props: {
   error?: string
 }) => {
   const cardBg = useColorModeValue("white", "$neutral3")
+  const download = () =>
+    void downloadPath(props.meta.path, props.meta.name).catch((err) =>
+      notify.error(err instanceof Error ? err.message : String(err)),
+    )
 
   return (
     <Box
@@ -64,7 +68,7 @@ export const FilePreviewLayout = (props: {
               <Button
                 colorScheme="accent"
                 leftIcon={<Icon as={FiDownload} />}
-                onClick={() => startDownload(props.meta.raw_url, props.meta.name)}
+                onClick={download}
               >
                 Download
               </Button>

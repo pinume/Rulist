@@ -4,7 +4,7 @@ import { FilePreviewLayout } from "~/components/preview"
 import { useRouter } from "~/hooks"
 import { fileStore } from "~/store"
 import { PreviewResponse, Resp } from "~/types"
-import { getFileSize, r, startDownload } from "~/utils"
+import { downloadPath, getFileSize, notify, r } from "~/utils"
 
 const fetchPreview = async (path: string): Promise<PreviewResponse | null> => {
   if (!path) return null
@@ -63,12 +63,14 @@ const File = () => {
             {getFileSize(preview()?.meta?.size || fileStore.file.size)}
           </Text>
           <Button
-            onClick={() =>
-              startDownload(
-                preview()?.meta?.raw_url || fileStore.raw_url,
-                preview()?.meta?.name || fileStore.file.name || "download",
+            onClick={() => {
+              const path = preview()?.meta?.path || pathname()
+              const name =
+                preview()?.meta?.name || fileStore.file.name || "download"
+              void downloadPath(path, name).catch((err) =>
+                notify.error(err instanceof Error ? err.message : String(err)),
               )
-            }
+            }}
           >
             Download
           </Button>
