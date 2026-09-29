@@ -109,7 +109,7 @@ const Upload = () => {
       console.log(ms)
     }
     refresh()
-    setTimeout(() => refresh(undefined, true), 5000)
+    setTimeout(() => refresh(true), 5000)
   }
 
   onMount(() => {

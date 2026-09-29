@@ -1,34 +1,18 @@
-import { Text, useColorModeValue, VStack } from "@hope-ui/solid"
-import {
-  createEffect,
-  lazy,
-  Match,
-  on,
-  Suspense,
-  Switch,
-} from "solid-js"
-import { Error, FullLoading, LinkWithBase } from "~/components"
+import { useColorModeValue, VStack } from "@hope-ui/solid"
+import { createEffect, lazy, Match, on, Suspense, Switch } from "solid-js"
+import { Error, FullLoading } from "~/components"
 import { useObjTitle, usePath, useRouter } from "~/hooks"
-import {
-  objStore,
-  password,
-  recordHistory,
-  setPassword,
-  State,
-} from "~/store"
+import { objStore, recordHistory, State } from "~/store"
 
 const Folder = lazy(() => import("./folder/Folder"))
 const File = lazy(() => import("./file/File"))
-const Password = lazy(() => import("./Password"))
-
 export const Obj = () => {
   const cardBg = useColorModeValue("white", "$neutral3")
-  const { pathname, searchParams } = useRouter()
-  const { handlePathChange, refresh } = usePath()
+  const { pathname } = useRouter()
+  const { handlePathChange } = usePath()
   let lastPathname: string
   createEffect(
     on(pathname, async (pathname) => {
-      if (searchParams["pwd"]) setPassword(searchParams["pwd"])
       if (lastPathname) recordHistory(lastPathname)
       lastPathname = pathname
       useObjTitle()
@@ -56,23 +40,6 @@ export const Obj = () => {
           </Match>
           <Match when={[State.FetchingObj, State.FetchingObjs].includes(objStore.state)}>
             <FullLoading />
-          </Match>
-          <Match when={objStore.state === State.NeedPassword}>
-            <Password
-              title="Enter password"
-              password={password}
-              setPassword={setPassword}
-              enterCallback={() => refresh(true)}
-            >
-              <Text>Already have an account?</Text>
-              <Text
-                color="$info9"
-                as={LinkWithBase}
-                href={`/@login?redirect=${encodeURIComponent(location.pathname)}`}
-              >
-                Go to login
-              </Text>
-            </Password>
           </Match>
           <Match when={objStore.state === State.Folder}>
             <Folder />

@@ -1,4 +1,3 @@
-import { password } from "~/store"
 import { EmptyResp } from "~/types"
 import { r } from "~/utils"
 import { SetUpload } from "./types"
@@ -17,7 +16,6 @@ export const StreamUpload = async (
     "As-Task": asTask,
     "Content-Type": file.type || "application/octet-stream",
     "Last-Modified": file.lastModified,
-    Password: password(),
     Overwrite: overwrite.toString(),
   }
   setUpload("status", "uploading")

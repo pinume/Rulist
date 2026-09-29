@@ -39,7 +39,6 @@ export enum State {
   FetchingObjs,
   Folder,
   File,
-  NeedPassword,
 }
 const initialObjStore = {
   obj: {} as Obj,
@@ -168,9 +167,6 @@ export const visibleObjIndexes = createMemo(() => {
     return 0
   })
 })
-const [password, setPassword] = createSignal<string>("")
-export { password, setPassword }
-
 const getCountStr = (objs: StoreObj[], prefix: "count" | "selected", filterType?: ObjType) => {
   if (filterType) objs = objs.filter((obj) => obj.is_dir || obj.type === filterType)
   if (objs.length === 0) return ""

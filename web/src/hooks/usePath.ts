@@ -13,13 +13,7 @@ import {
   shouldKeepState,
   objStore,
 } from "~/store"
-import {
-  fsGet,
-  fsList,
-  handleRespWithoutNotify,
-  notify,
-  pathJoin,
-} from "~/utils"
+import { fsGet, fsList, handleRespWithoutNotify, pathJoin } from "~/utils"
 import { useFetch } from "./useFetch"
 import { useRouter } from "./useRouter"
 
@@ -71,20 +65,16 @@ export const usePath = () => {
     }
   }
 
-  // record is second time password is wrong
-  let retry_pass = false
   // handle pathname change
   // if confirm current path is dir, fetch List directly
   // if not, fetch get then determine if it is dir or file
   const handlePathChange = (
     path: string,
-    rp?: boolean,
     force?: boolean,
     page = 1,
   ) => {
     cancelObj?.()
     cancelList?.()
-    retry_pass = rp ?? false
     ObjStore.setErr("")
     const { orderBy, reverse } = loadSortState(path)
     ObjStore.setSort(orderBy, reverse)
@@ -155,37 +145,30 @@ export const usePath = () => {
   }
 
   const handleErr = (msg: string, code?: number) => {
-    if (code === 403) {
-      ObjStore.setState(State.NeedPassword)
-      if (retry_pass) {
-        notify.error(msg)
-      }
-    } else {
-      const basePath = me().base_path
-      if (
-        first_fetch &&
-        basePath != "/" &&
-        pathname().includes(basePath) &&
-        msg.endsWith("object not found")
-      ) {
-        first_fetch = false
-        to(pathname().replace(basePath, ""))
-        return
-      }
-      if (code === undefined || code >= 0) {
-        ObjStore.setErr(msg)
-      }
+    const basePath = me().base_path
+    if (
+      first_fetch &&
+      basePath !== "/" &&
+      pathname().includes(basePath) &&
+      msg.endsWith("object not found")
+    ) {
+      first_fetch = false
+      to(pathname().replace(basePath, ""))
+      return
+    }
+    if (code === undefined || code >= 0) {
+      ObjStore.setErr(msg)
     }
   }
   return {
     handlePathChange,
     handleFolder,
     setPathAs,
-    refresh: async (retry_pass?: boolean, force?: boolean) => {
+    refresh: async (force?: boolean) => {
       const path = pathname()
       const scroll = window.scrollY
       clearHistory(path)
-      await handlePathChange(path, retry_pass, force, objStore.page)
+      await handlePathChange(path, force, objStore.page)
       window.scroll({ top: scroll, behavior: "smooth" })
     },
   }
