@@ -39,4 +39,31 @@ and site settings. SQLite stores only users and authentication-security state;
 file contents remain on the Linux filesystem. Rulist exposes only
 UTF-8-compatible file names through the web interface.
 
-Use HTTPS in production.
+## Security model and deployment
+
+Rulist listens only on `127.0.0.1` or `::1`. For remote access, put it behind a
+trusted reverse proxy that provides HTTPS, and do not expose Rulist's local
+port directly to the network.
+
+Each account is bound to an existing absolute Linux directory. Rulist applies
+its account permissions inside that root, while the Linux user running Rulist
+must also have the required filesystem access.
+
+## Backups and upgrades
+
+Back up Rulist's `config.json`, its configured SQLite database (default:
+`data.db`), and each user's original directory. Stop Rulist before making
+file-based copies of the database. Protect the configuration and backups as
+they contain authentication data.
+
+Build upgrades with `./scripts/build-release.sh` and keep the existing
+configuration, database, and user directories. The database records schema
+version 1; an unversioned database with the current schema is recognized, and a
+database created by a newer Rulist version is rejected by older binaries.
+
+## Permissions
+
+Manage users in the interactive console. Per-user permissions can allow
+creating and uploading files, renaming, moving, copying, deleting, overwriting,
+and passwordless login. Rulist's administrator account can manage all files;
+Linux filesystem permissions still apply to every account.
