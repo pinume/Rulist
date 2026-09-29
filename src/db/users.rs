@@ -255,11 +255,24 @@ pub async fn set_user_disabled(pool: &DbPool, user_id: i64, disabled: bool) -> R
     if current.is_admin() {
         bail!("administrator cannot be disabled");
     }
-    let result = sqlx::query("UPDATE `users` SET `disabled` = ? WHERE `id` = ?")
-        .bind(disabled)
+    let result = if disabled {
+        let now_ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        sqlx::query(
+            "UPDATE `users` SET `disabled` = 1, `pwd_ts` = MAX(`pwd_ts` + 1, ?) WHERE `id` = ?",
+        )
+        .bind(now_ts)
         .bind(user_id)
         .execute(pool)
-        .await?;
+        .await?
+    } else {
+        sqlx::query("UPDATE `users` SET `disabled` = 0 WHERE `id` = ?")
+            .bind(user_id)
+            .execute(pool)
+            .await?
+    };
     if result.rows_affected() != 1 {
         bail!("user not found");
     }

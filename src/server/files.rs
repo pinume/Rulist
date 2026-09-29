@@ -173,10 +173,7 @@ pub async fn list_handler(
                 }
             }
 
-            let resp = FsListResp {
-                content,
-                total,
-            };
+            let resp = FsListResp { content, total };
             api_success(resp)
         }
         Err(err) => {

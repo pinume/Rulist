@@ -95,6 +95,7 @@ def main():
         guest_root.mkdir()
         (storage_dir / "admin-only.txt").write_text("admin\n")
         (guest_root / "guest-only.txt").write_text("guest\n")
+        (guest_root / "signed.txt").write_text("signed\n")
         subprocess.run(
             [str(BINARY), "--data-dir", str(data_dir), "interactive"],
             input=(
@@ -108,10 +109,11 @@ def main():
         )
         with sqlite3.connect(data_dir / "data.db") as connection:
             guest = connection.execute(
-                "SELECT local_path FROM users WHERE username = 'guest'"
+                "SELECT id, local_path FROM users WHERE username = 'guest'"
             ).fetchone()
-            if guest != (str(guest_root.resolve()),):
+            if guest is None or guest[1] != str(guest_root.resolve()):
                 raise AssertionError(f"interactive CLI did not create guest root: {guest}")
+            guest_id = guest[0]
             tables = {
                 row[0]
                 for row in connection.execute(
@@ -211,6 +213,62 @@ def main():
                     guest_token,
                 )
                 expect(403, status, "guest root traversal rejection")
+
+                status, guest_link = api(
+                    base, "/api/fs/link", {"path": "/signed.txt"}, guest_token
+                )
+                expect(200, status, "guest signed link before disabling user")
+                status, signed_bytes = http(f"{base}{guest_link['data']['url']}")
+                expect(200, status, "guest signed download before disabling user")
+                if signed_bytes != b"signed\n":
+                    raise AssertionError("guest signed download bytes differ")
+
+                for choice in ("disable", "enable"):
+                    subprocess.run(
+                        [str(BINARY), "--data-dir", str(data_dir), "interactive"],
+                        input=f"3\n{guest_id}\n5\ny\n0\n0\n",
+                        check=True,
+                        text=True,
+                        capture_output=True,
+                        env=env,
+                    )
+                    if choice == "disable":
+                        status, _ = http(
+                            f"{base}/api/me",
+                            headers={"Authorization": f"Bearer {guest_token}"},
+                        )
+                        expect(401, status, "JWT after disabling user")
+                        status, _ = http(f"{base}{guest_link['data']['url']}")
+                        expect(403, status, "signed link after disabling user")
+                    else:
+                        status, _ = http(
+                            f"{base}/api/me",
+                            headers={"Authorization": f"Bearer {guest_token}"},
+                        )
+                        expect(401, status, "old JWT after re-enabling user")
+                        status, _ = http(f"{base}{guest_link['data']['url']}")
+                        expect(403, status, "old signed link after re-enabling user")
+
+                status, guest_login = api(
+                    base,
+                    "/api/auth/login",
+                    {"username": "guest", "password": "GuestPass123!"},
+                )
+                expect(200, status, "fresh guest login after re-enabling user")
+                guest_token = guest_login["data"]["token"]
+                status, _ = http(
+                    f"{base}/api/me",
+                    headers={"Authorization": f"Bearer {guest_token}"},
+                )
+                expect(200, status, "fresh guest JWT after re-enabling user")
+                status, guest_link = api(
+                    base, "/api/fs/link", {"path": "/signed.txt"}, guest_token
+                )
+                expect(200, status, "fresh guest signed link after re-enabling user")
+                status, signed_bytes = http(f"{base}{guest_link['data']['url']}")
+                expect(200, status, "fresh guest signed download after re-enabling user")
+                if signed_bytes != b"signed\n":
+                    raise AssertionError("fresh guest signed download bytes differ")
 
                 status, preview = api(base, "/api/fs/preview", {"path": "/smoke.txt"}, token)
                 expect(200, status, "preview")

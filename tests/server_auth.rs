@@ -36,6 +36,20 @@ async fn json_request(
     (status, body)
 }
 
+async fn raw_status_request(app: &axum::Router, path: &str) -> StatusCode {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(path)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+}
+
 async fn app_for(pool: &db::DbPool) -> axum::Router {
     build_app(Arc::new(AppState {
         pool: pool.clone(),
@@ -234,22 +248,85 @@ async fn database_rejects_admin_mutations() {
     )
     .await
     .unwrap();
+    let pwd_ts_before_disable = db::get_user_by_id(&pool, guest_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .pwd_ts;
     db::set_user_disabled(&pool, guest_id, true).await.unwrap();
-    assert!(
-        db::get_user_by_id(&pool, guest_id)
-            .await
-            .unwrap()
-            .unwrap()
-            .disabled
-    );
+    let disabled = db::get_user_by_id(&pool, guest_id).await.unwrap().unwrap();
+    assert!(disabled.disabled);
+    assert!(disabled.pwd_ts > pwd_ts_before_disable);
     db::set_user_disabled(&pool, guest_id, false).await.unwrap();
-    assert!(
-        !db::get_user_by_id(&pool, guest_id)
-            .await
-            .unwrap()
-            .unwrap()
-            .disabled
+    let enabled = db::get_user_by_id(&pool, guest_id).await.unwrap().unwrap();
+    assert!(!enabled.disabled);
+    assert_eq!(enabled.pwd_ts, disabled.pwd_ts);
+}
+
+#[tokio::test]
+async fn disabling_user_permanently_revokes_jwt_and_signed_links() {
+    let temp = tempfile::tempdir().unwrap();
+    let guest_root = temp.path().join("guest-root");
+    tokio::fs::create_dir(&guest_root).await.unwrap();
+    tokio::fs::write(guest_root.join("signed.txt"), b"signed content")
+        .await
+        .unwrap();
+
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+    let guest_id = db::create_user(
+        &pool,
+        "disable-guest",
+        "GuestPass123!",
+        0,
+        Some(guest_root.to_str().unwrap()),
+        0,
+        false,
+    )
+    .await
+    .unwrap();
+    let app = app_for(&pool).await;
+    let jwt_a = login_token(&app, "disable-guest", "GuestPass123!").await;
+    let (status, link) = json_request(
+        &app,
+        "POST",
+        "/api/fs/link",
+        Some(&jwt_a),
+        json!({ "path": "/signed.txt" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let signed_url = link["data"]["url"].as_str().unwrap();
+    assert_eq!(raw_status_request(&app, signed_url).await, StatusCode::OK);
+
+    let pwd_ts_before_disable = db::get_user_by_id(&pool, guest_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .pwd_ts;
+    db::set_user_disabled(&pool, guest_id, true).await.unwrap();
+    let disabled = db::get_user_by_id(&pool, guest_id).await.unwrap().unwrap();
+    assert!(disabled.pwd_ts > pwd_ts_before_disable);
+    assert_eq!(
+        raw_status_request(&app, signed_url).await,
+        StatusCode::FORBIDDEN
     );
+    let (status, _) = json_request(&app, "GET", "/api/me", Some(&jwt_a), Value::Null).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    db::set_user_disabled(&pool, guest_id, false).await.unwrap();
+    let enabled = db::get_user_by_id(&pool, guest_id).await.unwrap().unwrap();
+    assert!(!enabled.disabled);
+    assert_eq!(enabled.pwd_ts, disabled.pwd_ts);
+    assert_eq!(
+        raw_status_request(&app, signed_url).await,
+        StatusCode::FORBIDDEN
+    );
+    let (status, _) = json_request(&app, "GET", "/api/me", Some(&jwt_a), Value::Null).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let jwt_b = login_token(&app, "disable-guest", "GuestPass123!").await;
+    let (status, _) = json_request(&app, "GET", "/api/me", Some(&jwt_b), Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
 }
 
 #[tokio::test]
