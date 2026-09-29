@@ -6,7 +6,7 @@ use crate::filesystem::local::LocalFs;
 use crate::preview::{
     PreviewMeta, PreviewReq, PreviewResponse, PreviewStrategy, detect_from_path, processor,
 };
-use crate::server::fs::signing_secret;
+use crate::server::files::signing_secret;
 use crate::server::{
     SharedState, api_error, api_success, authenticate_user, encode_url_path, permission_denied,
     user_path,

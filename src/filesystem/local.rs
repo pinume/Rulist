@@ -4,7 +4,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 use tokio::fs;
 
-use crate::model::FileObj;
+use crate::filesystem::{FileEntry, valid_name};
 
 use super::ops::{copy_path_safe, move_path_safe, remove_path_recursive};
 
@@ -93,11 +93,11 @@ impl LocalFs {
         Ok(target)
     }
 
-    pub async fn list(&self, subpath: &str) -> Result<Vec<FileObj>> {
+    pub async fn list(&self, subpath: &str) -> Result<Vec<FileEntry>> {
         let full_path = self.safe_resolve(subpath)?;
         let show_hidden = self.show_hidden;
 
-        tokio::task::spawn_blocking(move || -> Result<Vec<FileObj>> {
+        tokio::task::spawn_blocking(move || -> Result<Vec<FileEntry>> {
             let read_dir = std::fs::read_dir(&full_path)
                 .with_context(|| format!("failed to read directory: {:?}", full_path))?;
             let mut items = Vec::new();
@@ -126,9 +126,9 @@ impl LocalFs {
                     .map(|time| DateTime::<Utc>::from(time).to_rfc3339())
                     .unwrap_or_default();
 
-                let permissions = crate::model::format_mode(meta.permissions().mode(), is_dir);
+                let permissions = crate::filesystem::format_mode(meta.permissions().mode(), is_dir);
 
-                let mut item = FileObj::new(file_name, size, is_dir, modified);
+                let mut item = FileEntry::new(file_name, size, is_dir, modified);
                 item.permissions = Some(permissions);
                 items.push(item);
             }
@@ -139,7 +139,7 @@ impl LocalFs {
         .context("directory scan task panicked or failed")?
     }
 
-    pub async fn get(&self, subpath: &str) -> Result<FileObj> {
+    pub async fn get(&self, subpath: &str) -> Result<FileEntry> {
         let full_path = self.safe_resolve(subpath)?;
         let meta = fs::metadata(&full_path)
             .await
@@ -156,9 +156,9 @@ impl LocalFs {
             .map(|time| DateTime::<Utc>::from(time).to_rfc3339())
             .unwrap_or_default();
 
-        let permissions = crate::model::format_mode(meta.permissions().mode(), is_dir);
+        let permissions = crate::filesystem::format_mode(meta.permissions().mode(), is_dir);
 
-        let mut item = FileObj::new(file_name, size, is_dir, modified);
+        let mut item = FileEntry::new(file_name, size, is_dir, modified);
         item.permissions = Some(permissions);
         Ok(item)
     }
@@ -197,7 +197,7 @@ impl LocalFs {
                 "cannot rename filesystem root".into(),
             ));
         }
-        if !crate::server::valid_name(new_name) || self.hidden_name_denied(new_name) {
+        if !valid_name(new_name) || self.hidden_name_denied(new_name) {
             return Err(RenameError::BadRequest(format!(
                 "invalid new name: {new_name}"
             )));
@@ -290,8 +290,8 @@ impl LocalFs {
         }
 
         for (src_name, new_name) in pairs {
-            if !crate::server::valid_name(src_name)
-                || !crate::server::valid_name(new_name)
+            if !valid_name(src_name)
+                || !valid_name(new_name)
                 || self.hidden_name_denied(src_name)
                 || self.hidden_name_denied(new_name)
             {

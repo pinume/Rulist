@@ -2,8 +2,8 @@ use axum::http::HeaderMap;
 use axum::http::header::AUTHORIZATION;
 
 use crate::auth::parse_jwt;
+use crate::db::User;
 use crate::db::get_user_by_name;
-use crate::model::User;
 
 use super::AppState;
 
@@ -12,19 +12,10 @@ pub(crate) async fn authenticate_user(headers: &HeaderMap, state: &AppState) -> 
     let token = auth_header.strip_prefix("Bearer ").unwrap_or(auth_header);
 
     let claims = parse_jwt(token, &state.config.security.jwt_secret).ok()?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    if crate::db::is_token_revoked(&state.pool, &claims.jti)
+        .await
         .ok()?
-        .as_secs() as i64;
-    let revoked: Option<i64> = sqlx::query_scalar(
-        "SELECT 1 FROM `x_revoked_tokens` WHERE `jti` = ? AND `expires_at` >= ?",
-    )
-    .bind(&claims.jti)
-    .bind(now)
-    .fetch_optional(&state.pool)
-    .await
-    .ok()?;
-    if revoked.is_some() {
+    {
         return None;
     }
 
@@ -60,10 +51,6 @@ pub(crate) fn user_path(_user: &User, requested: &str) -> Result<String, &'stati
 
 pub(crate) fn permitted(user: &User, bit: i32) -> bool {
     user.is_admin() || user.permission & (1 << bit) != 0
-}
-
-pub(crate) fn valid_name(name: &str) -> bool {
-    !name.is_empty() && name != "." && name != ".." && !name.contains('/') && !name.contains('\\')
 }
 
 pub(crate) fn encode_url_path(path: &str) -> String {

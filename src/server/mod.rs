@@ -1,5 +1,5 @@
 pub mod auth;
-pub mod fs;
+pub mod files;
 pub mod preview;
 mod routes;
 mod security;
@@ -15,10 +15,35 @@ use tracing::info;
 
 use crate::config::Config;
 use crate::db::DbPool;
-use crate::model::ApiResponse;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ApiResponse<T> {
+    pub code: i32,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<T>,
+}
+
+impl<T> ApiResponse<T> {
+    pub fn success(data: T) -> Self {
+        Self {
+            code: 200,
+            message: "success".to_string(),
+            data: Some(data),
+        }
+    }
+    pub fn error(code: i32, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            data: None,
+        }
+    }
+}
 
 pub use routes::build_app;
-pub(crate) use security::{authenticate_user, encode_url_path, permitted, user_path, valid_name};
+pub(crate) use security::{authenticate_user, encode_url_path, permitted, user_path};
 
 pub struct AppState {
     pub pool: DbPool,

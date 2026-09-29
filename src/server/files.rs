@@ -4,30 +4,118 @@ use axum::response::Response;
 use tokio::io::AsyncWriteExt;
 
 use crate::filesystem::local::{LocalFs, RenameError};
-use crate::model::{
-    BatchRenameReq, ConflictPolicy, DirItem, FsDirNamesReq, FsDirsReq, FsGetReq, FsLinkReq,
-    FsLinkResp, FsListReq, FsListResp, FsMoveCopyReq, FsRenameReq, sort_files_by, sorted_file_page,
-};
+use crate::filesystem::{FileEntry, sort_files_by, sorted_file_page, valid_name};
 use crate::server::stream::percent_decode;
 use crate::server::{
     SharedState, api_error, api_success, authenticate_user, encode_url_path, permission_denied,
-    permitted, user_path, valid_name,
+    permitted, user_path,
 };
 use crate::sign::sign_path;
+
+#[derive(Debug, Clone, serde::Deserialize, Default)]
+pub struct FsListReq {
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub page: Option<usize>,
+    #[serde(default)]
+    pub per_page: Option<usize>,
+    #[serde(default)]
+    pub order_by: Option<String>,
+    #[serde(default)]
+    pub reverse: Option<bool>,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FsListResp {
+    pub content: Vec<FileEntry>,
+    pub total: i64,
+    pub readme: String,
+    pub header: String,
+    pub write: bool,
+    pub provider: String,
+}
+#[derive(Debug, Clone, serde::Deserialize, Default)]
+pub struct FsGetReq {
+    #[serde(default)]
+    pub path: String,
+}
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct FsRenameReq {
+    pub path: String,
+    pub name: String,
+    #[serde(default)]
+    pub overwrite: bool,
+}
+#[derive(Debug, Clone, serde::Deserialize, Default)]
+pub struct FsDirNamesReq {
+    #[serde(default)]
+    pub dir: String,
+    #[serde(default)]
+    pub names: Vec<String>,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ConflictPolicy {
+    #[default]
+    Cancel,
+    Overwrite,
+    Skip,
+}
+#[derive(Debug, Clone, serde::Deserialize, Default)]
+pub struct FsMoveCopyReq {
+    #[serde(default)]
+    pub src_dir: String,
+    #[serde(default)]
+    pub dst_dir: String,
+    #[serde(default)]
+    pub names: Vec<String>,
+    #[serde(default)]
+    pub conflict_policy: ConflictPolicy,
+}
+#[derive(Debug, Clone, serde::Deserialize, Default)]
+pub struct FsDirsReq {
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub force_root: bool,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DirItem {
+    pub name: String,
+    pub modified: String,
+}
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct BatchRenameItem {
+    pub src_name: String,
+    pub new_name: String,
+}
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct BatchRenameReq {
+    pub src_dir: String,
+    pub rename_objects: Vec<BatchRenameItem>,
+}
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct FsLinkReq {
+    pub path: String,
+}
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FsLinkResp {
+    pub url: String,
+}
 
 pub(crate) fn signing_secret(state: &SharedState) -> &str {
     &state.config.security.signing_secret
 }
 
-fn user_fs(user: &crate::model::User) -> Result<LocalFs, anyhow::Error> {
+fn user_fs(user: &crate::db::User) -> Result<LocalFs, anyhow::Error> {
     LocalFs::new(&user.local_path, false)
 }
 
-fn sign_context(user: &crate::model::User) -> String {
+fn sign_context(user: &crate::db::User) -> String {
     format!("uid={}:root={}", user.id, user.local_path)
 }
 
-pub async fn fs_list_handler(
+pub async fn list_handler(
     headers: HeaderMap,
     State(state): State<SharedState>,
     Json(req): Json<FsListReq>,
@@ -113,7 +201,7 @@ pub async fn fs_list_handler(
     }
 }
 
-pub async fn fs_get_handler(
+pub async fn get_handler(
     headers: HeaderMap,
     State(state): State<SharedState>,
     Json(req): Json<FsGetReq>,
@@ -163,7 +251,7 @@ pub async fn fs_get_handler(
     }
 }
 
-pub async fn fs_dirs_handler(
+pub async fn dirs_handler(
     headers: HeaderMap,
     State(state): State<SharedState>,
     Json(req): Json<FsDirsReq>,
@@ -204,7 +292,7 @@ pub async fn fs_dirs_handler(
     api_success(dirs)
 }
 
-pub async fn fs_mkdir_handler(
+pub async fn mkdir_handler(
     State(state): State<SharedState>,
     headers: HeaderMap,
     Json(req): Json<serde_json::Value>,
@@ -239,7 +327,7 @@ pub async fn fs_mkdir_handler(
     }
 }
 
-pub async fn fs_rename_handler(
+pub async fn rename_handler(
     State(state): State<SharedState>,
     headers: HeaderMap,
     Json(req): Json<FsRenameReq>,
@@ -290,7 +378,7 @@ fn validate_transfer_paths(src: &str, dst: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
-pub async fn fs_move_handler(
+pub async fn move_handler(
     State(state): State<SharedState>,
     headers: HeaderMap,
     Json(req): Json<FsMoveCopyReq>,
@@ -354,7 +442,7 @@ pub async fn fs_move_handler(
     api_success(serde_json::Value::Null)
 }
 
-pub async fn fs_copy_handler(
+pub async fn copy_handler(
     State(state): State<SharedState>,
     headers: HeaderMap,
     Json(req): Json<FsMoveCopyReq>,
@@ -418,7 +506,7 @@ pub async fn fs_copy_handler(
     api_success(serde_json::Value::Null)
 }
 
-pub async fn fs_remove_handler(
+pub async fn remove_handler(
     State(state): State<SharedState>,
     headers: HeaderMap,
     Json(req): Json<FsDirNamesReq>,
@@ -452,7 +540,7 @@ pub async fn fs_remove_handler(
     api_success(serde_json::Value::Null)
 }
 
-pub async fn fs_put_handler(
+pub async fn upload_handler(
     State(state): State<SharedState>,
     headers: HeaderMap,
     request: Request,
@@ -609,7 +697,7 @@ pub async fn fs_put_handler(
     api_success(serde_json::Value::Null)
 }
 
-pub async fn fs_batch_rename_handler(
+pub async fn batch_rename_handler(
     headers: HeaderMap,
     State(state): State<SharedState>,
     Json(req): Json<BatchRenameReq>,
@@ -651,7 +739,7 @@ pub async fn fs_batch_rename_handler(
     }
 }
 
-pub async fn fs_link_handler(
+pub async fn link_handler(
     headers: HeaderMap,
     State(state): State<SharedState>,
     Json(req): Json<FsLinkReq>,

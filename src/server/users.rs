@@ -4,9 +4,24 @@ use axum::response::Response;
 use serde::Deserialize;
 use std::path::Path;
 
-use crate::db::{create_user_direct, delete_user, get_all_users, get_user_by_id};
-use crate::model::{AdminUserSaveReq, ROLE_ADMIN, User};
+use crate::db::{ROLE_ADMIN, User, create_user_direct, delete_user, get_all_users, get_user_by_id};
 use crate::server::{SharedState, api_error, api_success, authenticate_user};
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AdminUserSaveReq {
+    pub id: Option<i64>,
+    pub username: String,
+    #[serde(default)]
+    pub password: Option<String>,
+    #[serde(default)]
+    pub local_path: Option<String>,
+    #[serde(default)]
+    pub role: Option<i32>,
+    #[serde(default)]
+    pub permission: Option<i32>,
+    #[serde(default)]
+    pub disabled: Option<bool>,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct IdQuery {
@@ -130,7 +145,7 @@ pub async fn admin_user_create_handler(
     let password = req.password.as_deref().unwrap_or("");
     if let Err(response) = validate_password_request(
         password,
-        permission & (1 << crate::model::PERM_ALLOW_EMPTY_PASSWORD) != 0,
+        permission & (1 << crate::db::PERM_ALLOW_EMPTY_PASSWORD) != 0,
     ) {
         return response;
     }
@@ -206,7 +221,7 @@ pub async fn admin_user_update_handler(
     }
     let permission = req.permission.unwrap_or(target.permission);
     let allow_empty =
-        !target.is_admin() && permission & (1 << crate::model::PERM_ALLOW_EMPTY_PASSWORD) != 0;
+        !target.is_admin() && permission & (1 << crate::db::PERM_ALLOW_EMPTY_PASSWORD) != 0;
     if !target.is_admin()
         && target.password_unset
         && !allow_empty

@@ -1,4 +1,4 @@
-use rulist::model::{FileObj, natural_cmp, sort_files_by, sorted_file_page};
+use rulist::filesystem::{FileEntry, natural_cmp, sort_files_by, sorted_file_page};
 
 #[test]
 fn natural_sort_orders_numeric_suffixes() {
@@ -12,8 +12,8 @@ fn natural_sort_orders_numeric_suffixes() {
 
 #[test]
 fn paginated_sort_matches_full_sort() {
-    let files: Vec<FileObj> = (0..300)
-        .map(|index| FileObj::new(format!("file{index}.txt"), index, false, ""))
+    let files: Vec<FileEntry> = (0..300)
+        .map(|index| FileEntry::new(format!("file{index}.txt"), index, false, ""))
         .collect();
     let mut sorted = files.clone();
     sort_files_by(&mut sorted, Some("name"), true);

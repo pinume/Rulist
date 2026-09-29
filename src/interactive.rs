@@ -1,6 +1,5 @@
 use crate::auth;
-use crate::db::{self, DbPool};
-use crate::model;
+use crate::db::{self, DbPool, PERM_ALLOW_EMPTY_PASSWORD, ROLE_ADMIN, User};
 use anyhow::Result;
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
@@ -38,12 +37,12 @@ const PERM_ITEMS: &[PermItem] = &[
 ];
 
 pub fn format_permissions(role: i32, perm: i32) -> String {
-    if role == model::ROLE_ADMIN {
+    if role == ROLE_ADMIN {
         return "完全控制 (管理员)".to_string();
     }
 
-    let file_perm = perm & !(1 << model::PERM_ALLOW_EMPTY_PASSWORD);
-    let allow_empty = perm & (1 << model::PERM_ALLOW_EMPTY_PASSWORD) != 0;
+    let file_perm = perm & !(1 << PERM_ALLOW_EMPTY_PASSWORD);
+    let allow_empty = perm & (1 << PERM_ALLOW_EMPTY_PASSWORD) != 0;
     let base = match file_perm {
         504 => "全部文件权限".to_string(),
         0 => "只读浏览".to_string(),
@@ -192,7 +191,7 @@ fn select_permissions(allow_empty_default: bool) -> io::Result<Option<i32>> {
             return Ok(None);
         }
         if allow_empty.eq_ignore_ascii_case("y") {
-            perm |= 1 << model::PERM_ALLOW_EMPTY_PASSWORD;
+            perm |= 1 << PERM_ALLOW_EMPTY_PASSWORD;
         }
         return Ok(Some(perm));
     }
@@ -267,7 +266,7 @@ pub async fn run_interactive_console(pool: &DbPool, _data_dir: &Path) -> Result<
     Ok(())
 }
 
-async fn select_user(pool: &DbPool, general_only: bool) -> Result<Option<model::User>> {
+async fn select_user(pool: &DbPool, general_only: bool) -> Result<Option<User>> {
     let mut users = db::get_all_users(pool).await?;
     if general_only {
         users.retain(|user| !user.is_admin());
@@ -346,7 +345,7 @@ async fn action_add_user(pool: &DbPool) -> Result<()> {
     let password = loop {
         let password = prompt_password("请输入登录密码 (若已选免密可留空): ")?;
         if password.is_empty() {
-            if permission & (1 << model::PERM_ALLOW_EMPTY_PASSWORD) != 0 {
+            if permission & (1 << PERM_ALLOW_EMPTY_PASSWORD) != 0 {
                 break password;
             }
             println!("未开启免密登录，密码不能为空。");
@@ -400,7 +399,7 @@ async fn action_change_password(pool: &DbPool) -> Result<()> {
                 db::set_user_permission(
                     pool,
                     user.id,
-                    user.permission | (1 << model::PERM_ALLOW_EMPTY_PASSWORD),
+                    user.permission | (1 << PERM_ALLOW_EMPTY_PASSWORD),
                 )
                 .await?;
                 break password;
@@ -458,7 +457,7 @@ async fn action_set_user_permissions(pool: &DbPool) -> Result<()> {
         "当前权限: {}",
         format_permissions(user.role, user.permission)
     );
-    let allow_empty = user.permission & (1 << model::PERM_ALLOW_EMPTY_PASSWORD) != 0;
+    let allow_empty = user.permission & (1 << PERM_ALLOW_EMPTY_PASSWORD) != 0;
     let Some(permission) = select_permissions(allow_empty)? else {
         println!("操作已取消。");
         return Ok(());

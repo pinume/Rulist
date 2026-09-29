@@ -6,7 +6,7 @@ use axum::http::{Request, StatusCode, header};
 use rulist::auth::{compute_totp, generate_otp_secret};
 use rulist::config::Config;
 use rulist::db;
-use rulist::model::PERM_ALLOW_EMPTY_PASSWORD;
+use rulist::db::PERM_ALLOW_EMPTY_PASSWORD;
 use rulist::server::{AppState, build_app};
 use serde_json::{Value, json};
 use tower::ServiceExt;

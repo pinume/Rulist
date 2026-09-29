@@ -5,8 +5,8 @@ use axum::response::Response;
 use crate::auth::{
     generate_jwt, hash_identifier, hash_password, matching_totp_step, parse_jwt, verify_password,
 };
+use crate::db::PERM_ALLOW_EMPTY_PASSWORD;
 use crate::db::get_user_by_name;
-use crate::model::{LoginReq, PERM_ALLOW_EMPTY_PASSWORD, UpdateCurrentReq};
 use crate::server::{SharedState, api_error, api_success, authenticate_user};
 
 const LOGIN_FAILURE_LIMIT: i64 = 5;
@@ -17,6 +17,21 @@ const DUMMY_PASSWORD_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$ZHVtbXlzYWx0MT
 static PASSWORD_VERIFY_SEMAPHORE: tokio::sync::Semaphore =
     tokio::sync::Semaphore::const_new(PASSWORD_VERIFY_CONCURRENCY);
 
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct LoginReq {
+    pub username: String,
+    pub password: String,
+    #[serde(default)]
+    pub otp_code: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct UpdateCurrentReq {
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub current_password: Option<String>,
+}
+
 fn login_attempt_key(username: &str) -> String {
     hash_identifier(username.trim())
 }
@@ -26,43 +41,6 @@ fn now_ts() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
-}
-
-async fn reserve_login_attempt(
-    pool: &crate::db::DbPool,
-    key: &str,
-) -> Result<Option<i64>, sqlx::Error> {
-    let cutoff = now_ts() - LOGIN_FAILURE_WINDOW_SECS;
-    sqlx::query("DELETE FROM `x_login_attempts` WHERE `window_started` < ?")
-        .bind(cutoff)
-        .execute(pool)
-        .await?;
-
-    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `x_login_attempts`")
-        .fetch_one(pool)
-        .await?;
-    if total >= LOGIN_ATTEMPT_CAP {
-        sqlx::query(
-            "DELETE FROM x_login_attempts WHERE username_hash IN (SELECT username_hash FROM x_login_attempts ORDER BY window_started ASC LIMIT 100)",
-        )
-        .execute(pool)
-        .await?;
-    }
-
-    let now = now_ts();
-    sqlx::query_scalar(
-        "INSERT INTO `x_login_attempts` (`username_hash`, `failed_count`, `window_started`) \
-         SELECT ?, 1, ? WHERE EXISTS (SELECT 1 FROM `x_login_attempts` WHERE `username_hash` = ?) \
-             OR (SELECT COUNT(*) FROM `x_login_attempts`) < ? \
-         ON CONFLICT(`username_hash`) DO UPDATE SET `failed_count` = `failed_count` + 1 \
-         RETURNING `failed_count`",
-    )
-    .bind(key)
-    .bind(now)
-    .bind(key)
-    .bind(LOGIN_ATTEMPT_CAP)
-    .fetch_optional(pool)
-    .await
 }
 
 async fn verify_password_bounded(password: &str, pwd_hash: &str) -> Result<bool, StatusCode> {
@@ -93,7 +71,14 @@ pub async fn login_handler(
     Json(req): Json<LoginReq>,
 ) -> Response {
     let attempt_key = login_attempt_key(&req.username);
-    match reserve_login_attempt(&state.pool, &attempt_key).await {
+    match crate::db::reserve_login_attempt(
+        &state.pool,
+        &attempt_key,
+        LOGIN_FAILURE_WINDOW_SECS,
+        LOGIN_ATTEMPT_CAP,
+    )
+    .await
+    {
         Ok(Some(count)) if count > LOGIN_FAILURE_LIMIT => {
             return api_error(
                 StatusCode::TOO_MANY_REQUESTS,
@@ -217,12 +202,7 @@ pub async fn login_handler(
         state.config.security.token_expires_hours,
     ) {
         Ok(token) => {
-            if let Err(err) =
-                sqlx::query("DELETE FROM `x_login_attempts` WHERE `username_hash` = ?")
-                    .bind(&attempt_key)
-                    .execute(&state.pool)
-                    .await
-            {
+            if let Err(err) = crate::db::clear_login_attempt(&state.pool, &attempt_key).await {
                 tracing::error!(error = %err, "failed to clear login failures");
                 return api_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -253,26 +233,7 @@ pub async fn logout_handler(State(state): State<SharedState>, headers: HeaderMap
     let token = auth_header.strip_prefix("Bearer ").unwrap_or(auth_header);
 
     if let Ok(claims) = parse_jwt(token, &state.config.security.jwt_secret) {
-        let now = now_ts();
-        if let Err(err) = sqlx::query("DELETE FROM `x_revoked_tokens` WHERE `expires_at` < ?")
-            .bind(now)
-            .execute(&state.pool)
-            .await
-        {
-            tracing::error!(error = %err, "failed to prune revoked tokens");
-            return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Internal server error",
-            );
-        }
-        if let Err(err) = sqlx::query(
-            "INSERT OR REPLACE INTO `x_revoked_tokens` (`jti`, `expires_at`) VALUES (?, ?)",
-        )
-        .bind(claims.jti)
-        .bind(claims.exp as i64)
-        .execute(&state.pool)
-        .await
+        if let Err(err) = crate::db::revoke_token(&state.pool, &claims.jti, claims.exp as i64).await
         {
             tracing::error!(error = %err, "failed to revoke jwt");
             return api_error(

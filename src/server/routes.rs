@@ -7,7 +7,7 @@ use axum::routing::{get, post, put};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-use super::{SharedState, api_success, auth, fs, preview, stream, users};
+use super::{SharedState, api_success, auth, files, preview, stream, users};
 
 pub fn build_app(state: SharedState) -> Router {
     let mut cors = CorsLayer::new().allow_methods(Any).allow_headers(Any);
@@ -37,17 +37,17 @@ pub fn build_app(state: SharedState) -> Router {
         .route("/api/me", get(auth::current_user_handler))
         .route("/api/me/update", post(auth::update_current_handler))
         .route("/api/auth/logout", get(auth::logout_handler))
-        .route("/api/fs/list", post(fs::fs_list_handler))
-        .route("/api/fs/get", post(fs::fs_get_handler))
-        .route("/api/fs/dirs", post(fs::fs_dirs_handler))
-        .route("/api/fs/mkdir", post(fs::fs_mkdir_handler))
-        .route("/api/fs/rename", post(fs::fs_rename_handler))
-        .route("/api/fs/move", post(fs::fs_move_handler))
-        .route("/api/fs/copy", post(fs::fs_copy_handler))
-        .route("/api/fs/remove", post(fs::fs_remove_handler))
-        .route("/api/fs/put", put(fs::fs_put_handler))
-        .route("/api/fs/batch_rename", post(fs::fs_batch_rename_handler))
-        .route("/api/fs/link", post(fs::fs_link_handler))
+        .route("/api/fs/list", post(files::list_handler))
+        .route("/api/fs/get", post(files::get_handler))
+        .route("/api/fs/dirs", post(files::dirs_handler))
+        .route("/api/fs/mkdir", post(files::mkdir_handler))
+        .route("/api/fs/rename", post(files::rename_handler))
+        .route("/api/fs/move", post(files::move_handler))
+        .route("/api/fs/copy", post(files::copy_handler))
+        .route("/api/fs/remove", post(files::remove_handler))
+        .route("/api/fs/put", put(files::upload_handler))
+        .route("/api/fs/batch_rename", post(files::batch_rename_handler))
+        .route("/api/fs/link", post(files::link_handler))
         .route("/api/fs/preview", post(preview::preview_handler))
         .route("/api/admin/user/list", get(users::admin_user_list_handler))
         .route("/api/admin/user/get", get(users::admin_user_get_handler))
