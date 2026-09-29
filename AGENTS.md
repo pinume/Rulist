@@ -1,203 +1,81 @@
-# Agent Rules
+Agent Engineering Guidelines
 
-> **Agent instruction:** Follow the **English section only**. The Chinese section is for human reference and is not additional instruction.
+1. General Rules and Responsibilities
 
----
+• Never claim that a model switch, delegation, build, or test has occurred unless it actually did; conclusions must be based on real execution evidence, not Agent self-reporting.
+• If a ponytail skill is unavailable, state that clearly and continue with equivalent steps. “Latest” model means the latest model available in the runtime.
+• Root Agent: owns requirements, architecture, solution design, risk, compatibility, verification, review, and acceptance. When delegation is required, provide the Subagent with a detailed, explicit, directly executable plan whenever possible, including the objective, change scope, constraints, key steps, forbidden changes, and verification method, minimizing the need for Subagent inference.
+• Subagent: only executes the plan approved and assigned by the Root Agent, including implementation, build/compilation, and straightforward fixes for build errors directly caused by its own changes, provided those fixes do not involve design, interfaces, dependencies, or scope changes. It must not redesign the solution, expand scope, or make unrelated improvements. If it encounters a requirement, architecture, compatibility, or security decision, or a build failure outside the scope above, it must stop and return the issue to the Root Agent.
 
-# English Version — Agent Instructions
+2. Model Routing
 
-## 1. Roles
+|Environment|Execution                                 |
+|-----------|------------------------------------------|
+|Claude Code|Latest Sonnet subagent                    |
+|Codex      |Latest Luna subagent                      |
+|AGY        |Root Agent executes the task plan directly|
 
-### Root agent
+• Claude Code: all implementation tasks are delegated to the latest Sonnet subagent. The Root Agent owns analysis, design, and decisions, and should provide a detailed, explicit, directly executable plan whenever possible, including the objective, change scope, constraints, key steps, forbidden changes, and verification method. When the runtime supports an independent effort setting, prefer Medium; otherwise inherit the runtime setting.
+• Codex: all implementation tasks are delegated to the latest Luna subagent. The Root Agent owns analysis, design, and decisions, and should provide a detailed, explicit, directly executable plan whenever possible, including the objective, change scope, constraints, key steps, forbidden changes, and verification method.
+• AGY: Subagents are not required. The Root Agent directly implements, builds, and verifies the approved task plan.
 
-Owns analysis and decisions:
+If Claude Code or Codex delegation actually fails, the current Root Agent continues and explicitly reports the failure. Audit is still required, and the final report must note that implementation and review were performed by the same model.
 
-- requirements, repository, domain, architecture, impact, and risk;
-- solution and implementation plan;
-- compatibility and migration decisions;
-- verification, review, and final acceptance.
+3. Workflow
 
-### Implementation subagent
+1. Analyze requirements, current state, versions, constraints, impact, and risks. If ambiguity would materially affect behavior, interfaces, data, compatibility, or scope, clarify with the user or present the relevant options first. For local implementation details that do not affect the result, make the smallest reasonable decision consistent with the existing architecture.
+2. Use andrej-karpathy-skills to assist solution design. Define the scope and verifiable success criteria; for multi-step tasks, express the plan as “step → verification method”.
+3. Before implementation, invoke ponytail:ponytail full.
+4. Execute according to Section 2: in Claude Code / Codex, the Root Agent gives the designated Subagent a detailed, executable plan and the Subagent implements it and performs the build/compilation; in AGY, the Root Agent executes directly. Any design-level blocker must be returned to the Root Agent; the Subagent must not revise the plan independently.
+5. The Root Agent performs applicable E2E verification.
+6. Review the final code with ponytail:ponytail-audit; use ponytail:ponytail-review when supplemental or second-pass review is needed.
+7. If issues are found, the Root Agent decides the fix, then the implementation is updated, rebuilt, re-verified, and re-reviewed. If the issue cannot be resolved without a new design decision or further progress is blocked, report the blocker to the user.
 
-Executes the approved plan only:
+Lightweight path: documentation-only or formatting-only changes require only the necessary lightweight verification and may skip Steps 2–6 and delegation.
 
-- implement the assigned scope;
-- build/compile the project;
-- fix straightforward build errors caused by its own changes;
-- do not redesign, expand scope, or add unrelated improvements.
+4. Engineering Principles
 
-If a blocker requires a requirement, architecture, compatibility, or safety decision, stop and return it to the root agent.
+• Think Before Coding: before changing code, establish the requirement, current state, versions, constraints, impact, and verification method. State assumptions explicitly. Clarify uncertainty that would materially affect behavior, interfaces, data, compatibility, or scope; otherwise make the smallest reasonable local decision consistent with the existing architecture. Point out a simpler approach when one exists, and push back when appropriate. If a critical fact is unclear, stop and state the blocker.
+• Follow the Existing Architecture: when relevant, identify domain boundaries, module responsibilities, dependency direction, data flow, persistence boundaries, and external interfaces. Do not design for hypothetical future requirements.
+• Simplicity First: solve the problem with the least code necessary. Do not add unrequested features, abstractions for one-off code, unrequested flexibility or configurability, or defensive logic for hypothetical scenarios without realistic evidence. Error handling should match real risks and system boundaries. If 200 lines were written where 50 would suffice, rewrite it. Ask: “Would a senior engineer consider this over-engineered?”
+• Surgical Changes: every changed line should be traceable to the requirement. Do not “clean up” adjacent code, comments, or formatting; do not refactor code that is not broken; do not perform unrelated renames or migrations. Follow the existing style. If unrelated dead code is discovered, report it but do not remove it. However, unused imports, variables, or functions introduced by your own changes must be cleaned up.
+• Goal-Driven Execution: convert the task into verifiable goals and iterate until they pass. “Add validation” → verify invalid input is rejected. “Fix bug” → reproduce through a real entry point whenever possible; if reliable reproduction is not possible, document the observed behavior, evidence, and expected behavior, then fix and verify using the closest practical approximation of the real scenario. “Refactor” → behavior remains unchanged and existing tests pass before and after. Follow Section 6 for verification.
+• High Cohesion, Low Coupling: keep responsibilities clear and interfaces explicit. When a file approaches 500 lines, inspect module boundaries, but do not split files mechanically based on line count alone.
+• Clear Boundaries: do not mix protocol, domain, persistence, and presentation models. Perform validation and transformation at boundaries. Avoid hidden shared mutable state.
+• Reuse Existing Capabilities: prefer existing modules, utilities, dependencies, and business rules when they meet the need. Do not abstract merely because code looks similar. Before adding a dependency, check the standard library and existing project capabilities first.
+• Delete Before Compatibility: when refactoring internal implementations, private APIs, or unpublished interfaces, delete the old implementation directly. Do not add deprecated shims, dual read/write paths, old/new branches, shadow implementations, compatibility wrappers, or long-lived migration toggles. Evaluate compatibility separately only for real external contracts such as public APIs, persisted data, database migrations, public CLI arguments, file formats, protocols, or third-party integrations, and explicitly define the scope, lifetime, migration path, and removal condition.
+• Security and Failure Handling: treat external input as untrusted by default. Apply least privilege and protect sensitive information. Preserve authentication, authorization, and isolation where relevant, and consider idempotency, races, transaction boundaries, timeouts, cancellation, retries, backpressure, resource cleanup, and partial failure. Do not use unbounded retries or silent fallbacks that hide errors.
+• Preserve Context: record non-obvious architectural decisions, compatibility constraints, known defects, temporary solutions, and removal conditions in comments, documentation, Issues, or ADRs. Do not leave TODOs without context.
 
-`Root: Analyze → Design → Decide → Delegate`
+5. Modern Coding
 
-`Subagent: Implement → Build → Report`
+• Before editing, identify the actual language, runtime, framework, dependency, and toolchain versions. If uncertain, verify using official documentation or tool output.
+• Use only features supported by the current versions. Do not upgrade versions merely to use newer syntax.
+• Prefer standard libraries, official APIs, and modern idiomatic patterns. Follow applicable compiler, formatter, and linter guidance. Do not mechanically copy outdated local patterns.
+• Modernization must not change business behavior, public contracts, data semantics, or required compatibility.
 
-`Root: Verify → Review → Fix/Accept`
+6. Testing and Verification
 
-## 1. Model Routing
+• Do not add unit tests by default merely to increase coverage. Reproduce bugs through real entry points whenever possible. If reliable reproduction is not possible, document the observed behavior, evidence, and expected behavior, then verify the fix using the closest practical approximation of the real scenario. Prefer E2E verification of real entry points, real data flow, and real results. Use isolated tests only when critical behavior cannot reasonably be verified through E2E. Existing valid tests must continue to pass.
+• Where applicable, E2E should cover real entry points, parsing, core business behavior, cross-module data flow, file/database/external interactions, failure handling, consistency, and final output.
+• Where applicable, check empty/invalid input, boundaries and precision, duplicate/reordered data, encoding/corrupted files, I/O and dependency failures, partial state, repeated execution, interruption and recovery, and larger data volumes.
+• Do not stop at confirming that the program “runs”; verify that the result is correct.
 
-Never claim delegation or model switching unless it actually occurred.
+7. Change Constraints
 
-### Claude Code
+• Changes should be verifiable, observable, and recoverable where applicable. Behavior affecting users or compatibility must be designed explicitly.
+• Unless explicitly requested, do not add CI/CD, add or upgrade dependencies, change language/runtime/framework/build-system/package-manager versions, or modify deployment, release, or infrastructure configuration.
+• Do not expose credentials or sensitive information. Do not overwrite original user data.
 
-- Keep the root agent on the selected model.
-- Non-trivial implementation, bug fixes, modifications, refactoring, and related build/compilation go to the latest Sonnet subagent.
-- Prefer Medium effort when supported; otherwise inherit runtime effort.
-- Sonnet executes the approved plan and does not redo deep design.
-- If delegation fails, continue with the current model and explicitly report the failure.
+8. Definition of Done
 
-### Codex
+Review checks code issues; acceptance checks this list. A task is complete only when all applicable conditions are satisfied:
 
-- Keep the root agent on the selected model.
-- **Simple work:** latest Luna subagent.
-- **Non-trivial work:** latest Terra subagent with Medium reasoning.
-- The subagent implements and builds; the root agent retains analysis, design, verification, review, and acceptance.
-- If delegation fails, continue with the current model and explicitly report the failure.
+• Analysis and solution design are complete, assumptions and success criteria are explicit, and model-routing rules were followed.
+• Every code change is traceable to the requirement, with no unrelated changes.
+• ponytail:ponytail full was invoked before implementation, and the implementation follows the approved plan.
+• The project builds or runs successfully; applicable E2E verification passes with correct results; critical failure paths were checked.
+• Final code passed audit/review; findings were resolved; fixes were rebuilt, re-verified, and re-reviewed.
+• Acceptance is based on real execution evidence.
 
-### AGY
-
-Use the currently selected model and effort. Do not force model-specific subagents.
-
-## 1. Complexity
-
-The root agent classifies work before delegation.
-
-- **Simple:** small, localized, clear, low-risk, and unlikely to require architecture decisions.
-- **Non-trivial:** meaningful multi-file interaction, important business logic, architecture/data-flow impact, difficult diagnosis, migration/compatibility concerns, major refactoring, or regression risk.
-
-When uncertain, analyze first and choose the safer tier.
-
-## 1. Engineering Principles
-
-Use `andrej-karpathy-skills` for relevant design and implementation work.
-
-### Think Before Coding
-
-Understand the requirement, current implementation, versions, constraints, impact, and verification path before editing.
-
-### Architecture and Domain First
-
-Identify relevant domain boundaries, module responsibilities, dependency direction, data flow, persistence boundaries, and external interfaces. Prefer the existing architecture. Do not design for hypothetical future needs.
-
-### Simplicity First
-
-Prefer the simplest correct and maintainable solution. Avoid unnecessary layers, cleverness, speculative extensibility, and duplicate infrastructure.
-
-### Surgical Changes
-
-Change only what is required. Avoid unrelated refactoring, renaming, formatting, migrations, or scope expansion.
-
-### High Cohesion, Low Coupling
-
-Keep modules focused and interfaces clear. If a file approaches roughly 500 lines, review its boundaries; line count alone does not require splitting.
-
-### Clear Boundaries and Data Flow
-
-Keep protocol, domain, persistence, and presentation models separate when the architecture distinguishes them. Validate and transform data at boundaries. Avoid hidden shared mutable state.
-
-### Reuse Stable Business Semantics
-
-Reuse existing modules, utilities, dependencies, and business rules when they already fit. Do not abstract only because code looks similar. Prefer standard-library and existing project capabilities before adding dependencies.
-
-### Delete Before Compatibility
-
-For internal implementations, private APIs, internal boundaries, and unpublished interfaces, **delete obsolete behavior instead of preserving compatibility layers**.
-
-Do not add by default:
-
-- deprecated shims;
-- dual-read/dual-write paths;
-- old/new branching;
-- shadow implementations;
-- compatibility wrappers;
-- long-lived migration toggles.
-
-Evaluate compatibility separately only for real external contracts such as public APIs, persisted data, database migrations, public CLI arguments, file formats, protocols, or third-party integrations.
-
-When compatibility is required, define its scope, duration, migration path, and removal condition.
-
-### Security and Failure Design
-
-Treat external input as untrusted. Apply least privilege, protect secrets, and preserve authentication/authorization/isolation boundaries where relevant.
-
-Where relevant, consider idempotency, races, transaction boundaries, timeouts, cancellation, retries, backpressure, cleanup, and partial failure. Never use unbounded retries or silent fallback that hides errors.
-
-### Preserve Maintenance Context
-
-Record non-obvious architecture decisions, compatibility constraints, known limitations, temporary solutions, and removal conditions in appropriate comments, docs, issues, or ADRs. Do not leave context-free TODOs.
-
-## 1. Modern Coding
-
-Before editing, identify the actual language, runtime, framework, dependencies, and toolchain versions.
-
-- Use only supported features and APIs.
-- Do not upgrade versions just to use newer syntax.
-- Prefer modern, idiomatic, readable, maintainable patterns.
-- Prefer standard libraries and official APIs.
-- Avoid unnecessary dependencies.
-- Follow applicable compiler, formatter, linter, modernizer, and static-analysis guidance.
-- Do not copy outdated nearby patterns when a safer supported idiom exists.
-- Modernization must not change business behavior, public contracts, data semantics, or required compatibility.
-- Verify uncertain version support through official documentation or actual tool output.
-
-## 1. Coding Workflow
-
-For implementation, modification, bug fixing, or refactoring:
-
-1. Analyze requirements, repository, impact, and risks.
-2. Use `andrej-karpathy-skills` to develop the solution.
-3. Classify the task as simple or non-trivial.
-4. Define the plan, constraints, scope, and expected result.
-5. Invoke `ponytail:ponytail full` before implementation.
-6. Delegate implementation according to model-routing rules.
-7. The implementation subagent implements and builds/compiles.
-8. Design-level blockers return to the root agent.
-9. The root agent performs applicable E2E verification.
-10. Review final code with `ponytail:ponytail-audit` by default, or `ponytail:ponytail-review` when appropriate.
-11. If issues are found, decide the fix, delegate again, then rebuild, re-verify, and re-review.
-
-`Analyze → Karpathy → Classify → Design → Ponytail Full → Delegate → Implement → Build → E2E → Audit → Fix → Rebuild → Re-verify → Re-audit → Accept`
-
-## 1. Testing and Verification
-
-- Do not add unit tests merely because code is new or to increase coverage.
-- Prefer E2E verification through real entry points, real data flow, and real outputs.
-- Existing valid tests must remain passing.
-- Use isolated testing only when critical behavior cannot reasonably be verified through E2E.
-
-When relevant, verify invalid/empty input, boundaries and precision, duplicate/reordered data, encoding/corruption, I/O and dependency failures, partial state, repeated execution, interruption/recovery, and larger data volumes.
-
-E2E should validate applicable entry points, parsing, core behavior, cross-module flow, external/file/database interaction, failure handling, consistency, and final output.
-
-Do not stop at “it runs”; verify the result is correct. Documentation-only or formatting-only changes need only lightweight verification.
-
-## 1. Change Quality and Constraints
-
-Meaningful changes should be verifiable, observable, recoverable where relevant, and explicit in user-visible or compatibility-affecting behavior.
-
-- Do not add GitHub Actions or other CI/CD unless explicitly requested.
-- Do not add dependencies without clear need or upgrade unrelated dependencies.
-- Do not change language, runtime, framework, build system, or package manager versions without explicit need.
-- Do not modify deployment, release, infrastructure, or CI configuration unless requested.
-- Do not expose credentials or sensitive information.
-- Do not overwrite original user data.
-
-## 1. Definition of Done
-
-A coding task is complete only when applicable requirements are satisfied:
-
-- analysis and design are complete;
-- `andrej-karpathy-skills` was used;
-- complexity was classified and model routing followed;
-- `ponytail:ponytail full` ran before implementation;
-- implementation follows the approved plan;
-- the designated subagent completed the applicable build/compilation;
-- the project builds or runs successfully;
-- applicable E2E passes and results are correct;
-- critical failure paths were checked;
-- final code passed Ponytail audit/review;
-- findings were resolved and fixes were rebuilt, re-verified, and re-reviewed;
-- final acceptance is based on actual execution evidence, not agent self-reporting.
-
----
-
+Lightweight-path tasks only need to satisfy: the change matches the request and the necessary lightweight verification was completed.
