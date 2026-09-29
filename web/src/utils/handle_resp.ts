@@ -1,13 +1,10 @@
 import { Resp } from "~/types"
-import { resetSessionState } from "~/store/reset"
-import { bus, notify } from "."
-import { changeToken } from "./request"
+import { notify } from "./notify"
 
 export const handleResp = <T>(
   resp: Resp<T>,
   success?: (data: T) => void,
   fail?: (message: string, code: number) => void,
-  auth: boolean = true,
   notify_error: boolean = true,
   notify_success?: boolean,
 ) => {
@@ -16,15 +13,6 @@ export const handleResp = <T>(
     success?.(resp.data)
   } else {
     notify_error && notify.error(resp.message)
-    if (auth && resp.code === 401) {
-      changeToken()
-      resetSessionState()
-      bus.emit(
-        "to",
-        `/@login?redirect=${encodeURIComponent(location.pathname)}`,
-      )
-      return
-    }
     fail?.(resp.message, resp.code)
   }
 }
@@ -33,25 +21,15 @@ export const handleRespWithoutNotify = <T>(
   resp: Resp<T>,
   success?: (data: T) => void,
   fail?: (message: string, code?: number) => void,
-  auth: boolean = true,
 ) => {
-  return handleResp(resp, success, fail, auth, false)
-}
-
-export const handleRespWithoutAuthAndNotify = <T>(
-  resp: Resp<T>,
-  success?: (data: T) => void,
-  fail?: (message: string, code?: number) => void,
-) => {
-  return handleResp(resp, success, fail, false, false)
+  return handleResp(resp, success, fail, false)
 }
 
 export const handleRespWithNotifySuccess = <T>(
   resp: Resp<T>,
   success?: (data: T) => void,
   fail?: (message: string, code?: number) => void,
-  auth: boolean = true,
   notify_error: boolean = true,
 ) => {
-  return handleResp(resp, success, fail, auth, notify_error, true)
+  return handleResp(resp, success, fail, notify_error, true)
 }

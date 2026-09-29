@@ -18,7 +18,7 @@ import {
   changeToken,
   r,
   notify,
-  handleRespWithoutAuthAndNotify,
+  handleRespWithoutNotify,
   getSafeRedirect,
 } from "~/utils"
 import { Resp } from "~/types"
@@ -69,7 +69,7 @@ const Login = () => {
       localStorage.removeItem("username")
     }
     const resp = await data()
-    handleRespWithoutAuthAndNotify(
+    handleRespWithoutNotify(
       resp,
       (data) => {
         notify.success("Signed in successfully")

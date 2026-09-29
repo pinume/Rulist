@@ -14,7 +14,7 @@ import { Error, FullScreenLoading } from "~/components"
 import { useLoading, useRouter } from "~/hooks"
 import { loadConfig } from "~/store"
 import { PublicConfig, Resp } from "~/types"
-import { bus, handleRespWithoutAuthAndNotify, r } from "~/utils"
+import { bus, handleRespWithoutNotify, r } from "~/utils"
 import { MustUser } from "./MustUser"
 import "./index.css"
 import { globalStyles } from "./theme"
@@ -34,7 +34,7 @@ const App: Component = () => {
 
   const [err, setErr] = createSignal<string[]>([])
   const [loading, data] = useLoading(async () => {
-    handleRespWithoutAuthAndNotify(
+    handleRespWithoutNotify(
       (await r.get("/public/settings")) as Resp<PublicConfig>,
       loadConfig,
       (e) => setErr(err().concat(e)),

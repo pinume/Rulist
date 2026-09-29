@@ -1,6 +1,11 @@
 import axios from "axios"
+import { resetSessionState } from "../store/reset"
+import { bus } from "./bus"
 
 export const api = window.location.origin
+
+export const shouldExpireSession = (status?: number, url?: string) =>
+  status === 401 && !url?.endsWith("/auth/login")
 
 const instance = axios.create({
   baseURL: api + "/api",
@@ -20,6 +25,17 @@ instance.interceptors.response.use(
   (error) => {
     // response error
     console.error(error) // for debug
+    if (shouldExpireSession(error.response?.status, error.config?.url)) {
+      changeToken()
+      resetSessionState()
+
+      if (!location.pathname.startsWith("/@login")) {
+        bus.emit(
+          "to",
+          `/@login?redirect=${encodeURIComponent(location.pathname)}`,
+        )
+      }
+    }
     if (error.response?.data) {
       return error.response.data
     }
