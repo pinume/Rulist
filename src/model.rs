@@ -71,10 +71,8 @@ impl User {
 pub struct Storage {
     pub id: i64,
     pub mount_path: String,
-    pub order: i32,
-    pub status: Option<String>,
-    pub addition: Option<String>,
-    pub disabled: bool,
+    pub local_path: String,
+    pub show_hidden: bool,
 }
 
 pub const TYPE_UNKNOWN: i32 = 0;

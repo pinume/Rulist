@@ -49,10 +49,8 @@ async fn init_schema(pool: &DbPool) -> Result<()> {
         CREATE TABLE IF NOT EXISTS `x_storages` (
             `id` INTEGER PRIMARY KEY AUTOINCREMENT,
             `mount_path` TEXT NOT NULL UNIQUE,
-            `order` INTEGER NOT NULL DEFAULT 0,
-            `status` TEXT,
-            `addition` TEXT,
-            `disabled` NUMERIC NOT NULL DEFAULT 0
+            `local_path` TEXT NOT NULL,
+            `show_hidden` NUMERIC NOT NULL DEFAULT 0
         )
         "#,
         r#"
@@ -314,7 +312,7 @@ pub async fn get_user_by_id(pool: &DbPool, id: i64) -> Result<Option<User>> {
 
 pub async fn get_storages(pool: &DbPool) -> Result<Vec<crate::model::Storage>> {
     let storages = sqlx::query_as::<_, crate::model::Storage>(
-        "SELECT * FROM `x_storages` WHERE `disabled` = 0",
+        "SELECT `id`, `mount_path`, `local_path`, `show_hidden` FROM `x_storages` ORDER BY `id` ASC",
     )
     .fetch_all(pool)
     .await?;
@@ -333,35 +331,17 @@ pub fn compute_local_path(base_path: &str, storages: &[crate::model::Storage]) -
         }
     }
 
-    if let Some(storage) = matched
-        && let Some(ref addition) = storage.addition
-        && let Ok(value) = serde_json::from_str::<serde_json::Value>(addition)
-    {
-        let root = value
-            .get("root_folder_path")
-            .and_then(|value| value.as_str())
-            .unwrap_or("");
-        if !root.is_empty() {
-            let sub = base_path
-                .trim_start_matches(&storage.mount_path)
-                .trim_start_matches('/');
-            if sub.is_empty() {
-                return root.to_string();
-            }
-            return format!("{}/{}", root.trim_end_matches('/'), sub);
+    if let Some(storage) = matched {
+        let sub = base_path
+            .trim_start_matches(&storage.mount_path)
+            .trim_start_matches('/');
+        if sub.is_empty() {
+            return storage.local_path.clone();
         }
+        return format!("{}/{}", storage.local_path.trim_end_matches('/'), sub);
     }
 
     String::new()
-}
-
-pub async fn get_all_storages(pool: &DbPool) -> Result<Vec<crate::model::Storage>> {
-    let storages = sqlx::query_as::<_, crate::model::Storage>(
-        "SELECT * FROM `x_storages` ORDER BY `order` ASC, `id` ASC",
-    )
-    .fetch_all(pool)
-    .await?;
-    Ok(storages)
 }
 
 pub async fn delete_user(pool: &DbPool, user_id: i64) -> Result<()> {
@@ -429,8 +409,6 @@ pub(crate) async fn set_user_dir_on_connection(
     local_path: &str,
 ) -> Result<()> {
     let user_mount = format!("/.users/{user_id}");
-    let addition = serde_json::json!({ "root_folder_path": local_path }).to_string();
-
     let exists: Option<i64> =
         sqlx::query_scalar("SELECT `id` FROM `x_storages` WHERE `mount_path` = ? LIMIT 1")
             .bind(&user_mount)
@@ -438,17 +416,19 @@ pub(crate) async fn set_user_dir_on_connection(
             .await?;
 
     if exists.is_some() {
-        sqlx::query("UPDATE `x_storages` SET `addition` = ? WHERE `mount_path` = ?")
-            .bind(&addition)
-            .bind(&user_mount)
-            .execute(&mut *conn)
-            .await?;
+        sqlx::query(
+            "UPDATE `x_storages` SET `local_path` = ?, `show_hidden` = 0 WHERE `mount_path` = ?",
+        )
+        .bind(local_path)
+        .bind(&user_mount)
+        .execute(&mut *conn)
+        .await?;
     } else {
         sqlx::query(
-            "INSERT INTO `x_storages` (`mount_path`, `order`, `addition`, `status`, `disabled`) VALUES (?, 0, ?, 'work', 0)",
+            "INSERT INTO `x_storages` (`mount_path`, `local_path`, `show_hidden`) VALUES (?, ?, 0)",
         )
         .bind(&user_mount)
-        .bind(&addition)
+        .bind(local_path)
         .execute(&mut *conn)
         .await?;
     }
@@ -502,12 +482,11 @@ pub async fn create_user_direct(
             .await?;
 
         if let Some(local_path) = local_path {
-            let addition = serde_json::json!({ "root_folder_path": local_path }).to_string();
             sqlx::query(
-                "INSERT INTO `x_storages` (`mount_path`, `order`, `addition`, `status`, `disabled`) VALUES (?, 0, ?, 'work', 0)",
+                "INSERT INTO `x_storages` (`mount_path`, `local_path`, `show_hidden`) VALUES (?, ?, 0)",
             )
             .bind(&user_mount)
-            .bind(&addition)
+            .bind(local_path)
             .execute(&mut *tx)
             .await?;
         }

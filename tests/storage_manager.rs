@@ -16,12 +16,11 @@ async fn cross_mount_operations_reject_storage_roots() {
         ("/source", source.path()),
         ("/destination", destination.path()),
     ] {
-        let addition = serde_json::json!({ "root_folder_path": root }).to_string();
         sqlx::query(
-            "INSERT INTO `x_storages` (`mount_path`, `addition`, `status`) VALUES (?, ?, 'work')",
+            "INSERT INTO `x_storages` (`mount_path`, `local_path`, `show_hidden`) VALUES (?, ?, 0)",
         )
         .bind(mount)
-        .bind(addition)
+        .bind(root.to_str().unwrap())
         .execute(&pool)
         .await
         .unwrap();

@@ -596,7 +596,7 @@ async fn action_delete_user(pool: &DbPool) -> Result<()> {
 
 async fn action_list_storages(pool: &DbPool) -> Result<()> {
     println!("\n>>> 查看挂载");
-    let storages = db::get_all_storages(pool).await?;
+    let storages = db::get_storages(pool).await?;
     if storages.is_empty() {
         println!("暂无存储挂载点。");
         return Ok(());
@@ -604,31 +604,13 @@ async fn action_list_storages(pool: &DbPool) -> Result<()> {
 
     println!(
         "{:<4} {:<18} {:<10} {}",
-        "ID", "MOUNT PATH", "STATUS", "LOCAL PATH / DETAILS"
+        "ID", "MOUNT PATH", "HIDDEN", "LOCAL PATH"
     );
     println!("{}", "-".repeat(70));
     for storage in storages {
-        let status = if storage.disabled {
-            "disabled"
-        } else {
-            storage.status.as_deref().unwrap_or("active")
-        };
-        let detail = storage
-            .addition
-            .as_deref()
-            .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok())
-            .and_then(|value| {
-                value
-                    .get("root_folder_path")
-                    .and_then(|value| value.as_str())
-                    .map(str::to_string)
-            })
-            .or(storage.addition.clone())
-            .unwrap_or_default();
-
         println!(
             "{:<4} {:<18} {:<10} {}",
-            storage.id, storage.mount_path, status, detail
+            storage.id, storage.mount_path, storage.show_hidden, storage.local_path
         );
     }
     Ok(())

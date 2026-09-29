@@ -94,14 +94,10 @@ async fn init_database(config: &config::Config, data_dir: &std::path::Path) -> R
     let pool = db::init_db(&db_path).await?;
 
     if let Some(home_path) = home_path {
-        let addition = serde_json::to_string(&driver::local::LocalAddition {
-            root_folder_path: home_path.to_string_lossy().into_owned(),
-            show_hidden: false,
-        })?;
         sqlx::query(
-            "INSERT OR IGNORE INTO `x_storages` (`mount_path`, `addition`) VALUES ('/', ?)",
+            "INSERT OR IGNORE INTO `x_storages` (`mount_path`, `local_path`, `show_hidden`) VALUES ('/', ?, 0)",
         )
-        .bind(addition)
+        .bind(home_path.to_string_lossy().into_owned())
         .execute(&pool)
         .await?;
         info!("mounted current user's HOME directory at /");

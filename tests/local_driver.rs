@@ -1,14 +1,7 @@
 use rulist::driver::local::LocalDriver;
 
 fn driver_with_hidden(root: &std::path::Path, show_hidden: bool) -> LocalDriver {
-    LocalDriver::new(
-        &serde_json::json!({
-            "root_folder_path": root,
-            "show_hidden": show_hidden
-        })
-        .to_string(),
-    )
-    .unwrap()
+    LocalDriver::new(root.to_str().unwrap(), show_hidden).unwrap()
 }
 
 fn driver(root: &std::path::Path) -> LocalDriver {

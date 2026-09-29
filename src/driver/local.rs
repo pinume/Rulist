@@ -1,6 +1,5 @@
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 use tokio::fs;
@@ -8,14 +7,6 @@ use tokio::fs;
 use crate::model::FileObj;
 
 use super::local_ops::{copy_path_safe, move_path_safe, remove_path_recursive};
-
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct LocalAddition {
-    #[serde(default)]
-    pub root_folder_path: String,
-    #[serde(default)]
-    pub show_hidden: bool,
-}
 
 #[derive(Debug, Clone)]
 pub struct LocalDriver {
@@ -45,31 +36,22 @@ impl std::fmt::Display for RenameError {
 impl std::error::Error for RenameError {}
 
 impl LocalDriver {
-    pub fn new(addition_json: &str) -> Result<Self> {
-        if addition_json.is_empty() {
-            return Err(anyhow!("storage configuration is empty"));
-        }
-        let addition: LocalAddition =
-            serde_json::from_str(addition_json).context("failed to parse storage configuration")?;
-
-        let root_str = addition.root_folder_path.trim();
+    pub fn new(root_path: &str, show_hidden: bool) -> Result<Self> {
+        let root_str = root_path.trim();
         if root_str.is_empty() {
-            return Err(anyhow!("root_folder_path cannot be empty"));
+            return Err(anyhow!("local_path cannot be empty"));
         }
         let path = Path::new(root_str);
         if !path.is_absolute() {
-            return Err(anyhow!(
-                "root_folder_path must be an absolute path: {}",
-                root_str
-            ));
+            return Err(anyhow!("local_path must be an absolute path"));
         }
         if !path.exists() {
-            return Err(anyhow!("root_folder_path does not exist: {:?}", path));
+            return Err(anyhow!("local_path does not exist"));
         }
 
         Ok(Self {
             root_path: path.canonicalize().unwrap_or_else(|_| path.to_path_buf()),
-            show_hidden: addition.show_hidden,
+            show_hidden,
         })
     }
 

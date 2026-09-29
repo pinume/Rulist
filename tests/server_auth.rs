@@ -344,14 +344,14 @@ async fn user_update_rolls_back_when_storage_update_fails() {
     .await
     .unwrap();
     let before = db::get_user_by_id(&pool, user_id).await.unwrap().unwrap();
-    let old_addition: String =
-        sqlx::query_scalar("SELECT `addition` FROM `x_storages` WHERE `mount_path` = ?")
+    let old_local_path: String =
+        sqlx::query_scalar("SELECT `local_path` FROM `x_storages` WHERE `mount_path` = ?")
             .bind(format!("/.users/{user_id}"))
             .fetch_one(&pool)
             .await
             .unwrap();
     sqlx::query(
-        "CREATE TRIGGER fail_user_storage_update BEFORE UPDATE OF `addition` ON `x_storages` BEGIN SELECT RAISE(FAIL, 'forced storage update failure'); END",
+        "CREATE TRIGGER fail_user_storage_update BEFORE UPDATE OF `local_path` ON `x_storages` BEGIN SELECT RAISE(FAIL, 'forced storage update failure'); END",
     )
     .execute(&pool)
     .await
@@ -384,13 +384,13 @@ async fn user_update_rolls_back_when_storage_update_fails() {
     assert_eq!(after.permission, before.permission);
     assert_eq!(after.disabled, before.disabled);
     assert_eq!(after.base_path, before.base_path);
-    let addition: String =
-        sqlx::query_scalar("SELECT `addition` FROM `x_storages` WHERE `mount_path` = ?")
+    let local_path: String =
+        sqlx::query_scalar("SELECT `local_path` FROM `x_storages` WHERE `mount_path` = ?")
             .bind(format!("/.users/{user_id}"))
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(addition, old_addition);
+    assert_eq!(local_path, old_local_path);
 }
 
 #[tokio::test]

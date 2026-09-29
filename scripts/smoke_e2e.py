@@ -74,8 +74,8 @@ def main():
 
         with sqlite3.connect(data_dir / "data.db") as connection:
             updated = connection.execute(
-                "UPDATE x_storages SET addition = ? WHERE mount_path = ?",
-                (json.dumps({"root_folder_path": str(storage_dir)}), "/"),
+                "UPDATE x_storages SET local_path = ? WHERE mount_path = ?",
+                (str(storage_dir), "/"),
             ).rowcount
             if updated != 1:
                 raise AssertionError(f"expected one default root mount, updated {updated}")

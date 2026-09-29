@@ -55,7 +55,7 @@ fn directory_path_for_local_path(
             continue;
         }
         let Ok(driver) =
-            crate::driver::local::LocalDriver::new(storage.addition.as_deref().unwrap_or_default())
+            crate::driver::local::LocalDriver::new(&storage.local_path, storage.show_hidden)
         else {
             continue;
         };
@@ -180,8 +180,7 @@ pub async fn admin_user_get_handler(
 }
 
 fn validate_local_path(path: &str) -> Result<(), anyhow::Error> {
-    let addition = serde_json::json!({ "root_folder_path": path.trim() }).to_string();
-    crate::driver::local::LocalDriver::new(&addition)?;
+    crate::driver::local::LocalDriver::new(path.trim(), false)?;
     Ok(())
 }
 

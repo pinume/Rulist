@@ -23,15 +23,14 @@ pub struct StorageManager {
 impl StorageManager {
     pub async fn load_from_db(pool: &DbPool) -> Result<Self> {
         let rows = sqlx::query_as::<_, Storage>(
-            "SELECT * FROM `x_storages` WHERE `disabled` = 0 ORDER BY `order` ASC, `id` ASC",
+            "SELECT `id`, `mount_path`, `local_path`, `show_hidden` FROM `x_storages` ORDER BY `id` ASC",
         )
         .fetch_all(pool)
         .await?;
 
         let mut storages = Vec::new();
         for storage in rows {
-            let addition = storage.addition.clone().unwrap_or_default();
-            match LocalDriver::new(&addition) {
+            match LocalDriver::new(&storage.local_path, storage.show_hidden) {
                 Ok(driver) => storages.push(MountedStorage { storage, driver }),
                 Err(error) => {
                     tracing::warn!(
@@ -39,11 +38,6 @@ impl StorageManager {
                         storage.mount_path,
                         error
                     );
-                    let _ =
-                        sqlx::query("UPDATE `x_storages` SET `status` = 'invalid' WHERE `id` = ?")
-                            .bind(storage.id)
-                            .execute(pool)
-                            .await;
                 }
             }
         }
@@ -124,9 +118,8 @@ impl StorageManager {
         self.find_storage(req_path)
             .map(|(mounted, _)| {
                 format!(
-                    "id={}:add={}",
-                    mounted.storage.id,
-                    mounted.storage.addition.as_deref().unwrap_or("")
+                    "id={}:path={}:hidden={}",
+                    mounted.storage.id, mounted.storage.local_path, mounted.storage.show_hidden
                 )
             })
             .unwrap_or_default()
