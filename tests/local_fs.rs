@@ -32,6 +32,19 @@ async fn rejects_symlink_escape() {
 }
 
 #[tokio::test]
+async fn rejects_special_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let socket_path = temp.path().join("test.sock");
+    let _listener = std::os::unix::net::UnixListener::bind(&socket_path).unwrap();
+    let fs = driver(temp.path());
+
+    let entries = fs.list("").await.unwrap();
+    assert!(!entries.iter().any(|entry| entry.name == "test.sock"));
+    assert!(fs.get("test.sock").await.is_err());
+    assert!(fs.open("test.sock").await.is_err());
+}
+
+#[tokio::test]
 async fn hidden_paths_follow_show_hidden_policy() {
     let temp = tempfile::tempdir().unwrap();
     tokio::fs::create_dir_all(temp.path().join(".secret"))

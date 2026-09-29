@@ -114,6 +114,13 @@ impl LocalFs {
                 if file_type.is_symlink() {
                     continue;
                 }
+                if !file_type.is_file() && !file_type.is_dir() {
+                    tracing::debug!(
+                        path = ?entry.path(),
+                        "skipping unsupported filesystem entry"
+                    );
+                    continue;
+                }
                 let Ok(meta) = std::fs::metadata(entry.path()) else {
                     continue;
                 };
@@ -141,9 +148,13 @@ impl LocalFs {
 
     pub async fn get(&self, subpath: &str) -> Result<FileEntry> {
         let full_path = self.safe_resolve(subpath)?;
-        let meta = fs::metadata(&full_path)
+        let meta = fs::symlink_metadata(&full_path)
             .await
             .with_context(|| format!("file not found: {:?}", full_path))?;
+        let file_type = meta.file_type();
+        if !file_type.is_file() && !file_type.is_dir() {
+            anyhow::bail!("unsupported filesystem entry type");
+        }
         let file_name = full_path
             .file_name()
             .map(|name| name.to_string_lossy().to_string())
@@ -165,6 +176,12 @@ impl LocalFs {
 
     pub async fn open(&self, subpath: &str) -> Result<fs::File> {
         let full_path = self.safe_resolve(subpath)?;
+        let meta = fs::symlink_metadata(&full_path)
+            .await
+            .with_context(|| format!("failed to inspect file: {:?}", full_path))?;
+        if !meta.file_type().is_file() {
+            anyhow::bail!("path is not a regular file");
+        }
         fs::File::open(&full_path)
             .await
             .with_context(|| format!("failed to open file: {:?}", full_path))
