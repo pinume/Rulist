@@ -1,12 +1,12 @@
 import { createSignal } from "solid-js"
 import {
   can as hasPermission,
-  User,
+  SessionUser,
   UserPermissionBits,
   UserPermissions,
 } from "~/types"
 
-const [currentUser, setCurrentUser] = createSignal<User | null>(null)
+const [currentUser, setCurrentUser] = createSignal<SessionUser | null>(null)
 
 type Permission = (typeof UserPermissions)[number]
 export const can = (permission: Permission) => {

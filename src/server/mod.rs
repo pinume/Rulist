@@ -4,7 +4,6 @@ pub mod preview;
 mod routes;
 mod security;
 pub mod stream;
-pub mod users;
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
@@ -59,8 +58,8 @@ pub async fn run_server(config: Config, pool: DbPool) -> Result<(), anyhow::Erro
     });
     let app = build_app(state);
 
-    let ip: IpAddr = config.server.address.parse()?;
-    let addr = SocketAddr::new(ip, config.server.port);
+    let ip: IpAddr = config.scheme.address.parse()?;
+    let addr = SocketAddr::new(ip, config.scheme.http_port);
     if addr.ip() != IpAddr::V4(Ipv4Addr::LOCALHOST) && addr.ip() != IpAddr::V6(Ipv6Addr::LOCALHOST)
     {
         anyhow::bail!(

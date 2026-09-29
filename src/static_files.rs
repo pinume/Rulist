@@ -66,8 +66,8 @@ pub fn render_html(site_title: &str) -> String {
 }
 
 pub async fn manifest_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let site_title = &state.config.ui.site_title;
-    let logo = &state.config.ui.logo;
+    let site_title = &state.config.site.site_title;
+    let logo = &state.config.site.logo;
     let logo_first = logo.lines().next().unwrap_or(&logo).trim();
     let icons = if logo.trim().is_empty()
         || logo.trim() == "favicon.ico"
@@ -98,7 +98,7 @@ pub async fn manifest_handler(State(state): State<Arc<AppState>>) -> impl IntoRe
 }
 
 pub async fn favicon_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let favicon = &state.config.ui.favicon;
+    let favicon = &state.config.site.favicon;
     if !favicon.trim().is_empty() {
         return Redirect::temporary(&favicon).into_response();
     }
@@ -112,11 +112,11 @@ pub async fn favicon_handler(State(state): State<Arc<AppState>>) -> impl IntoRes
     StatusCode::NOT_FOUND.into_response()
 }
 
-pub async fn robots_handler() -> impl IntoResponse {
+pub async fn robots_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
-        .body(Body::from("User-agent: *\nAllow: /\n"))
+        .body(Body::from(state.config.site.robots_txt.clone()))
         .unwrap()
         .into_response()
 }
@@ -149,7 +149,7 @@ pub async fn spa_fallback_handler(
         return response;
     }
 
-    let html = render_html(&state.config.ui.site_title);
+    let html = render_html(&state.config.site.site_title);
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")

@@ -14,6 +14,7 @@ use tokio_util::io::ReaderStream;
 
 use crate::db::get_user_by_id;
 use crate::filesystem::local::LocalFs;
+use crate::server::files::sign_context;
 use crate::server::{SharedState, authenticate_user, encode_url_path};
 use crate::sign::verify_sign;
 
@@ -83,15 +84,8 @@ async fn stream_file(
             Ok(Some(user)) if !user.disabled => user,
             _ => return (StatusCode::FORBIDDEN, "Invalid download link signature").into_response(),
         };
-        let context = format!("uid={}:root={}", user.id, user.local_path);
-        if verify_sign(
-            &state.config.security.signing_secret,
-            &clean_path,
-            &context,
-            &s,
-        )
-        .is_err()
-        {
+        let context = sign_context(&user);
+        if verify_sign(&state.config.jwt_secret, &clean_path, &context, &s).is_err() {
             return (
                 StatusCode::FORBIDDEN,
                 "Invalid or expired download link signature",

@@ -8,11 +8,11 @@ use serde::Serialize;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-use super::{SharedState, api_success, auth, files, preview, stream, users};
+use super::{SharedState, api_success, auth, files, preview, stream};
 
 pub fn build_app(state: SharedState) -> Router {
     let mut cors = CorsLayer::new().allow_methods(Any).allow_headers(Any);
-    if state.config.server.allow_cors {
+    if state.config.scheme.allow_cors {
         cors = cors.allow_origin(Any);
     }
 
@@ -36,7 +36,6 @@ pub fn build_app(state: SharedState) -> Router {
         .route("/api/public/settings", get(public_settings_handler))
         .route("/api/auth/login", post(auth::login_handler))
         .route("/api/me", get(auth::current_user_handler))
-        .route("/api/me/update", post(auth::update_current_handler))
         .route("/api/auth/logout", get(auth::logout_handler))
         .route("/api/fs/list", post(files::list_handler))
         .route("/api/fs/get", post(files::get_handler))
@@ -50,20 +49,6 @@ pub fn build_app(state: SharedState) -> Router {
         .route("/api/fs/batch_rename", post(files::batch_rename_handler))
         .route("/api/fs/link", post(files::link_handler))
         .route("/api/fs/preview", post(preview::preview_handler))
-        .route("/api/admin/user/list", get(users::admin_user_list_handler))
-        .route("/api/admin/user/get", get(users::admin_user_get_handler))
-        .route(
-            "/api/admin/user/create",
-            post(users::admin_user_create_handler),
-        )
-        .route(
-            "/api/admin/user/update",
-            post(users::admin_user_update_handler),
-        )
-        .route(
-            "/api/admin/user/delete",
-            post(users::admin_user_delete_handler),
-        )
         .route(
             "/d/{*path}",
             get(stream::raw_download_handler).head(stream::raw_download_handler),
@@ -93,15 +78,15 @@ struct PublicConfig {
 }
 
 async fn public_settings_handler(State(state): State<SharedState>) -> Response {
-    let ui = &state.config.ui;
+    let site = &state.config.site;
     api_success(PublicConfig {
-        site_title: ui.site_title.clone(),
-        logo: ui.logo.clone(),
-        favicon: ui.favicon.clone(),
-        main_color: ui.main_color.clone(),
-        hide_files: ui.hide_files.clone(),
-        package_download: ui.package_download,
-        announcement: ui.announcement.clone(),
+        site_title: site.site_title.clone(),
+        logo: site.logo.clone(),
+        favicon: site.favicon.clone(),
+        main_color: site.main_color.clone(),
+        hide_files: site.hide_files.clone(),
+        package_download: site.package_download,
+        announcement: site.announcement.clone(),
         version: format!("v{}-rust", env!("CARGO_PKG_VERSION")),
     })
 }

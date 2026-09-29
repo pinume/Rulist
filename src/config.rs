@@ -7,11 +7,30 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ServerConfig {
+pub struct DatabaseConfig {
+    #[serde(default = "default_db_file")]
+    pub db_file: String,
+}
+
+fn default_db_file() -> String {
+    "data.db".to_string()
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self {
+            db_file: default_db_file(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SchemeConfig {
     #[serde(default = "default_address")]
     pub address: String,
-    #[serde(default = "default_port")]
-    pub port: u16,
+    #[serde(default = "default_http_port")]
+    pub http_port: u16,
     #[serde(default)]
     pub allow_cors: bool,
 }
@@ -20,15 +39,15 @@ fn default_address() -> String {
     "127.0.0.1".to_string()
 }
 
-const fn default_port() -> u16 {
+const fn default_http_port() -> u16 {
     5244
 }
 
-impl Default for ServerConfig {
+impl Default for SchemeConfig {
     fn default() -> Self {
         Self {
             address: default_address(),
-            port: default_port(),
+            http_port: default_http_port(),
             allow_cors: false,
         }
     }
@@ -36,34 +55,7 @@ impl Default for ServerConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct SecurityConfig {
-    pub jwt_secret: String,
-    pub signing_secret: String,
-    #[serde(default = "default_token_expires_hours")]
-    pub token_expires_hours: u32,
-}
-
-fn default_secret() -> String {
-    rand_string(32)
-}
-
-const fn default_token_expires_hours() -> u32 {
-    48
-}
-
-impl Default for SecurityConfig {
-    fn default() -> Self {
-        Self {
-            jwt_secret: default_secret(),
-            signing_secret: default_secret(),
-            token_expires_hours: default_token_expires_hours(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct UiConfig {
+pub struct SiteConfig {
     #[serde(default = "default_site_title")]
     pub site_title: String,
     #[serde(default = "default_logo")]
@@ -76,6 +68,8 @@ pub struct UiConfig {
     pub hide_files: Vec<String>,
     #[serde(default = "default_package_download")]
     pub package_download: bool,
+    #[serde(default = "default_robots_txt")]
+    pub robots_txt: String,
     #[serde(default)]
     pub announcement: String,
 }
@@ -93,14 +87,18 @@ fn default_main_color() -> String {
 }
 
 fn default_hide_files() -> Vec<String> {
-    vec!["/README.md".to_string()]
+    vec!["/\\/README.md/i".to_string()]
 }
 
 const fn default_package_download() -> bool {
     true
 }
 
-impl Default for UiConfig {
+fn default_robots_txt() -> String {
+    "User-agent: *\nAllow: /\n".to_string()
+}
+
+impl Default for SiteConfig {
     fn default() -> Self {
         Self {
             site_title: default_site_title(),
@@ -109,6 +107,7 @@ impl Default for UiConfig {
             main_color: default_main_color(),
             hide_files: default_hide_files(),
             package_download: default_package_download(),
+            robots_txt: default_robots_txt(),
             announcement: String::new(),
         }
     }
@@ -116,39 +115,34 @@ impl Default for UiConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DatabaseConfig {
-    #[serde(default = "default_db_file")]
-    pub file: String,
-}
-
-fn default_db_file() -> String {
-    "data.db".to_string()
-}
-
-impl Default for DatabaseConfig {
-    fn default() -> Self {
-        Self {
-            file: default_db_file(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Config {
-    pub server: ServerConfig,
-    pub security: SecurityConfig,
-    pub ui: UiConfig,
+    pub jwt_secret: String,
+    #[serde(default = "default_token_expires_in")]
+    pub token_expires_in: u32,
+    #[serde(default)]
     pub database: DatabaseConfig,
+    #[serde(default)]
+    pub scheme: SchemeConfig,
+    #[serde(default)]
+    pub site: SiteConfig,
+}
+
+fn default_secret() -> String {
+    rand_string(32)
+}
+
+const fn default_token_expires_in() -> u32 {
+    48
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            server: ServerConfig::default(),
-            security: SecurityConfig::default(),
-            ui: UiConfig::default(),
+            jwt_secret: default_secret(),
+            token_expires_in: default_token_expires_in(),
             database: DatabaseConfig::default(),
+            scheme: SchemeConfig::default(),
+            site: SiteConfig::default(),
         }
     }
 }
@@ -162,8 +156,7 @@ impl Config {
         if config_path.exists() {
             fs::set_permissions(&config_path, fs::Permissions::from_mode(0o600))?;
             let content = fs::read_to_string(&config_path)?;
-            let config = serde_json::from_str(&content)?;
-            Ok((config, config_path))
+            Ok((serde_json::from_str(&content)?, config_path))
         } else {
             let config = Config::default();
             let json_str = serde_json::to_string_pretty(&config)?;
@@ -178,7 +171,7 @@ impl Config {
     }
 
     pub fn resolved_db_path(&self, data_dir: &Path) -> PathBuf {
-        let path = Path::new(&self.database.file);
+        let path = Path::new(&self.database.db_file);
         if path.is_absolute() {
             path.to_path_buf()
         } else {

@@ -46,8 +46,8 @@ export const fsList = (
   )
 }
 
-export const fsDirs = (path = "/", forceRoot = false): PResp<FileEntry[]> => {
-  return r.post("/fs/dirs", { path, force_root: forceRoot })
+export const fsDirs = (path = "/"): PResp<FileEntry[]> => {
+  return r.post("/fs/dirs", { path })
 }
 
 export const fsMkdir = (path: string): PEmptyResp => {

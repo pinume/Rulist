@@ -291,8 +291,8 @@ async fn service_info(config: &Config, data_dir: &Path, pool: &DbPool) -> Result
         env!("CARGO_PKG_VERSION"),
         data_dir.display(),
         config.resolved_db_path(data_dir).display(),
-        config.server.address,
-        config.server.port,
+        config.scheme.address,
+        config.scheme.http_port,
         admin_dir,
         users.len(),
         data_dir.join("config.json").display()

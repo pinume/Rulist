@@ -16,7 +16,7 @@ pub type DbPool = Pool<Sqlite>;
 async fn init_schema(pool: &DbPool) -> Result<()> {
     for statement in [
         r#"
-        CREATE TABLE IF NOT EXISTS `x_users` (
+        CREATE TABLE IF NOT EXISTS `users` (
             `id` INTEGER PRIMARY KEY AUTOINCREMENT,
             `username` TEXT NOT NULL UNIQUE,
             `pwd_hash` TEXT NOT NULL,
@@ -38,21 +38,21 @@ async fn init_schema(pool: &DbPool) -> Result<()> {
         )
         "#,
         r#"
-        CREATE TABLE IF NOT EXISTS `x_login_attempts` (
+        CREATE TABLE IF NOT EXISTS `login_attempts` (
             `username_hash` TEXT PRIMARY KEY,
             `failed_count` INTEGER NOT NULL,
             `window_started` INTEGER NOT NULL
         )
         "#,
         r#"
-        CREATE TABLE IF NOT EXISTS `x_revoked_tokens` (
+        CREATE TABLE IF NOT EXISTS `revoked_tokens` (
             `jti` TEXT PRIMARY KEY,
             `expires_at` INTEGER NOT NULL
         )
         "#,
         r#"
-        CREATE UNIQUE INDEX IF NOT EXISTS `x_users_single_admin`
-            ON `x_users` (`role`) WHERE `role` = 2
+        CREATE UNIQUE INDEX IF NOT EXISTS `users_single_admin`
+            ON `users` (`role`) WHERE `role` = 2
         "#,
     ] {
         sqlx::query(statement).execute(pool).await?;

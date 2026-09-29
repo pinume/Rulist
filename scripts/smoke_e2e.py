@@ -2,6 +2,7 @@
 """Run a self-contained HTTP smoke test against a built Rulist binary."""
 
 import json
+import os
 import re
 import socket
 import sqlite3
@@ -11,14 +12,13 @@ import tempfile
 import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
 BINARY = Path(sys.argv[1]) if len(sys.argv) == 2 else ROOT / "target" / "debug" / "rulist"
 CONTENT = b"Rulist E2E smoke test\n"
-PASSWORD = "smoke-pass-123"
 
 
 def pick_port():
@@ -57,8 +57,10 @@ def main():
     with tempfile.TemporaryDirectory(prefix="rulist-smoke-") as tmp:
         tmp_path = Path(tmp)
         data_dir = tmp_path / "data"
-        storage_dir = tmp_path / "storage"
+        storage_dir = tmp_path / "home"
         storage_dir.mkdir()
+        env = os.environ.copy()
+        env["HOME"] = str(storage_dir.resolve())
 
         init_output = subprocess.run(
             [str(BINARY), "--data-dir", str(data_dir), "interactive"],
@@ -66,6 +68,7 @@ def main():
             check=True,
             text=True,
             capture_output=True,
+            env=env,
         ).stdout
         match = re.search(r"Password: (\S+)", init_output)
         if not match:
@@ -73,12 +76,15 @@ def main():
         initial_password = match.group(1)
 
         with sqlite3.connect(data_dir / "data.db") as connection:
-            updated = connection.execute(
-                "UPDATE x_users SET local_path = ? WHERE username = ?",
-                (str(storage_dir.resolve()), "admin"),
-            ).rowcount
-            if updated != 1:
-                raise AssertionError(f"expected one admin user root, updated {updated}")
+            tables = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+                if not row[0].startswith("sqlite_")
+            }
+            if tables != {"users", "login_attempts", "revoked_tokens"}:
+                raise AssertionError(f"unexpected fresh database tables: {tables}")
 
         port = pick_port()
         base = f"http://127.0.0.1:{port}"
@@ -88,6 +94,7 @@ def main():
                 [str(BINARY), "--data-dir", str(data_dir), "server", "--host", "127.0.0.1", "--port", str(port)],
                 stdout=log,
                 stderr=subprocess.STDOUT,
+                env=env,
             )
             try:
                 for _ in range(50):
@@ -121,26 +128,14 @@ def main():
 
                 status, login = api(base, "/api/auth/login", {"username": "admin", "password": initial_password})
                 expect(200, status, "initial password login")
-                setup_token = login["data"]["token"]
-
-                status, update = api(
-                    base,
-                    "/api/me/update",
-                    {"password": PASSWORD, "current_password": initial_password},
-                    setup_token,
-                )
-                expect(200, status, "set password")
-                if update["code"] != 200:
-                    raise AssertionError(f"set password API error: {update}")
-
-                status, login = api(base, "/api/auth/login", {"username": "admin", "password": PASSWORD})
-                expect(200, status, "password login")
                 token = login["data"]["token"]
                 status, raw_me = http(
                     f"{base}/api/me", headers={"Authorization": f"Bearer {token}"}
                 )
                 expect(200, status, "admin current user")
                 admin = json.loads(raw_me)["data"]
+                if set(admin) != {"id", "username", "role", "permission", "otp"}:
+                    raise AssertionError(f"/api/me exposed fields outside SessionUser: {admin}")
 
                 upload_headers = {
                     "Authorization": f"Bearer {token}",
@@ -165,39 +160,18 @@ def main():
 
                 status, link = api(base, "/api/fs/link", {"path": "/smoke.txt"}, token)
                 expect(200, status, "signed link")
+                query = parse_qs(urlsplit(link["data"]["url"]).query)
+                if query.get("uid") != [str(admin["id"])] or "sign" not in query:
+                    raise AssertionError(f"signed link lacks its user identity: {link}")
+                if str(storage_dir) in link["data"]["url"]:
+                    raise AssertionError("signed link exposed the server filesystem path")
                 status, downloaded = http(f"{base}{link['data']['url']}")
                 expect(200, status, "signed download")
                 if downloaded != CONTENT:
                     raise AssertionError("signed download bytes differ from uploaded bytes")
 
-                user_root = storage_dir / "user"
-                user_root.mkdir()
-                (user_root / "only-user.txt").write_text("user root\n")
-                status, created = api(
-                    base,
-                    "/api/admin/user/create",
-                    {
-                        "username": "smoke-user",
-                        "password": "smoke-user-pass",
-                        "local_path": str(user_root),
-                    },
-                    token,
-                )
-                expect(200, status, "create local-root user")
-                if created["code"] != 200:
-                    raise AssertionError(f"create local-root user API error: {created}")
-                _, user_login = api(
-                    base,
-                    "/api/auth/login",
-                    {"username": "smoke-user", "password": "smoke-user-pass"},
-                )
-                user_token = user_login["data"]["token"]
-                status, user_listing = api(base, "/api/fs/list", {"path": "/"}, user_token)
-                expect(200, status, "user local root list")
-                if [item["name"] for item in user_listing["data"]["content"]] != ["only-user.txt"]:
-                    raise AssertionError(f"user escaped local root: {user_listing}")
-                status, _ = api(base, "/api/fs/list", {"path": "/../smoke.txt"}, user_token)
-                expect(403, status, "user traversal rejection")
+                status, _ = api(base, "/api/fs/list", {"path": "/../smoke.txt"}, token)
+                expect(403, status, "root traversal rejection")
 
                 unsigned_path = urlsplit(link["data"]["url"]).path
                 status, _ = http(f"{base}{unsigned_path}")
@@ -214,25 +188,46 @@ def main():
                 if (storage_dir / "smoke.txt").read_bytes() != CONTENT:
                     raise AssertionError("duplicate upload changed the original file")
 
-                status, updated = api(
-                    base,
-                    "/api/admin/user/update",
-                    {
-                        "id": admin["id"],
-                        "username": admin["username"],
-                        "local_path": str(user_root.resolve()),
-                    },
-                    token,
-                )
-                expect(200, status, "update admin local root")
-                if updated["code"] != 200:
-                    raise AssertionError(f"update admin local root API error: {updated}")
+                status, _ = http(f"{base}/api/auth/logout", headers={"Authorization": f"Bearer {token}"})
+                expect(200, status, "logout")
+                status, _ = api(base, "/api/fs/list", {"path": "/"}, token)
+                expect(401, status, "revoked JWT")
+
+                status, login = api(base, "/api/auth/login", {"username": "admin", "password": initial_password})
+                expect(200, status, "fresh login after logout")
+                token = login["data"]["token"]
+
+                alternate_root = tmp_path / "alternate-root"
+                alternate_root.mkdir()
+                with sqlite3.connect(data_dir / "data.db") as connection:
+                    connection.execute(
+                        "UPDATE users SET local_path = ? WHERE id = ?",
+                        (str(alternate_root.resolve()), admin["id"]),
+                    )
                 status, _ = http(f"{base}{link['data']['url']}")
                 expect(403, status, "old signed link after root change")
-                status, admin_listing = api(base, "/api/fs/list", {"path": "/"}, token)
-                expect(200, status, "admin new local root list")
-                if [item["name"] for item in admin_listing["data"]["content"]] != ["only-user.txt"]:
-                    raise AssertionError(f"admin local root did not change: {admin_listing}")
+                with sqlite3.connect(data_dir / "data.db") as connection:
+                    connection.execute(
+                        "UPDATE users SET local_path = ? WHERE id = ?",
+                        (str(storage_dir.resolve()), admin["id"]),
+                    )
+
+                status, link = api(base, "/api/fs/link", {"path": "/smoke.txt"}, token)
+                expect(200, status, "signed link before password timestamp change")
+                with sqlite3.connect(data_dir / "data.db") as connection:
+                    connection.execute("UPDATE users SET pwd_ts = pwd_ts + 1 WHERE id = ?", (admin["id"],))
+                status, _ = http(f"{base}{link['data']['url']}")
+                expect(403, status, "old signed link after password timestamp change")
+
+                status, login = api(base, "/api/auth/login", {"username": "admin", "password": initial_password})
+                expect(200, status, "fresh login after password timestamp change")
+                token = login["data"]["token"]
+                status, link = api(base, "/api/fs/link", {"path": "/smoke.txt"}, token)
+                expect(200, status, "signed link before disabling user")
+                with sqlite3.connect(data_dir / "data.db") as connection:
+                    connection.execute("UPDATE users SET disabled = 1 WHERE id = ?", (admin["id"],))
+                status, _ = http(f"{base}{link['data']['url']}")
+                expect(403, status, "signed link after user disabled")
             finally:
                 server.terminate()
                 try:

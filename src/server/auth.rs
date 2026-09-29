@@ -4,7 +4,7 @@ use axum::response::Response;
 
 use crate::auth::{generate_jwt, hash_identifier, matching_totp_step, parse_jwt, verify_password};
 use crate::db::PERM_ALLOW_EMPTY_PASSWORD;
-use crate::db::get_user_by_name;
+use crate::db::{SessionUser, get_user_by_name};
 use crate::server::{SharedState, api_error, api_success, authenticate_user};
 
 const LOGIN_FAILURE_LIMIT: i64 = 5;
@@ -21,13 +21,6 @@ pub struct LoginReq {
     pub password: String,
     #[serde(default)]
     pub otp_code: Option<String>,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct UpdateCurrentReq {
-    pub username: Option<String>,
-    pub password: Option<String>,
-    pub current_password: Option<String>,
 }
 
 fn login_attempt_key(username: &str) -> String {
@@ -181,8 +174,8 @@ pub async fn login_handler(
         user.id,
         &user.username,
         user.pwd_ts,
-        &state.config.security.jwt_secret,
-        state.config.security.token_expires_hours,
+        &state.config.jwt_secret,
+        state.config.token_expires_in,
     ) {
         Ok(token) => {
             if let Err(err) = crate::db::clear_login_attempt(&state.pool, &attempt_key).await {
@@ -215,7 +208,7 @@ pub async fn logout_handler(State(state): State<SharedState>, headers: HeaderMap
     };
     let token = auth_header.strip_prefix("Bearer ").unwrap_or(auth_header);
 
-    if let Ok(claims) = parse_jwt(token, &state.config.security.jwt_secret) {
+    if let Ok(claims) = parse_jwt(token, &state.config.jwt_secret) {
         if let Err(err) = crate::db::revoke_token(&state.pool, &claims.jti, claims.exp as i64).await
         {
             tracing::error!(error = %err, "failed to revoke jwt");
@@ -235,125 +228,8 @@ pub async fn current_user_handler(
     headers: HeaderMap,
 ) -> Response {
     if let Some(user) = authenticate_user(&headers, &state).await {
-        api_success(user)
+        api_success(SessionUser::from(&user))
     } else {
         api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required")
     }
-}
-
-pub async fn update_current_handler(
-    headers: HeaderMap,
-    State(state): State<SharedState>,
-    Json(req): Json<UpdateCurrentReq>,
-) -> Response {
-    let user = match authenticate_user(&headers, &state).await {
-        Some(user) => user,
-        None => return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required"),
-    };
-
-    let username_changed = req
-        .username
-        .as_deref()
-        .map(|name| !name.trim().is_empty() && name.trim() != user.username)
-        .unwrap_or(false);
-    let password_changed = req.password.is_some()
-        && (!user.is_admin() || req.password.as_deref().is_some_and(|pwd| !pwd.is_empty()));
-
-    if user.is_admin() && username_changed {
-        return api_error(
-            StatusCode::BAD_REQUEST,
-            400,
-            "admin username cannot be changed",
-        );
-    }
-    if user.password_unset && !password_changed {
-        return api_error(StatusCode::BAD_REQUEST, 400, "set a new password first");
-    }
-
-    if (username_changed || password_changed) && !user.password_unset {
-        let Some(current_password) = req.current_password.as_deref() else {
-            return api_error(StatusCode::BAD_REQUEST, 400, "Current password is required");
-        };
-        match verify_password_bounded(current_password, &user.pwd_hash).await {
-            Ok(true) => {}
-            Ok(false) => {
-                return api_error(StatusCode::FORBIDDEN, 403, "Current password is incorrect");
-            }
-            Err(status) => return password_verify_error(status),
-        }
-    }
-
-    if let Some(new_password) = &req.password {
-        if new_password.is_empty() {
-            return api_error(
-                StatusCode::BAD_REQUEST,
-                400,
-                "Password cannot be empty in personal profile",
-            );
-        }
-        if crate::auth::validate_password(new_password, user.is_admin(), user.permission).is_err() {
-            return api_error(
-                StatusCode::BAD_REQUEST,
-                400,
-                "Password length must be between 8 and 128 characters",
-            );
-        }
-    }
-
-    let clean_name = req.username.as_deref().map(str::trim).unwrap_or("");
-    if username_changed {
-        if clean_name.len() > 64 {
-            return api_error(
-                StatusCode::BAD_REQUEST,
-                400,
-                "Username length cannot exceed 64 characters",
-            );
-        }
-        match crate::db::username_taken(&state.pool, clean_name, user.id).await {
-            Ok(true) => {
-                return api_error(StatusCode::CONFLICT, 409, "Username already exists");
-            }
-            Ok(false) => {}
-            Err(err) => {
-                tracing::error!(error = %err, "failed to check existing username");
-                return api_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    500,
-                    "Internal server error",
-                );
-            }
-        }
-    }
-
-    if !username_changed && !password_changed {
-        return api_success(());
-    }
-
-    match crate::db::update_profile(
-        &state.pool,
-        &user,
-        username_changed.then_some(clean_name),
-        password_changed.then_some(req.password.as_deref().unwrap_or_default()),
-    )
-    .await
-    {
-        Ok(false) => {
-            return api_error(
-                StatusCode::CONFLICT,
-                409,
-                "Password has been changed concurrently, please log in again",
-            );
-        }
-        Ok(true) => {}
-        Err(err) => {
-            tracing::error!(error = %err, "failed to update profile");
-            return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Internal server error",
-            );
-        }
-    }
-
-    api_success(())
 }

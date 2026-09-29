@@ -142,7 +142,7 @@ async fn unknown_user_login_is_recorded_before_password_verification() {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert_eq!(body["code"], 401);
 
-    let attempts: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `x_login_attempts`")
+    let attempts: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `login_attempts`")
         .fetch_one(&pool)
         .await
         .unwrap();
@@ -232,28 +232,35 @@ async fn database_rejects_admin_mutations() {
 }
 
 #[tokio::test]
-async fn signing_secret_is_not_an_admin_credential() {
+async fn current_user_returns_only_session_fields() {
     let temp = tempfile::tempdir().unwrap();
     let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
         .await
         .unwrap();
-    let config = Config::default();
-    let signing_secret = config.security.signing_secret.clone();
-    let app = build_app(Arc::new(AppState {
-        pool: pool.clone(),
-        config,
-    }));
-
-    let (status, body) = json_request(
-        &app,
-        "GET",
-        "/api/admin/user/list",
-        Some(&signing_secret),
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
-    assert_eq!(body["code"], 401);
+    db::set_admin_password(&pool, "AdminPass123!")
+        .await
+        .unwrap();
+    let app = app_for(&pool).await;
+    let token = login_token(&app, "admin", "AdminPass123!").await;
+    let (status, body) = json_request(&app, "GET", "/api/me", Some(&token), Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["data"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>(),
+        ["id", "otp", "permission", "role", "username"]
+            .into_iter()
+            .collect()
+    );
+    assert!(body["data"]["local_path"].is_null());
+    assert!(body["data"]["pwd_hash"].is_null());
+    assert!(body["data"]["pwd_ts"].is_null());
+    assert!(body["data"]["otp_secret"].is_null());
+    assert!(body["data"]["password_unset"].is_null());
+    assert!(body["data"]["disabled"].is_null());
 }
 
 #[tokio::test]
@@ -280,39 +287,11 @@ async fn disabling_passwordless_login_requires_a_nonempty_password() {
     )
     .await
     .unwrap();
+    assert!(db::set_user_permissions(&pool, user_id, 0).await.is_err());
+    db::set_user_password_and_permission(&pool, user_id, "NewPass123!", 0)
+        .await
+        .unwrap();
     let app = app_for(&pool).await;
-    let admin_token = login_token(&app, "admin", "AdminPass123!").await;
-
-    let (status, rejected) = json_request(
-        &app,
-        "POST",
-        "/api/admin/user/update",
-        Some(&admin_token),
-        json!({
-            "id": user_id,
-            "username": "guest",
-            "permission": 0
-        }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(rejected["code"], 400);
-
-    let (status, updated) = json_request(
-        &app,
-        "POST",
-        "/api/admin/user/update",
-        Some(&admin_token),
-        json!({
-            "id": user_id,
-            "username": "guest",
-            "password": "NewPass123!",
-            "permission": 0
-        }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(updated["code"], 200);
 
     let user = db::get_user_by_id(&pool, user_id).await.unwrap().unwrap();
     assert!(!user.password_unset);
@@ -355,29 +334,16 @@ async fn admin_password_update_keeps_pwd_ts_monotonic() {
         .unwrap()
         .as_secs() as i64
         + 3600;
-    sqlx::query("UPDATE `x_users` SET `pwd_ts` = ? WHERE `id` = ?")
+    sqlx::query("UPDATE `users` SET `pwd_ts` = ? WHERE `id` = ?")
         .bind(old_pwd_ts)
         .bind(admin.id)
         .execute(&pool)
         .await
         .unwrap();
 
-    let app = app_for(&pool).await;
-    let admin_token = login_token(&app, "admin", "AdminPass123!").await;
-    let (status, updated) = json_request(
-        &app,
-        "POST",
-        "/api/admin/user/update",
-        Some(&admin_token),
-        json!({
-            "id": admin.id,
-            "username": "admin",
-            "password": "NextAdminPass123!"
-        }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(updated["code"], 200);
+    db::set_admin_password(&pool, "NextAdminPass123!")
+        .await
+        .unwrap();
 
     let after = db::get_admin(&pool).await.unwrap().unwrap();
     assert_eq!(after.pwd_ts, old_pwd_ts + 1);
@@ -409,25 +375,13 @@ async fn user_update_rejects_invalid_local_path_without_mutating_user() {
     .unwrap();
     let before = db::get_user_by_id(&pool, user_id).await.unwrap().unwrap();
 
-    let app = app_for(&pool).await;
-    let admin_token = login_token(&app, "admin", "AdminPass123!").await;
-    let (status, body) = json_request(
-        &app,
-        "POST",
-        "/api/admin/user/update",
-        Some(&admin_token),
-        json!({
-            "id": user_id,
-            "username": "changed-guest",
-            "password": "ChangedPass123!",
-            "permission": 7,
-            "disabled": true,
-            "local_path": missing_root,
-        }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(body["code"], 400);
+    let mut invalid = before.clone();
+    invalid.username = "changed-guest".to_string();
+    invalid.pwd_hash = rulist::auth::hash_password("ChangedPass123!");
+    invalid.permission = 7;
+    invalid.disabled = true;
+    invalid.local_path = missing_root.to_string_lossy().into_owned();
+    assert!(db::update_user(&pool, &invalid).await.is_err());
 
     let after = db::get_user_by_id(&pool, user_id).await.unwrap().unwrap();
     assert_eq!(after.id, before.id);
@@ -453,7 +407,7 @@ async fn server_rejects_addresses_other_than_exact_localhost() {
 
     for host in ["127.0.0.2", "0.0.0.0"] {
         let mut config = Config::default();
-        config.server.address = host.to_string();
+        config.scheme.address = host.to_string();
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(1),
             rulist::server::run_server(config, pool.clone()),

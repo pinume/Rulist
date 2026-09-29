@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -29,27 +29,42 @@ fn validate_username(username: &str) -> Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct User {
     pub id: i64,
     pub username: String,
-    #[serde(skip_serializing)]
     pub pwd_hash: String,
-    #[serde(skip_serializing)]
     pub pwd_ts: i64,
     pub local_path: String,
     pub role: i32,
     pub disabled: bool,
     pub permission: i32,
-    #[serde(default)]
     pub password_unset: bool,
-    #[serde(skip_serializing)]
     pub otp_secret: Option<String>,
-    #[serde(skip_serializing)]
     pub last_otp_step: i64,
     #[sqlx(default)]
-    #[serde(default)]
     pub otp: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionUser {
+    pub id: i64,
+    pub username: String,
+    pub role: i32,
+    pub permission: i32,
+    pub otp: bool,
+}
+
+impl From<&User> for SessionUser {
+    fn from(user: &User) -> Self {
+        Self {
+            id: user.id,
+            username: user.username.clone(),
+            role: user.role,
+            permission: user.permission,
+            otp: user.otp,
+        }
+    }
 }
 
 impl User {
@@ -67,8 +82,8 @@ impl User {
 }
 
 pub(crate) async fn validate_admin_invariants(pool: &DbPool) -> Result<()> {
-    let invalid_admins: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `x_users` WHERE `role` = ? AND (`username` != 'admin' OR `disabled` != 0)").bind(ROLE_ADMIN).fetch_one(pool).await?;
-    let admin_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `x_users` WHERE `role` = ?")
+    let invalid_admins: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `users` WHERE `role` = ? AND (`username` != 'admin' OR `disabled` != 0)").bind(ROLE_ADMIN).fetch_one(pool).await?;
+    let admin_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `users` WHERE `role` = ?")
         .bind(ROLE_ADMIN)
         .fetch_one(pool)
         .await?;
@@ -82,7 +97,7 @@ pub(crate) async fn validate_admin_invariants(pool: &DbPool) -> Result<()> {
 }
 
 pub(crate) async fn seed_admin(pool: &DbPool, home_path: &std::path::Path) -> Result<()> {
-    let admin_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `x_users` WHERE `role` = ?")
+    let admin_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `users` WHERE `role` = ?")
         .bind(ROLE_ADMIN)
         .fetch_one(pool)
         .await?;
@@ -92,7 +107,7 @@ pub(crate) async fn seed_admin(pool: &DbPool, home_path: &std::path::Path) -> Re
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as i64;
-        sqlx::query("INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `local_path`, `role`, `disabled`, `permission`, `password_unset`) VALUES ('admin', ?, ?, ?, ?, 0, 0, 0)")
+        sqlx::query("INSERT INTO `users` (`username`, `pwd_hash`, `pwd_ts`, `local_path`, `role`, `disabled`, `permission`, `password_unset`) VALUES ('admin', ?, ?, ?, ?, 0, 0, 0)")
             .bind(hash_password(&initial_pwd)).bind(now_ts).bind(home_path.to_string_lossy().into_owned()).bind(ROLE_ADMIN).execute(pool).await?;
         println!(
             "\n==================================================================\n\
@@ -109,7 +124,7 @@ pub(crate) async fn seed_admin(pool: &DbPool, home_path: &std::path::Path) -> Re
 }
 
 pub async fn get_admin(pool: &DbPool) -> Result<Option<User>> {
-    let mut user = sqlx::query_as::<_, User>("SELECT * FROM `x_users` WHERE `role` = ? LIMIT 1")
+    let mut user = sqlx::query_as::<_, User>("SELECT * FROM `users` WHERE `role` = ? LIMIT 1")
         .bind(ROLE_ADMIN)
         .fetch_optional(pool)
         .await?;
@@ -144,7 +159,7 @@ pub async fn set_user_password_and_permission(
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64;
-    sqlx::query("UPDATE `x_users` SET `pwd_hash` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?), `password_unset` = ?, `permission` = ? WHERE `id` = ?")
+    sqlx::query("UPDATE `users` SET `pwd_hash` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?), `password_unset` = ?, `permission` = ? WHERE `id` = ?")
         .bind(hash_password(new_password)).bind(now_ts).bind(new_password.is_empty()).bind(permission).bind(user.id).execute(pool).await?;
     Ok(())
 }
@@ -154,11 +169,10 @@ pub async fn set_admin_password(pool: &DbPool, new_password: &str) -> Result<()>
 }
 
 pub async fn get_user_by_name(pool: &DbPool, username: &str) -> Result<Option<User>> {
-    let mut user =
-        sqlx::query_as::<_, User>("SELECT * FROM `x_users` WHERE `username` = ? LIMIT 1")
-            .bind(username)
-            .fetch_optional(pool)
-            .await?;
+    let mut user = sqlx::query_as::<_, User>("SELECT * FROM `users` WHERE `username` = ? LIMIT 1")
+        .bind(username)
+        .fetch_optional(pool)
+        .await?;
     if let Some(user) = &mut user {
         user.update_otp();
     }
@@ -166,7 +180,7 @@ pub async fn get_user_by_name(pool: &DbPool, username: &str) -> Result<Option<Us
 }
 
 pub async fn get_all_users(pool: &DbPool) -> Result<Vec<User>> {
-    let mut users = sqlx::query_as::<_, User>("SELECT * FROM `x_users` ORDER BY `id` ASC")
+    let mut users = sqlx::query_as::<_, User>("SELECT * FROM `users` ORDER BY `id` ASC")
         .fetch_all(pool)
         .await?;
     for user in &mut users {
@@ -176,7 +190,7 @@ pub async fn get_all_users(pool: &DbPool) -> Result<Vec<User>> {
 }
 
 pub async fn get_user_by_id(pool: &DbPool, id: i64) -> Result<Option<User>> {
-    let mut user = sqlx::query_as::<_, User>("SELECT * FROM `x_users` WHERE `id` = ? LIMIT 1")
+    let mut user = sqlx::query_as::<_, User>("SELECT * FROM `users` WHERE `id` = ? LIMIT 1")
         .bind(id)
         .fetch_optional(pool)
         .await?;
@@ -186,17 +200,6 @@ pub async fn get_user_by_id(pool: &DbPool, id: i64) -> Result<Option<User>> {
     Ok(user)
 }
 
-pub async fn username_taken(pool: &DbPool, username: &str, except_id: i64) -> Result<bool> {
-    Ok(sqlx::query_scalar::<_, i64>(
-        "SELECT `id` FROM `x_users` WHERE `username` = ? AND `id` != ?",
-    )
-    .bind(username)
-    .bind(except_id)
-    .fetch_optional(pool)
-    .await?
-    .is_some())
-}
-
 pub async fn delete_user(pool: &DbPool, user_id: i64) -> Result<()> {
     let user = get_user_by_id(pool, user_id)
         .await?
@@ -204,7 +207,7 @@ pub async fn delete_user(pool: &DbPool, user_id: i64) -> Result<()> {
     if user.is_admin() {
         bail!("administrator cannot be deleted");
     }
-    let result = sqlx::query("DELETE FROM `x_users` WHERE `id` = ?")
+    let result = sqlx::query("DELETE FROM `users` WHERE `id` = ?")
         .bind(user_id)
         .execute(pool)
         .await?;
@@ -215,16 +218,18 @@ pub async fn delete_user(pool: &DbPool, user_id: i64) -> Result<()> {
 }
 
 pub async fn accept_otp_step(pool: &DbPool, user_id: i64, step: i64) -> Result<bool> {
-    Ok(sqlx::query(
-        "UPDATE `x_users` SET `last_otp_step` = ? WHERE `id` = ? AND `last_otp_step` < ?",
+    Ok(
+        sqlx::query(
+            "UPDATE `users` SET `last_otp_step` = ? WHERE `id` = ? AND `last_otp_step` < ?",
+        )
+        .bind(step)
+        .bind(user_id)
+        .bind(step)
+        .execute(pool)
+        .await?
+        .rows_affected()
+            == 1,
     )
-    .bind(step)
-    .bind(user_id)
-    .bind(step)
-    .execute(pool)
-    .await?
-    .rows_affected()
-        == 1)
 }
 
 pub async fn update_user(pool: &DbPool, user: &User) -> Result<()> {
@@ -241,41 +246,12 @@ pub async fn update_user(pool: &DbPool, user: &User) -> Result<()> {
         bail!("passwordless permission is required for an unset password");
     }
     let path = canonical_local_path(&user.local_path)?;
-    let result = sqlx::query("UPDATE `x_users` SET `username` = ?, `pwd_hash` = ?, `pwd_ts` = ?, `local_path` = ?, `password_unset` = ?, `disabled` = ?, `permission` = ? WHERE `id` = ?")
+    let result = sqlx::query("UPDATE `users` SET `username` = ?, `pwd_hash` = ?, `pwd_ts` = ?, `local_path` = ?, `password_unset` = ?, `disabled` = ?, `permission` = ? WHERE `id` = ?")
         .bind(&user.username).bind(&user.pwd_hash).bind(user.pwd_ts).bind(path).bind(user.password_unset).bind(user.disabled).bind(user.permission).bind(user.id).execute(pool).await?;
     if result.rows_affected() != 1 {
         bail!("user not found");
     }
     Ok(())
-}
-
-pub async fn update_profile(
-    pool: &DbPool,
-    user: &User,
-    username: Option<&str>,
-    password: Option<&str>,
-) -> Result<bool> {
-    let mut tx = pool.begin().await?;
-    if let Some(password) = password {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-        let result = sqlx::query("UPDATE `x_users` SET `pwd_hash` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?), `password_unset` = 0 WHERE `id` = ? AND `pwd_ts` = ?")
-            .bind(hash_password(password)).bind(now).bind(user.id).bind(user.pwd_ts).execute(&mut *tx).await?;
-        if result.rows_affected() == 0 {
-            return Ok(false);
-        }
-    }
-    if let Some(username) = username {
-        sqlx::query("UPDATE `x_users` SET `username` = ? WHERE `id` = ?")
-            .bind(username)
-            .bind(user.id)
-            .execute(&mut *tx)
-            .await?;
-    }
-    tx.commit().await?;
-    Ok(true)
 }
 
 pub async fn enable_user_2fa(
@@ -284,7 +260,7 @@ pub async fn enable_user_2fa(
     secret: &str,
     accepted_step: i64,
 ) -> Result<()> {
-    let result = sqlx::query("UPDATE `x_users` SET `otp_secret` = ?, `last_otp_step` = ? WHERE `id` = ? AND (`otp_secret` IS NULL OR TRIM(`otp_secret`) = '')")
+    let result = sqlx::query("UPDATE `users` SET `otp_secret` = ?, `last_otp_step` = ? WHERE `id` = ? AND (`otp_secret` IS NULL OR TRIM(`otp_secret`) = '')")
         .bind(secret).bind(accepted_step).bind(user_id).execute(pool).await?;
     if result.rows_affected() != 1 {
         bail!("user not found or 2FA is already enabled");
@@ -294,7 +270,7 @@ pub async fn enable_user_2fa(
 
 pub async fn disable_user_2fa(pool: &DbPool, user_id: i64) -> Result<()> {
     let result =
-        sqlx::query("UPDATE `x_users` SET `otp_secret` = '', `last_otp_step` = -1 WHERE `id` = ?")
+        sqlx::query("UPDATE `users` SET `otp_secret` = '', `last_otp_step` = -1 WHERE `id` = ?")
             .bind(user_id)
             .execute(pool)
             .await?;
@@ -314,7 +290,7 @@ pub async fn set_user_permissions(pool: &DbPool, user_id: i64, permission: i32) 
     if user.password_unset && permission & (1 << PERM_ALLOW_EMPTY_PASSWORD) == 0 {
         bail!("set a non-empty password before disabling passwordless login");
     }
-    let result = sqlx::query("UPDATE `x_users` SET `permission` = ? WHERE `id` = ?")
+    let result = sqlx::query("UPDATE `users` SET `permission` = ? WHERE `id` = ?")
         .bind(permission)
         .bind(user_id)
         .execute(pool)
@@ -327,7 +303,7 @@ pub async fn set_user_permissions(pool: &DbPool, user_id: i64, permission: i32) 
 
 pub async fn set_user_local_path(pool: &DbPool, user_id: i64, local_path: &str) -> Result<()> {
     let local_path = canonical_local_path(local_path)?;
-    let result = sqlx::query("UPDATE `x_users` SET `local_path` = ? WHERE `id` = ?")
+    let result = sqlx::query("UPDATE `users` SET `local_path` = ? WHERE `id` = ?")
         .bind(local_path)
         .bind(user_id)
         .execute(pool)
@@ -358,7 +334,7 @@ pub async fn create_user(
         .unwrap_or_default()
         .as_secs() as i64;
     let mut tx = pool.begin().await?;
-    let result = sqlx::query("INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `local_path`, `role`, `disabled`, `permission`, `password_unset`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    let result = sqlx::query("INSERT INTO `users` (`username`, `pwd_hash`, `pwd_ts`, `local_path`, `role`, `disabled`, `permission`, `password_unset`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(username.trim()).bind(hash_password(password)).bind(now_ts).bind(local_path).bind(role).bind(if disabled { 1 } else { 0 }).bind(permission).bind(password.is_empty()).execute(&mut *tx).await?;
     let new_id = result.last_insert_rowid();
     tx.commit().await?;

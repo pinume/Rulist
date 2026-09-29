@@ -11,7 +11,7 @@ pub(crate) async fn authenticate_user(headers: &HeaderMap, state: &AppState) -> 
     let auth_header = headers.get(AUTHORIZATION)?.to_str().ok()?;
     let token = auth_header.strip_prefix("Bearer ").unwrap_or(auth_header);
 
-    let claims = parse_jwt(token, &state.config.security.jwt_secret).ok()?;
+    let claims = parse_jwt(token, &state.config.jwt_secret).ok()?;
     if crate::db::is_token_revoked(&state.pool, &claims.jti)
         .await
         .ok()?

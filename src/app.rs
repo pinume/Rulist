@@ -116,10 +116,10 @@ pub async fn run() -> Result<()> {
         Commands::Server(server_args) => {
             let (mut config, config_path) = config::Config::load_or_create(&data_dir)?;
             if let Some(port) = server_args.port {
-                config.server.port = port;
+                config.scheme.http_port = port;
             }
             if let Some(host) = server_args.host {
-                config.server.address = host;
+                config.scheme.address = host;
             }
             info!("loaded configuration from {:?}", config_path);
             server::run_server(config.clone(), init_database(&config, &data_dir).await?).await?;

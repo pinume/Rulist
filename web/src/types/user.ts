@@ -3,14 +3,11 @@ export enum UserRole {
   ADMIN = 2,
 }
 
-export interface User {
+export interface SessionUser {
   id: number
   username: string
-  local_path: string
   role: UserRole
   permission: number
-  disabled: boolean
-  password_unset: boolean
   otp: boolean
 }
 
@@ -28,7 +25,7 @@ export const UserPermissions = Object.keys(UserPermissionBits) as Array<
   keyof typeof UserPermissionBits
 >
 
-export const isAdmin = (user: User) => user.role === UserRole.ADMIN
+export const isAdmin = (user: SessionUser) => user.role === UserRole.ADMIN
 
-export const can = (user: User, permission: number) =>
+export const can = (user: SessionUser, permission: number) =>
   isAdmin(user) || ((user.permission >> permission) & 1) === 1

@@ -73,8 +73,6 @@ pub struct FsMoveCopyReq {
 pub struct FsDirsReq {
     #[serde(default)]
     pub path: String,
-    #[serde(default)]
-    pub force_root: bool,
 }
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DirItem {
@@ -100,16 +98,15 @@ pub struct FsLinkResp {
     pub url: String,
 }
 
-pub(crate) fn signing_secret(state: &SharedState) -> &str {
-    &state.config.security.signing_secret
-}
-
 fn user_fs(user: &crate::db::User) -> Result<LocalFs, anyhow::Error> {
     LocalFs::new(&user.local_path, false)
 }
 
-fn sign_context(user: &crate::db::User) -> String {
-    format!("uid={}:root={}", user.id, user.local_path)
+pub(crate) fn sign_context(user: &crate::db::User) -> String {
+    format!(
+        "uid={}:pwd_ts={}:root={}",
+        user.id, user.pwd_ts, user.local_path
+    )
 }
 
 pub async fn list_handler(
@@ -151,22 +148,22 @@ pub async fn list_handler(
             }
 
             // Attach signs and raw_urls to files
-            let signing_secret = signing_secret(&state);
-
             for item in &mut content {
                 if !item.is_dir {
                     let item_path = format!("{}/{}", path.trim_end_matches('/'), item.name);
-                    let sign = match sign_path(signing_secret, &item_path, &sign_context(&user)) {
-                        Ok(sign) => sign,
-                        Err(err) => {
-                            tracing::error!(error = %err, "failed to sign file path");
-                            return api_error(
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                500,
-                                "Signing token is unavailable",
-                            );
-                        }
-                    };
+                    let sign =
+                        match sign_path(&state.config.jwt_secret, &item_path, &sign_context(&user))
+                        {
+                            Ok(sign) => sign,
+                            Err(err) => {
+                                tracing::error!(error = %err, "failed to sign file path");
+                                return api_error(
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    500,
+                                    "Signing token is unavailable",
+                                );
+                            }
+                        };
                     item.sign = sign.clone();
                     item.raw_url = format!(
                         "/p{}?sign={}&uid={}",
@@ -214,10 +211,8 @@ pub async fn get_handler(
 
     match fs.get(&path).await {
         Ok(mut file) => {
-            let signing_secret = signing_secret(&state);
-
             if !file.is_dir {
-                let s = match sign_path(signing_secret, &path, &sign_context(&user)) {
+                let s = match sign_path(&state.config.jwt_secret, &path, &sign_context(&user)) {
                     Ok(sign) => sign,
                     Err(err) => {
                         tracing::error!(error = %err, "failed to sign file path");
@@ -742,8 +737,6 @@ pub async fn link_handler(
         return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
     };
 
-    let signing_secret = signing_secret(&state);
-
     let clean_path = match user_path(&user, &req.path) {
         Ok(path) => path,
         Err(_) => return permission_denied(),
@@ -752,7 +745,7 @@ pub async fn link_handler(
         Ok(fs) => fs,
         Err(_) => return api_error(StatusCode::NOT_FOUND, 404, "File root not found"),
     };
-    let sign = match sign_path(signing_secret, &clean_path, &sign_context(&user)) {
+    let sign = match sign_path(&state.config.jwt_secret, &clean_path, &sign_context(&user)) {
         Ok(sign) => sign,
         Err(err) => {
             tracing::error!(error = %err, "failed to sign file path");

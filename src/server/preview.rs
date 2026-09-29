@@ -6,7 +6,7 @@ use crate::filesystem::local::LocalFs;
 use crate::preview::{
     PreviewMeta, PreviewReq, PreviewResponse, PreviewStrategy, detect_from_path, processor,
 };
-use crate::server::files::signing_secret;
+use crate::server::files::sign_context;
 use crate::server::{
     SharedState, api_error, api_success, authenticate_user, encode_url_path, permission_denied,
     user_path,
@@ -40,13 +40,7 @@ pub async fn preview_handler(
                 );
             }
 
-            let signing_secret = signing_secret(&state);
-
-            let sign = match sign_path(
-                signing_secret,
-                &path,
-                &format!("uid={}:root={}", user.id, user.local_path),
-            ) {
+            let sign = match sign_path(&state.config.jwt_secret, &path, &sign_context(&user)) {
                 Ok(s) => s,
                 Err(err) => {
                     tracing::error!(error = %err, "failed to sign file path for preview");

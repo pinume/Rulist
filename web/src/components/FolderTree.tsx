@@ -52,7 +52,6 @@ export type FolderTreeHandler = {
 }
 export interface FolderTreeProps {
   onChange: (path: string) => void
-  forceRoot?: boolean
   autoOpen?: boolean
   handle?: (handler: FolderTreeHandler) => void
   showEmptyIcon?: boolean
@@ -84,7 +83,6 @@ export const FolderTree = (props: FolderTreeProps) => {
             props.onChange(val)
           },
           autoOpen: props.autoOpen ?? false,
-          forceRoot: props.forceRoot ?? false,
           showEmptyIcon: props.showEmptyIcon ?? false,
           showHiddenFolder: props.showHiddenFolder ?? true,
           hidePath: props.hidePath,
@@ -104,7 +102,6 @@ const FolderTreeNode = (props: { path: string }) => {
   const {
     value,
     onChange,
-    forceRoot,
     autoOpen,
     showEmptyIcon,
     showHiddenFolder,
@@ -114,7 +111,7 @@ const FolderTreeNode = (props: { path: string }) => {
   } = useContext(context)!
   const emptyIconVisible = () =>
     Boolean(showEmptyIcon && children() !== undefined && !children()?.length)
-  const [loading, fetchDirs] = useFetch(() => fsDirs(props.path, forceRoot))
+  const [loading, fetchDirs] = useFetch(() => fsDirs(props.path))
   let isLoaded = false
   const load = async (force = false) => {
     if (!force && children()?.length) return

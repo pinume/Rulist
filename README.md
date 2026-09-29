@@ -32,11 +32,11 @@ default data directory instead. Set a different location with
 `--data-dir /path/to/data` or `RULIST_DATA_DIR`.
 
 The initial `admin` account is bound to the current user's `$HOME`. Add normal
-users through the interactive console or web UI and assign each one an existing
-absolute local directory.
+users through the interactive console and assign each one an existing absolute
+local directory.
 
-`config.json` stores server, security, UI, and database configuration. SQLite
-stores only users and authentication-security state; file contents remain on
-the Linux filesystem.
+`config.json` stores the JWT secret, token lifetime, database path, HTTP scheme,
+and site settings. SQLite stores only users and authentication-security state;
+file contents remain on the Linux filesystem.
 
 Use HTTPS in production.
