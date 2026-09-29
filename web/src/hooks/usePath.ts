@@ -95,13 +95,10 @@ export const usePath = () => {
       resp,
       (data) => {
         ObjStore.setObj(data)
-        ObjStore.setProvider(data.provider)
         if (data.is_dir) {
           setPathAs(path)
           handleFolder(path)
         } else {
-          ObjStore.setReadme(data.readme)
-          ObjStore.setHeader(data.header)
           ObjStore.setRawUrl(data.raw_url)
           shouldKeepState() || ObjStore.setState(State.File)
         }
@@ -129,10 +126,7 @@ export const usePath = () => {
           return
         }
         ObjStore.setListing(data.content ?? [], data.total, page)
-        ObjStore.setReadme(data.readme)
-        ObjStore.setHeader(data.header)
         ObjStore.setWrite(data.write)
-        ObjStore.setProvider(data.provider)
         shouldKeepState() || ObjStore.setState(State.Folder)
       },
       handleErr,

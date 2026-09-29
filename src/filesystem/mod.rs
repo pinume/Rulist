@@ -22,12 +22,8 @@ pub struct FileEntry {
     pub is_dir: bool,
     pub modified: String,
     pub sign: String,
-    pub thumb: String,
     pub r#type: i32,
     pub raw_url: String,
-    pub readme: String,
-    pub header: String,
-    pub provider: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permissions: Option<String>,
 }
@@ -52,12 +48,8 @@ impl FileEntry {
             is_dir,
             modified: modified.into(),
             sign: String::new(),
-            thumb: String::new(),
             r#type: file_type,
             raw_url: String::new(),
-            readme: String::new(),
-            header: String::new(),
-            provider: "Local".to_string(),
             permissions: None,
         }
     }

@@ -15,7 +15,6 @@ export interface Obj {
   modified: string
   sign?: string
   raw_url?: string
-  thumb: string
   type: ObjType
   permissions?: string
 }

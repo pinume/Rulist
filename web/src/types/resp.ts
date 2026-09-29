@@ -9,20 +9,10 @@ export interface Resp<T> {
 export type FsListResp = Resp<{
   content: Obj[]
   total: number
-  readme: string
-  header: string
   write: boolean
-  provider: string
 }>
 
-export type FsGetResp = Resp<
-  Obj & {
-    raw_url: string
-    readme: string
-    header: string
-    provider: string
-  }
->
+export type FsGetResp = Resp<Obj & { raw_url: string }>
 
 export type EmptyResp = Resp<{}>
 
