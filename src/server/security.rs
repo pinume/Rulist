@@ -3,7 +3,7 @@ use axum::http::header::AUTHORIZATION;
 
 use crate::auth::parse_jwt;
 use crate::db::User;
-use crate::db::get_user_by_name;
+use crate::db::get_user_by_id;
 
 use super::AppState;
 
@@ -19,14 +19,11 @@ pub(crate) async fn authenticate_user(headers: &HeaderMap, state: &AppState) -> 
         return None;
     }
 
-    let user = get_user_by_name(&state.pool, &claims.username)
+    let user = get_user_by_id(&state.pool, claims.user_id)
         .await
         .ok()
         .flatten()?;
-    if (claims.user_id > 0 && user.id != claims.user_id)
-        || user.disabled
-        || user.pwd_ts != claims.pwd_ts
-    {
+    if user.username != claims.username || user.disabled || user.pwd_ts != claims.pwd_ts {
         return None;
     }
 

@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
-use rulist::auth::{compute_totp, generate_otp_secret};
+use rulist::auth::{compute_totp, generate_jwt, generate_otp_secret};
 use rulist::config::Config;
 use rulist::db;
 use rulist::db::PERM_ALLOW_EMPTY_PASSWORD;
@@ -280,6 +280,23 @@ async fn current_user_returns_only_session_fields() {
     assert!(body["data"]["otp_secret"].is_null());
     assert!(body["data"]["password_unset"].is_null());
     assert!(body["data"]["disabled"].is_null());
+}
+
+#[tokio::test]
+async fn authentication_rejects_zero_user_id() {
+    let temp = tempfile::tempdir().unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+    db::set_admin_password(&pool, "AdminPass123!")
+        .await
+        .unwrap();
+    let admin = db::get_admin(&pool).await.unwrap().unwrap();
+    let config = Config::default();
+    let token = generate_jwt(0, &admin.username, admin.pwd_ts, &config.jwt_secret, 1).unwrap();
+    let app = build_app(Arc::new(AppState { pool, config }));
+
+    let (status, body) = json_request(&app, "GET", "/api/me", Some(&token), Value::Null).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["code"], 401);
 }
 
 #[tokio::test]

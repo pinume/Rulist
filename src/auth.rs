@@ -112,7 +112,6 @@ pub fn verify_password(password: &str, pwd_hash: &str) -> bool {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserClaims {
-    #[serde(default)]
     pub user_id: i64,
     pub username: String,
     pub pwd_ts: i64,
