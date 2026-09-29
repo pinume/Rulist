@@ -23,7 +23,7 @@ pub fn validate_password(
     permission: i32,
 ) -> Result<(), &'static str> {
     if password.is_empty() {
-        return if !is_admin && permission & (1 << crate::db::PERM_ALLOW_EMPTY_PASSWORD) != 0 {
+        return if !is_admin && permission & (1 << crate::permissions::ALLOW_EMPTY_PASSWORD) != 0 {
             Ok(())
         } else {
             Err("Password cannot be empty unless passwordless login is enabled")

@@ -1,7 +1,8 @@
 use crate::{
     auth,
     config::Config,
-    db::{self, DbPool, PERM_ALLOW_EMPTY_PASSWORD, User},
+    db::{self, DbPool, User},
+    permissions::{ALLOW_EMPTY_PASSWORD, COPY, DELETE, MOVE, OVERWRITE, RENAME, WRITE_CONTENT},
 };
 use anyhow::{Context, Result};
 use std::{
@@ -10,12 +11,12 @@ use std::{
 };
 
 const PERMS: &[(i32, &str)] = &[
-    (3, "新建与上传"),
-    (4, "重命名"),
-    (5, "移动"),
-    (6, "复制"),
-    (7, "删除"),
-    (8, "覆盖"),
+    (WRITE_CONTENT, "新建与上传"),
+    (RENAME, "重命名"),
+    (MOVE, "移动"),
+    (COPY, "复制"),
+    (DELETE, "删除"),
+    (OVERWRITE, "覆盖"),
 ];
 pub fn format_permissions(role: i32, permission: i32) -> String {
     if role == db::ROLE_ADMIN {
@@ -31,7 +32,7 @@ pub fn format_permissions(role: i32, permission: i32) -> String {
     } else {
         names.join(",")
     };
-    if permission & (1 << PERM_ALLOW_EMPTY_PASSWORD) != 0 {
+    if permission & (1 << ALLOW_EMPTY_PASSWORD) != 0 {
         text.push_str(",免密");
     }
     text
@@ -103,7 +104,7 @@ fn choose_permissions(default_empty: bool) -> io::Result<Option<i32>> {
     };
     let empty = prompt("允许免密登录? (y/N): ")?;
     if empty.eq_ignore_ascii_case("y") || (empty.is_empty() && default_empty) {
-        permission |= 1 << PERM_ALLOW_EMPTY_PASSWORD;
+        permission |= 1 << ALLOW_EMPTY_PASSWORD;
     }
     Ok(Some(permission))
 }
@@ -148,7 +149,7 @@ async fn set_password(pool: &DbPool, user: &mut User) -> Result<()> {
         {
             return Ok(());
         }
-        user.permission |= 1 << PERM_ALLOW_EMPTY_PASSWORD;
+        user.permission |= 1 << ALLOW_EMPTY_PASSWORD;
     }
     match auth::validate_password(&value, user.is_admin(), user.permission) {
         Ok(()) => {
@@ -193,9 +194,9 @@ async fn manage(pool: &DbPool, mut user: User) -> Result<()> {
             }
             "3" if !user.is_admin() => {
                 if let Some(permission) =
-                    choose_permissions(user.permission & (1 << PERM_ALLOW_EMPTY_PASSWORD) != 0)?
+                    choose_permissions(user.permission & (1 << ALLOW_EMPTY_PASSWORD) != 0)?
                 {
-                    if user.password_unset && permission & (1 << PERM_ALLOW_EMPTY_PASSWORD) == 0 {
+                    if user.password_unset && permission & (1 << ALLOW_EMPTY_PASSWORD) == 0 {
                         let value = password("需设置非空密码（random 自动生成）: ")?;
                         let generated = value.eq_ignore_ascii_case("random");
                         let value = if generated {

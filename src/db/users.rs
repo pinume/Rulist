@@ -5,9 +5,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::DbPool;
 use crate::auth::{hash_password, rand_string};
+use crate::permissions::ALLOW_EMPTY_PASSWORD;
 
 pub const ROLE_ADMIN: i32 = 2;
-pub const PERM_ALLOW_EMPTY_PASSWORD: i32 = 9;
 
 fn canonical_local_path(path: &str) -> Result<String> {
     let path = Path::new(path.trim());
@@ -312,7 +312,7 @@ pub async fn set_user_permissions(pool: &DbPool, user_id: i64, permission: i32) 
     if user.is_admin() {
         bail!("administrator permissions cannot be changed");
     }
-    if user.password_unset && permission & (1 << PERM_ALLOW_EMPTY_PASSWORD) == 0 {
+    if user.password_unset && permission & (1 << ALLOW_EMPTY_PASSWORD) == 0 {
         bail!("set a non-empty password before disabling passwordless login");
     }
     let result = sqlx::query("UPDATE `users` SET `permission` = ? WHERE `id` = ?")

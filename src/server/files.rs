@@ -5,6 +5,9 @@ use tokio::io::AsyncWriteExt;
 
 use crate::filesystem::local::{LocalFs, RenameError};
 use crate::filesystem::{FileEntry, sort_files_by, sorted_file_page, valid_name};
+use crate::permissions::{
+    COPY, DELETE, MOVE, OVERWRITE, RENAME, WRITE_CONTENT,
+};
 use crate::server::stream::percent_decode;
 use crate::server::{
     SharedState, api_error, api_success, authenticate_user, encode_url_path, permission_denied,
@@ -316,7 +319,7 @@ pub async fn mkdir_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "unauthorized");
     };
-    if !permitted(&user, 3) {
+    if !permitted(&user, WRITE_CONTENT) {
         return permission_denied();
     }
     if req.path.trim_matches('/').is_empty() {
@@ -351,7 +354,10 @@ pub async fn rename_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "unauthorized");
     };
-    if !permitted(&user, 4) || (req.overwrite && !permitted(&user, 8)) || !valid_name(&req.name) {
+    if !permitted(&user, RENAME)
+        || (req.overwrite && !permitted(&user, OVERWRITE))
+        || !valid_name(&req.name)
+    {
         return permission_denied();
     }
     let path = match user_path(&user, &req.path) {
@@ -402,8 +408,8 @@ pub async fn move_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "unauthorized");
     };
-    if !permitted(&user, 5)
-        || (req.conflict_policy == ConflictPolicy::Overwrite && !permitted(&user, 8))
+    if !permitted(&user, MOVE)
+        || (req.conflict_policy == ConflictPolicy::Overwrite && !permitted(&user, OVERWRITE))
         || req.names.iter().any(|name| !valid_name(name))
     {
         return permission_denied();
@@ -467,8 +473,8 @@ pub async fn copy_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "unauthorized");
     };
-    if !permitted(&user, 6)
-        || (req.conflict_policy == ConflictPolicy::Overwrite && !permitted(&user, 8))
+    if !permitted(&user, COPY)
+        || (req.conflict_policy == ConflictPolicy::Overwrite && !permitted(&user, OVERWRITE))
         || req.names.iter().any(|name| !valid_name(name))
     {
         return permission_denied();
@@ -532,7 +538,7 @@ pub async fn remove_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "unauthorized");
     };
-    if !permitted(&user, 7) || req.names.iter().any(|name| !valid_name(name)) {
+    if !permitted(&user, DELETE) || req.names.iter().any(|name| !valid_name(name)) {
         return permission_denied();
     }
     let dir = match user_path(&user, &req.dir) {
@@ -567,7 +573,7 @@ pub async fn upload_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "unauthorized");
     };
-    if !permitted(&user, 3) {
+    if !permitted(&user, WRITE_CONTENT) {
         return permission_denied();
     }
 
@@ -584,7 +590,7 @@ pub async fn upload_handler(
         Err(_) => return api_error(StatusCode::NOT_FOUND, 404, "File root not found"),
     };
     let overwrite = headers.get("Overwrite").and_then(|h| h.to_str().ok()) == Some("true");
-    if overwrite && !permitted(&user, 8) {
+    if overwrite && !permitted(&user, OVERWRITE) {
         return permission_denied();
     }
 
@@ -724,7 +730,7 @@ pub async fn batch_rename_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
     };
-    if !permitted(&user, 4) {
+    if !permitted(&user, RENAME) {
         return permission_denied();
     }
     let src_dir = match user_path(&user, &req.src_dir) {

@@ -3,8 +3,8 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 
 use crate::auth::{generate_jwt, hash_identifier, matching_totp_step, parse_jwt, verify_password};
-use crate::db::PERM_ALLOW_EMPTY_PASSWORD;
 use crate::db::{SessionUser, get_user_by_name};
+use crate::permissions::ALLOW_EMPTY_PASSWORD;
 use crate::server::{SharedState, api_error, api_success, authenticate_user};
 
 const LOGIN_FAILURE_LIMIT: i64 = 5;
@@ -121,7 +121,7 @@ pub async fn login_handler(
 
     if !user.is_admin()
         && req.password.is_empty()
-        && user.permission & (1 << PERM_ALLOW_EMPTY_PASSWORD) == 0
+        && user.permission & (1 << ALLOW_EMPTY_PASSWORD) == 0
     {
         tracing::warn!(username = %user.username, "login failed: empty password is not permitted");
         return api_error(

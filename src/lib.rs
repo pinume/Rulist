@@ -7,6 +7,7 @@ pub mod config;
 pub mod db;
 pub mod filesystem;
 pub mod interactive;
+pub mod permissions;
 pub mod preview;
 pub mod server;
 mod sign;

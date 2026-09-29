@@ -6,7 +6,7 @@ use axum::http::{Request, StatusCode, header};
 use rulist::auth::{compute_totp, generate_jwt, generate_otp_secret};
 use rulist::config::Config;
 use rulist::db;
-use rulist::db::PERM_ALLOW_EMPTY_PASSWORD;
+use rulist::permissions::ALLOW_EMPTY_PASSWORD;
 use rulist::server::{AppState, build_app};
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -361,7 +361,7 @@ async fn database_rejects_disabling_passwordless_for_unset_password() {
     tokio::fs::create_dir_all(&user_root).await.unwrap();
 
     let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
-    let permission = 1 << PERM_ALLOW_EMPTY_PASSWORD;
+    let permission = 1 << ALLOW_EMPTY_PASSWORD;
     let user_id = db::create_user(
         &pool,
         "guarded-guest",
@@ -401,12 +401,12 @@ async fn password_and_permission_change_is_atomic() {
     )
     .await
     .unwrap();
-    db::set_user_password_and_permission(&pool, id, "", 1 << PERM_ALLOW_EMPTY_PASSWORD)
+    db::set_user_password_and_permission(&pool, id, "", 1 << ALLOW_EMPTY_PASSWORD)
         .await
         .unwrap();
     let user = db::get_user_by_id(&pool, id).await.unwrap().unwrap();
     assert!(user.password_unset);
-    assert_ne!(user.permission & (1 << PERM_ALLOW_EMPTY_PASSWORD), 0);
+    assert_ne!(user.permission & (1 << ALLOW_EMPTY_PASSWORD), 0);
 }
 
 #[tokio::test]
@@ -581,7 +581,7 @@ async fn disabling_passwordless_login_requires_a_nonempty_password() {
     db::set_admin_password(&pool, "AdminPass123!")
         .await
         .unwrap();
-    let permission = 1 << PERM_ALLOW_EMPTY_PASSWORD;
+    let permission = 1 << ALLOW_EMPTY_PASSWORD;
     let user_id = db::create_user(
         &pool,
         "guest",
@@ -601,7 +601,7 @@ async fn disabling_passwordless_login_requires_a_nonempty_password() {
 
     let user = db::get_user_by_id(&pool, user_id).await.unwrap().unwrap();
     assert!(!user.password_unset);
-    assert_eq!(user.permission & (1 << PERM_ALLOW_EMPTY_PASSWORD), 0);
+    assert_eq!(user.permission & (1 << ALLOW_EMPTY_PASSWORD), 0);
 
     let (status, _) = json_request(
         &app,
