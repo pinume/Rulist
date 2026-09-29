@@ -5,7 +5,7 @@ use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
-use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Pool, Sqlite};
 
 use crate::auth::{hash_password, rand_string};
@@ -21,7 +21,7 @@ async fn init_schema(pool: &DbPool) -> Result<()> {
             `username` TEXT NOT NULL UNIQUE,
             `pwd_hash` TEXT NOT NULL,
             `pwd_ts` INTEGER NOT NULL,
-            `base_path` TEXT NOT NULL DEFAULT '/',
+            `local_path` TEXT NOT NULL,
             `role` INTEGER NOT NULL DEFAULT 0,
             `disabled` NUMERIC NOT NULL DEFAULT 0,
             `permission` INTEGER NOT NULL DEFAULT 0,
@@ -68,7 +68,7 @@ async fn init_schema(pool: &DbPool) -> Result<()> {
     Ok(())
 }
 
-pub async fn init_db(db_path: &Path) -> Result<DbPool> {
+pub async fn init_db(db_path: &Path, home_path: &Path) -> Result<DbPool> {
     if let Some(parent) = db_path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -103,7 +103,7 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
         .await?;
 
     validate_admin_invariants(&pool).await?;
-    seed_admin(&pool).await?;
+    seed_admin(&pool, home_path).await?;
 
     Ok(pool)
 }
@@ -130,7 +130,7 @@ async fn validate_admin_invariants(pool: &DbPool) -> Result<()> {
     Ok(())
 }
 
-async fn seed_admin(pool: &DbPool) -> Result<()> {
+async fn seed_admin(pool: &DbPool, home_path: &Path) -> Result<()> {
     let admin_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `x_users` WHERE `role` = ?")
         .bind(ROLE_ADMIN)
         .fetch_one(pool)
@@ -146,12 +146,13 @@ async fn seed_admin(pool: &DbPool) -> Result<()> {
 
         sqlx::query(
             r#"
-            INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `base_path`, `role`, `disabled`, `permission`, `password_unset`)
-            VALUES ('admin', ?, ?, '/', ?, 0, 0, 0)
+            INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `local_path`, `role`, `disabled`, `permission`, `password_unset`)
+            VALUES ('admin', ?, ?, ?, ?, 0, 0, 0)
             "#,
         )
         .bind(&encoded_pwd)
         .bind(now_ts)
+        .bind(home_path.to_string_lossy().into_owned())
         .bind(ROLE_ADMIN)
         .execute(pool)
         .await?;
@@ -251,42 +252,11 @@ pub async fn get_storages(pool: &DbPool) -> Result<Vec<crate::model::Storage>> {
     Ok(storages)
 }
 
-pub fn compute_local_path(base_path: &str, storages: &[crate::model::Storage]) -> String {
-    let mut matched: Option<&crate::model::Storage> = None;
-    for storage in storages {
-        if (base_path == storage.mount_path
-            || base_path.starts_with(&format!("{}/", storage.mount_path.trim_end_matches('/'))))
-            && (matched.is_none()
-                || storage.mount_path.len() > matched.expect("matched storage").mount_path.len())
-        {
-            matched = Some(storage);
-        }
-    }
-
-    if let Some(storage) = matched {
-        let sub = base_path
-            .trim_start_matches(&storage.mount_path)
-            .trim_start_matches('/');
-        if sub.is_empty() {
-            return storage.local_path.clone();
-        }
-        return format!("{}/{}", storage.local_path.trim_end_matches('/'), sub);
-    }
-
-    String::new()
-}
-
 pub async fn delete_user(pool: &DbPool, user_id: i64) -> Result<()> {
-    let mut tx = pool.begin().await?;
     sqlx::query("DELETE FROM `x_users` WHERE `id` = ?")
         .bind(user_id)
-        .execute(&mut *tx)
+        .execute(pool)
         .await?;
-    sqlx::query("DELETE FROM `x_storages` WHERE `mount_path` = ?")
-        .bind(format!("/.users/{user_id}"))
-        .execute(&mut *tx)
-        .await?;
-    tx.commit().await?;
     Ok(())
 }
 
@@ -329,48 +299,11 @@ pub async fn set_user_permission(pool: &DbPool, user_id: i64, permission: i32) -
 }
 
 pub async fn set_user_dir(pool: &DbPool, user_id: i64, local_path: &str) -> Result<()> {
-    let mut tx = pool.begin().await?;
-    set_user_dir_on_connection(&mut tx, user_id, local_path).await?;
-    tx.commit().await?;
-    Ok(())
-}
-
-pub(crate) async fn set_user_dir_on_connection(
-    conn: &mut SqliteConnection,
-    user_id: i64,
-    local_path: &str,
-) -> Result<()> {
-    let user_mount = format!("/.users/{user_id}");
-    let exists: Option<i64> =
-        sqlx::query_scalar("SELECT `id` FROM `x_storages` WHERE `mount_path` = ? LIMIT 1")
-            .bind(&user_mount)
-            .fetch_optional(&mut *conn)
-            .await?;
-
-    if exists.is_some() {
-        sqlx::query(
-            "UPDATE `x_storages` SET `local_path` = ?, `show_hidden` = 0 WHERE `mount_path` = ?",
-        )
+    sqlx::query("UPDATE `x_users` SET `local_path` = ? WHERE `id` = ?")
         .bind(local_path)
-        .bind(&user_mount)
-        .execute(&mut *conn)
-        .await?;
-    } else {
-        sqlx::query(
-            "INSERT INTO `x_storages` (`mount_path`, `local_path`, `show_hidden`) VALUES (?, ?, 0)",
-        )
-        .bind(&user_mount)
-        .bind(local_path)
-        .execute(&mut *conn)
-        .await?;
-    }
-
-    sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
-        .bind(&user_mount)
         .bind(user_id)
-        .execute(&mut *conn)
+        .execute(pool)
         .await?;
-
     Ok(())
 }
 
@@ -391,11 +324,12 @@ pub async fn create_user_direct(
 
     let mut tx = pool.begin().await?;
     let result = sqlx::query(
-        "INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `base_path`, `role`, `disabled`, `permission`, `password_unset`) VALUES (?, ?, ?, '/', ?, ?, ?, ?)",
+        "INSERT INTO `x_users` (`username`, `pwd_hash`, `pwd_ts`, `local_path`, `role`, `disabled`, `permission`, `password_unset`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(username)
     .bind(&encoded_pwd)
     .bind(now_ts)
+    .bind(local_path.context("local_path is required")?)
     .bind(role)
     .bind(if disabled { 1 } else { 0 })
     .bind(permission)
@@ -404,25 +338,6 @@ pub async fn create_user_direct(
     .await?;
 
     let new_id = result.last_insert_rowid();
-
-    if role != ROLE_ADMIN {
-        let user_mount = format!("/.users/{new_id}");
-        sqlx::query("UPDATE `x_users` SET `base_path` = ? WHERE `id` = ?")
-            .bind(&user_mount)
-            .bind(new_id)
-            .execute(&mut *tx)
-            .await?;
-
-        if let Some(local_path) = local_path {
-            sqlx::query(
-                "INSERT INTO `x_storages` (`mount_path`, `local_path`, `show_hidden`) VALUES (?, ?, 0)",
-            )
-            .bind(&user_mount)
-            .bind(local_path)
-            .execute(&mut *tx)
-            .await?;
-        }
-    }
 
     tx.commit().await?;
     Ok(new_id)

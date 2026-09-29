@@ -9,15 +9,12 @@ import {
   hasHistory,
   recoverHistory,
   clearHistory,
-  me,
   shouldKeepState,
   objStore,
 } from "~/store"
 import { fsGet, fsList, handleRespWithoutNotify, pathJoin } from "~/utils"
 import { useFetch } from "./useFetch"
 import { useRouter } from "./useRouter"
-
-let first_fetch = true
 
 let cancelObj: Canceler
 let cancelList: Canceler
@@ -143,17 +140,6 @@ export const usePath = () => {
   }
 
   const handleErr = (msg: string, code?: number) => {
-    const basePath = me().base_path
-    if (
-      first_fetch &&
-      basePath !== "/" &&
-      pathname().includes(basePath) &&
-      msg.endsWith("object not found")
-    ) {
-      first_fetch = false
-      to(pathname().replace(basePath, ""))
-      return
-    }
     if (code === undefined || code >= 0) {
       ObjStore.setErr(msg)
     }

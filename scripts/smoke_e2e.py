@@ -74,11 +74,11 @@ def main():
 
         with sqlite3.connect(data_dir / "data.db") as connection:
             updated = connection.execute(
-                "UPDATE x_storages SET local_path = ? WHERE mount_path = ?",
-                (str(storage_dir), "/"),
+                "UPDATE x_users SET local_path = ? WHERE username = ?",
+                (str(storage_dir.resolve()), "admin"),
             ).rowcount
             if updated != 1:
-                raise AssertionError(f"expected one default root mount, updated {updated}")
+                raise AssertionError(f"expected one admin user root, updated {updated}")
 
         port = pick_port()
         base = f"http://127.0.0.1:{port}"
@@ -132,6 +132,11 @@ def main():
                 status, login = api(base, "/api/auth/login", {"username": "admin", "password": PASSWORD})
                 expect(200, status, "password login")
                 token = login["data"]["token"]
+                status, raw_me = http(
+                    f"{base}/api/me", headers={"Authorization": f"Bearer {token}"}
+                )
+                expect(200, status, "admin current user")
+                admin = json.loads(raw_me)["data"]
 
                 upload_headers = {
                     "Authorization": f"Bearer {token}",
@@ -161,6 +166,35 @@ def main():
                 if downloaded != CONTENT:
                     raise AssertionError("signed download bytes differ from uploaded bytes")
 
+                user_root = storage_dir / "user"
+                user_root.mkdir()
+                (user_root / "only-user.txt").write_text("user root\n")
+                status, created = api(
+                    base,
+                    "/api/admin/user/create",
+                    {
+                        "username": "smoke-user",
+                        "password": "smoke-user-pass",
+                        "local_path": str(user_root),
+                    },
+                    token,
+                )
+                expect(200, status, "create local-root user")
+                if created["code"] != 200:
+                    raise AssertionError(f"create local-root user API error: {created}")
+                _, user_login = api(
+                    base,
+                    "/api/auth/login",
+                    {"username": "smoke-user", "password": "smoke-user-pass"},
+                )
+                user_token = user_login["data"]["token"]
+                status, user_listing = api(base, "/api/fs/list", {"path": "/"}, user_token)
+                expect(200, status, "user local root list")
+                if [item["name"] for item in user_listing["data"]["content"]] != ["only-user.txt"]:
+                    raise AssertionError(f"user escaped local root: {user_listing}")
+                status, _ = api(base, "/api/fs/list", {"path": "/../smoke.txt"}, user_token)
+                expect(403, status, "user traversal rejection")
+
                 unsigned_path = urlsplit(link["data"]["url"]).path
                 status, _ = http(f"{base}{unsigned_path}")
                 expect(401, status, "unsigned download")
@@ -175,6 +209,26 @@ def main():
                 expect(409, status, "duplicate upload")
                 if (storage_dir / "smoke.txt").read_bytes() != CONTENT:
                     raise AssertionError("duplicate upload changed the original file")
+
+                status, updated = api(
+                    base,
+                    "/api/admin/user/update",
+                    {
+                        "id": admin["id"],
+                        "username": admin["username"],
+                        "local_path": str(user_root.resolve()),
+                    },
+                    token,
+                )
+                expect(200, status, "update admin local root")
+                if updated["code"] != 200:
+                    raise AssertionError(f"update admin local root API error: {updated}")
+                status, _ = http(f"{base}{link['data']['url']}")
+                expect(403, status, "old signed link after root change")
+                status, admin_listing = api(base, "/api/fs/list", {"path": "/"}, token)
+                expect(200, status, "admin new local root list")
+                if [item["name"] for item in admin_listing["data"]["content"]] != ["only-user.txt"]:
+                    raise AssertionError(f"admin local root did not change: {admin_listing}")
             finally:
                 server.terminate()
                 try:

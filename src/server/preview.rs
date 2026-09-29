@@ -2,6 +2,7 @@ use axum::extract::{Json, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 
+use crate::driver::local::LocalDriver;
 use crate::preview::{
     PreviewMeta, PreviewReq, PreviewResponse, PreviewStrategy, detect_from_path, processor,
 };
@@ -24,15 +25,12 @@ pub async fn preview_handler(
         Ok(path) => path,
         Err(_) => return permission_denied(),
     };
+    let fs = match LocalDriver::new(&user.local_path, false) {
+        Ok(fs) => fs,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, 404, "File root not found"),
+    };
 
-    state.storage.ensure_mounted(&path).await;
-    if let Some((ms, sub)) = state.storage.find_storage(&path) {
-        if !ms.driver.show_hidden && sub.split('/').any(|p| p.starts_with('.')) {
-            return api_error(StatusCode::NOT_FOUND, 404, "File not found");
-        }
-    }
-
-    match state.storage.get(&path).await {
+    match fs.get(&path).await {
         Ok(file) => {
             if file.is_dir {
                 return api_error(
@@ -47,7 +45,7 @@ pub async fn preview_handler(
             let sign = match sign_path(
                 signing_secret,
                 &path,
-                &state.storage.storage_context_for_path(&path),
+                &format!("uid={}:root={}", user.id, user.local_path),
             ) {
                 Ok(s) => s,
                 Err(err) => {
@@ -60,7 +58,7 @@ pub async fn preview_handler(
                 }
             };
 
-            let raw_url = format!("/p{}?sign={}", encode_url_path(&path), sign);
+            let raw_url = format!("/p{}?sign={}&uid={}", encode_url_path(&path), sign, user.id);
             let (preview_type, mime_type) = detect_from_path(&file.name);
             let strategy = preview_type.strategy();
 
@@ -77,8 +75,7 @@ pub async fn preview_handler(
             };
 
             let (content, error) = if strategy == PreviewStrategy::Processed {
-                match processor::process_file(&state.storage, &path, preview_type, file.size).await
-                {
+                match processor::process_file(&fs, &path, preview_type, file.size).await {
                     Ok(content) => (Some(content), None),
                     Err(err_code) => (None, Some(err_code.to_string())),
                 }

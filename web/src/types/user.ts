@@ -7,9 +7,7 @@ export interface User {
   id: number
   username: string
   password: string
-  base_path: string
   local_path: string
-  directory_path?: string
   role: UserRole
   permission: number
   disabled: boolean

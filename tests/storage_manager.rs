@@ -6,7 +6,9 @@ async fn cross_mount_operations_reject_storage_roots() {
     let data = tempfile::tempdir().unwrap();
     let source = tempfile::tempdir().unwrap();
     let destination = tempfile::tempdir().unwrap();
-    let pool = db::init_db(&data.path().join("rulist.db")).await.unwrap();
+    let pool = db::init_db(&data.path().join("rulist.db"), data.path())
+        .await
+        .unwrap();
 
     tokio::fs::write(source.path().join("file"), b"data")
         .await

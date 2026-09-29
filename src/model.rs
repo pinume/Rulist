@@ -38,7 +38,7 @@ pub struct User {
     pub pwd_hash: String,
     #[serde(skip_serializing)]
     pub pwd_ts: i64,
-    pub base_path: String,
+    pub local_path: String,
     pub role: i32,
     pub disabled: bool,
     pub permission: i32,
@@ -195,22 +195,6 @@ pub struct UpdateCurrentReq {
     pub current_password: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserWithMount {
-    pub id: i64,
-    pub username: String,
-    pub base_path: String,
-    pub role: i32,
-    pub disabled: bool,
-    pub permission: i32,
-    #[serde(default)]
-    pub local_path: String,
-    #[serde(default)]
-    pub directory_path: String,
-    #[serde(default)]
-    pub otp: bool,
-}
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct AdminUserSaveReq {
     pub id: Option<i64>,
@@ -219,8 +203,6 @@ pub struct AdminUserSaveReq {
     pub password: Option<String>,
     #[serde(default)]
     pub local_path: Option<String>,
-    #[serde(default)]
-    pub directory_path: Option<String>,
     #[serde(default)]
     pub role: Option<i32>,
     #[serde(default)]

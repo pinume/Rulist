@@ -1,13 +1,13 @@
 use tokio::io::AsyncReadExt;
 
-use crate::driver::StorageManager;
+use crate::driver::local::LocalDriver;
 use crate::preview::types::{PreviewType, ProcessedContent};
 
 pub const MAX_DOCUMENT_PREVIEW_SIZE: u64 = 4 * 1024 * 1024; // 4MB
 static SEMAPHORE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(16);
 
 pub async fn process_file(
-    storage: &StorageManager,
+    fs: &LocalDriver,
     path: &str,
     preview_type: PreviewType,
     file_size: i64,
@@ -20,7 +20,7 @@ pub async fn process_file(
 
     let _permit = SEMAPHORE.acquire().await.map_err(|_| "concurrency_limit")?;
 
-    let file = storage.open(path).await.map_err(|_| "read_failed")?;
+    let file = fs.open(path).await.map_err(|_| "read_failed")?;
     let mut bytes = Vec::with_capacity(file_size.max(0).min(max_size as i64) as usize);
     file.take(max_size + 1)
         .read_to_end(&mut bytes)

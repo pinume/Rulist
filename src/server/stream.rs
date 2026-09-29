@@ -12,12 +12,15 @@ use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
 use tokio_util::io::ReaderStream;
 
+use crate::db::get_user_by_id;
+use crate::driver::local::LocalDriver;
 use crate::server::{SharedState, authenticate_user, encode_url_path};
 use crate::sign::verify_sign;
 
 #[derive(Debug, Deserialize)]
 pub struct SignQuery {
     pub sign: Option<String>,
+    pub uid: Option<i64>,
 }
 
 pub async fn raw_download_handler(
@@ -26,7 +29,7 @@ pub async fn raw_download_handler(
     Query(query): Query<SignQuery>,
     headers: HeaderMap,
 ) -> Response {
-    stream_file(state, path, query.sign, headers, true).await
+    stream_file(state, path, query.sign, query.uid, headers, true).await
 }
 
 pub async fn raw_preview_handler(
@@ -35,7 +38,7 @@ pub async fn raw_preview_handler(
     Query(query): Query<SignQuery>,
     headers: HeaderMap,
 ) -> Response {
-    stream_file(state, path, query.sign, headers, false).await
+    stream_file(state, path, query.sign, query.uid, headers, false).await
 }
 
 pub fn percent_decode(s: &str) -> String {
@@ -62,6 +65,7 @@ async fn stream_file(
     state: SharedState,
     raw_path: String,
     sign: Option<String>,
+    uid: Option<i64>,
     headers: HeaderMap,
     as_attachment: bool,
 ) -> Response {
@@ -70,9 +74,16 @@ async fn stream_file(
         return (StatusCode::BAD_REQUEST, "Invalid path").into_response();
     }
 
-    if sign.is_some() {
+    let fs = if sign.is_some() {
         let s = sign.unwrap_or_default();
-        let context = state.storage.storage_context_for_path(&clean_path);
+        let Some(uid) = uid else {
+            return (StatusCode::FORBIDDEN, "Invalid download link signature").into_response();
+        };
+        let user = match get_user_by_id(&state.pool, uid).await {
+            Ok(Some(user)) if !user.disabled => user,
+            _ => return (StatusCode::FORBIDDEN, "Invalid download link signature").into_response(),
+        };
+        let context = format!("uid={}:root={}", user.id, user.local_path);
         if verify_sign(
             &state.config.security.signing_secret,
             &clean_path,
@@ -87,24 +98,21 @@ async fn stream_file(
             )
                 .into_response();
         }
+        match LocalDriver::new(&user.local_path, false) {
+            Ok(fs) => fs,
+            Err(_) => return (StatusCode::NOT_FOUND, "File not found").into_response(),
+        }
     } else {
         let Some(user) = authenticate_user(&headers, &state).await else {
             return StatusCode::UNAUTHORIZED.into_response();
         };
-        let base = user.base_path.trim_end_matches('/');
-        if !user.is_admin() && clean_path != base && !clean_path.starts_with(&format!("{base}/")) {
-            return StatusCode::FORBIDDEN.into_response();
+        match LocalDriver::new(&user.local_path, false) {
+            Ok(fs) => fs,
+            Err(_) => return (StatusCode::NOT_FOUND, "File not found").into_response(),
         }
-    }
+    };
 
-    state.storage.ensure_mounted(&clean_path).await;
-    if let Some((ms, sub)) = state.storage.find_storage(&clean_path) {
-        if !ms.driver.show_hidden && sub.split('/').any(|p| p.starts_with('.')) {
-            return (StatusCode::NOT_FOUND, "File not found").into_response();
-        }
-    }
-
-    let mut file = match state.storage.open(&clean_path).await {
+    let mut file = match fs.open(&clean_path).await {
         Ok(f) => f,
         Err(_) => return (StatusCode::NOT_FOUND, "File not found").into_response(),
     };

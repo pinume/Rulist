@@ -63,7 +63,9 @@ async fn login_token(app: &axum::Router, username: &str, password: &str) -> Stri
 #[tokio::test]
 async fn two_factor_login_is_enforced_and_replay_safe() {
     let temp = tempfile::tempdir().unwrap();
-    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
+        .await
+        .unwrap();
     db::set_admin_password(&pool, "TestPass123!").await.unwrap();
 
     let admin = db::get_admin(&pool).await.unwrap().unwrap();
@@ -127,7 +129,9 @@ async fn two_factor_login_is_enforced_and_replay_safe() {
 #[tokio::test]
 async fn unknown_user_login_is_recorded_before_password_verification() {
     let temp = tempfile::tempdir().unwrap();
-    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
+        .await
+        .unwrap();
     let app = app_for(&pool).await;
 
     let (status, body) = json_request(
@@ -154,7 +158,9 @@ async fn database_rejects_disabling_passwordless_for_unset_password() {
     let user_root = temp.path().join("guarded-guest");
     tokio::fs::create_dir_all(&user_root).await.unwrap();
 
-    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
+        .await
+        .unwrap();
     let permission = 1 << PERM_ALLOW_EMPTY_PASSWORD;
     let user_id = db::create_user_direct(
         &pool,
@@ -181,7 +187,9 @@ async fn database_rejects_disabling_passwordless_for_unset_password() {
 #[tokio::test]
 async fn signing_secret_is_not_an_admin_credential() {
     let temp = tempfile::tempdir().unwrap();
-    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
+        .await
+        .unwrap();
     let config = Config::default();
     let signing_secret = config.security.signing_secret.clone();
     let storage = StorageManager::load_from_db(&pool).await.unwrap();
@@ -209,7 +217,9 @@ async fn disabling_passwordless_login_requires_a_nonempty_password() {
     let user_root = temp.path().join("guest");
     tokio::fs::create_dir_all(&user_root).await.unwrap();
 
-    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
+        .await
+        .unwrap();
     db::set_admin_password(&pool, "AdminPass123!")
         .await
         .unwrap();
@@ -288,7 +298,9 @@ async fn disabling_passwordless_login_requires_a_nonempty_password() {
 #[tokio::test]
 async fn admin_password_update_keeps_pwd_ts_monotonic() {
     let temp = tempfile::tempdir().unwrap();
-    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
+        .await
+        .unwrap();
     db::set_admin_password(&pool, "AdminPass123!")
         .await
         .unwrap();
@@ -327,14 +339,15 @@ async fn admin_password_update_keeps_pwd_ts_monotonic() {
 }
 
 #[tokio::test]
-async fn user_update_rolls_back_when_storage_update_fails() {
+async fn user_update_rejects_invalid_local_path_without_mutating_user() {
     let temp = tempfile::tempdir().unwrap();
     let old_root = temp.path().join("old-root");
-    let new_root = temp.path().join("new-root");
+    let missing_root = temp.path().join("missing-root");
     tokio::fs::create_dir_all(&old_root).await.unwrap();
-    tokio::fs::create_dir_all(&new_root).await.unwrap();
 
-    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
+        .await
+        .unwrap();
     db::set_admin_password(&pool, "AdminPass123!")
         .await
         .unwrap();
@@ -350,18 +363,6 @@ async fn user_update_rolls_back_when_storage_update_fails() {
     .await
     .unwrap();
     let before = db::get_user_by_id(&pool, user_id).await.unwrap().unwrap();
-    let old_local_path: String =
-        sqlx::query_scalar("SELECT `local_path` FROM `x_storages` WHERE `mount_path` = ?")
-            .bind(format!("/.users/{user_id}"))
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    sqlx::query(
-        "CREATE TRIGGER fail_user_storage_update BEFORE UPDATE OF `local_path` ON `x_storages` BEGIN SELECT RAISE(FAIL, 'forced storage update failure'); END",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
 
     let app = app_for(&pool).await;
     let admin_token = login_token(&app, "admin", "AdminPass123!").await;
@@ -376,33 +377,34 @@ async fn user_update_rolls_back_when_storage_update_fails() {
             "password": "ChangedPass123!",
             "permission": 7,
             "disabled": true,
-            "local_path": new_root,
+            "local_path": missing_root,
         }),
     )
     .await;
-    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-    assert_eq!(body["code"], 500);
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["code"], 400);
 
     let after = db::get_user_by_id(&pool, user_id).await.unwrap().unwrap();
+    assert_eq!(after.id, before.id);
     assert_eq!(after.username, before.username);
     assert_eq!(after.pwd_hash, before.pwd_hash);
     assert_eq!(after.pwd_ts, before.pwd_ts);
-    assert_eq!(after.permission, before.permission);
+    assert_eq!(after.local_path, before.local_path);
+    assert_eq!(after.role, before.role);
     assert_eq!(after.disabled, before.disabled);
-    assert_eq!(after.base_path, before.base_path);
-    let local_path: String =
-        sqlx::query_scalar("SELECT `local_path` FROM `x_storages` WHERE `mount_path` = ?")
-            .bind(format!("/.users/{user_id}"))
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(local_path, old_local_path);
+    assert_eq!(after.permission, before.permission);
+    assert_eq!(after.password_unset, before.password_unset);
+    assert_eq!(after.otp_secret, before.otp_secret);
+    assert_eq!(after.last_otp_step, before.last_otp_step);
+    assert_eq!(after.otp, before.otp);
 }
 
 #[tokio::test]
 async fn server_rejects_addresses_other_than_exact_localhost() {
     let temp = tempfile::tempdir().unwrap();
-    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db"), temp.path())
+        .await
+        .unwrap();
 
     for host in ["127.0.0.2", "0.0.0.0"] {
         let mut config = Config::default();

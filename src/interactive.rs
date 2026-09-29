@@ -110,7 +110,7 @@ fn pause() {
     let _ = io::stdin().read_line(&mut buf);
 }
 
-fn resolve_storage_path(input: &str, default_home: &str) -> PathBuf {
+fn resolve_local_path(input: &str, default_home: &str) -> PathBuf {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return PathBuf::from(default_home);
@@ -325,19 +325,11 @@ async fn action_add_user(pool: &DbPool) -> Result<()> {
     }
 
     let default_home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let input = prompt_default("存储目录路径", &default_home)?;
-    let path = resolve_storage_path(&input, &default_home);
+    let input = prompt_default("本地目录路径", &default_home)?;
+    let path = resolve_local_path(&input, &default_home);
     if !path.exists() {
-        if !prompt_default(&format!("目录 {path:?} 不存在，是否创建？ (y/n)"), "y")?
-            .eq_ignore_ascii_case("y")
-        {
-            println!("操作已取消。");
-            return Ok(());
-        }
-        if let Err(error) = std::fs::create_dir_all(&path) {
-            println!("创建目录失败: {error}");
-            return Ok(());
-        }
+        println!("目录不存在: {path:?}");
+        return Ok(());
     }
     if !path.is_dir() {
         println!("路径不是目录: {path:?}");
@@ -439,21 +431,16 @@ async fn action_change_password(pool: &DbPool) -> Result<()> {
 
 async fn action_set_user_dir(pool: &DbPool) -> Result<()> {
     println!("\n>>> 设置目录");
-    let Some(user) = select_user(pool, true).await? else {
+    let Some(user) = select_user(pool, false).await? else {
         return Ok(());
     };
 
     let default_home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let input = prompt_default("请输入新的本地目录路径", &default_home)?;
-    let path = resolve_storage_path(&input, &default_home);
+    let path = resolve_local_path(&input, &default_home);
     if !path.exists() {
-        if !prompt_default(&format!("目录 {path:?} 不存在，是否创建？ (y/n)"), "y")?
-            .eq_ignore_ascii_case("y")
-        {
-            println!("操作已取消。");
-            return Ok(());
-        }
-        std::fs::create_dir_all(&path)?;
+        println!("目录不存在: {path:?}");
+        return Ok(());
     }
     if !path.is_dir() {
         println!("路径不是目录: {path:?}");

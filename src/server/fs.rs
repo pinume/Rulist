@@ -3,6 +3,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use tokio::io::AsyncWriteExt;
 
+use crate::driver::local::LocalDriver;
 use crate::driver::local::RenameError;
 use crate::model::{
     BatchRenameReq, ConflictPolicy, DirItem, FsDirNamesReq, FsDirsReq, FsGetReq, FsLinkReq,
@@ -19,6 +20,14 @@ pub(crate) fn signing_secret(state: &SharedState) -> &str {
     &state.config.security.signing_secret
 }
 
+fn user_fs(user: &crate::model::User) -> Result<LocalDriver, anyhow::Error> {
+    LocalDriver::new(&user.local_path, false)
+}
+
+fn sign_context(user: &crate::model::User) -> String {
+    format!("uid={}:root={}", user.id, user.local_path)
+}
+
 pub async fn fs_list_handler(
     headers: HeaderMap,
     State(state): State<SharedState>,
@@ -31,8 +40,12 @@ pub async fn fs_list_handler(
         Ok(path) => path,
         Err(_) => return permission_denied(),
     };
+    let fs = match user_fs(&user) {
+        Ok(fs) => fs,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, 404, "File root not found"),
+    };
 
-    match state.storage.list(&path).await {
+    match fs.list(&path).await {
         Ok(mut content) => {
             let total = content.len() as i64;
 
@@ -59,11 +72,7 @@ pub async fn fs_list_handler(
             for item in &mut content {
                 if !item.is_dir {
                     let item_path = format!("{}/{}", path.trim_end_matches('/'), item.name);
-                    let sign = match sign_path(
-                        signing_secret,
-                        &item_path,
-                        &state.storage.storage_context_for_path(&item_path),
-                    ) {
+                    let sign = match sign_path(signing_secret, &item_path, &sign_context(&user)) {
                         Ok(sign) => sign,
                         Err(err) => {
                             tracing::error!(error = %err, "failed to sign file path");
@@ -75,7 +84,12 @@ pub async fn fs_list_handler(
                         }
                     };
                     item.sign = sign.clone();
-                    item.raw_url = format!("/p{}?sign={}", encode_url_path(&item_path), sign);
+                    item.raw_url = format!(
+                        "/p{}?sign={}&uid={}",
+                        encode_url_path(&item_path),
+                        sign,
+                        user.id
+                    );
                 }
             }
 
@@ -112,24 +126,17 @@ pub async fn fs_get_handler(
         Ok(path) => path,
         Err(_) => return permission_denied(),
     };
+    let fs = match user_fs(&user) {
+        Ok(fs) => fs,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, 404, "File root not found"),
+    };
 
-    state.storage.ensure_mounted(&path).await;
-    if let Some((ms, sub)) = state.storage.find_storage(&path) {
-        if !ms.driver.show_hidden && sub.split('/').any(|p| p.starts_with('.')) {
-            return api_error(StatusCode::NOT_FOUND, 404, "File not found");
-        }
-    }
-
-    match state.storage.get(&path).await {
+    match fs.get(&path).await {
         Ok(mut file) => {
             let signing_secret = signing_secret(&state);
 
             if !file.is_dir {
-                let s = match sign_path(
-                    signing_secret,
-                    &path,
-                    &state.storage.storage_context_for_path(&path),
-                ) {
+                let s = match sign_path(signing_secret, &path, &sign_context(&user)) {
                     Ok(sign) => sign,
                     Err(err) => {
                         tracing::error!(error = %err, "failed to sign file path");
@@ -141,7 +148,7 @@ pub async fn fs_get_handler(
                     }
                 };
                 file.sign = s.clone();
-                file.raw_url = format!("/p{}?sign={}", encode_url_path(&path), s);
+                file.raw_url = format!("/p{}?sign={}&uid={}", encode_url_path(&path), s, user.id);
             }
 
             api_success(file)
@@ -165,19 +172,16 @@ pub async fn fs_dirs_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
     };
-    if req.force_root && !user.is_admin() {
-        return permission_denied();
-    }
-    let path = if req.force_root {
-        Ok("/".to_string())
-    } else {
-        user_path(&user, &req.path)
-    };
+    let path = user_path(&user, &req.path);
     let path = match path {
         Ok(path) => path,
         Err(_) => return permission_denied(),
     };
-    let files = match state.storage.list(&path).await {
+    let fs = match user_fs(&user) {
+        Ok(fs) => fs,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, 404, "File root not found"),
+    };
+    let files = match fs.list(&path).await {
         Ok(f) => f,
         Err(err) => {
             tracing::error!(error = %err, path = %path, "failed to list dirs");
@@ -219,7 +223,11 @@ pub async fn fs_mkdir_handler(
         Ok(path) => path,
         Err(_) => return permission_denied(),
     };
-    match state.storage.mkdir(&path).await {
+    let fs = match user_fs(&user) {
+        Ok(fs) => fs,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, 404, "File root not found"),
+    };
+    match fs.mkdir(&path).await {
         Ok(_) => api_success(serde_json::Value::Null),
         Err(err) => {
             tracing::error!(error = %err, path = %path, "failed to create directory");
@@ -247,12 +255,12 @@ pub async fn fs_rename_handler(
         Ok(path) => path,
         Err(_) => return permission_denied(),
     };
+    let fs = match user_fs(&user) {
+        Ok(fs) => fs,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, 404, "File root not found"),
+    };
 
-    match state
-        .storage
-        .rename_safe(&path, &req.name, req.overwrite)
-        .await
-    {
+    match fs.rename_safe(&path, &req.name, req.overwrite).await {
         Ok(_) => api_success(serde_json::Value::Null),
         Err(RenameError::Conflict(msg)) => api_error(StatusCode::CONFLICT, 409, msg),
         Err(RenameError::NotFound(msg)) => api_error(StatusCode::NOT_FOUND, 404, msg),
@@ -304,6 +312,10 @@ pub async fn fs_move_handler(
         (Ok(src), Ok(dst)) => (src, dst),
         _ => return permission_denied(),
     };
+    let fs = match user_fs(&user) {
+        Ok(fs) => fs,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, 404, "File root not found"),
+    };
 
     let policy = req.conflict_policy;
     let mut moves = Vec::new();
@@ -313,7 +325,7 @@ pub async fn fs_move_handler(
         if let Err(msg) = validate_transfer_paths(&src, &dst) {
             return api_error(StatusCode::BAD_REQUEST, 400, msg);
         }
-        let dst_exists = state.storage.get(&dst).await.is_ok();
+        let dst_exists = fs.get(&dst).await.is_ok();
         if dst_exists {
             match policy {
                 ConflictPolicy::Cancel => {
@@ -330,7 +342,7 @@ pub async fn fs_move_handler(
 
     for (completed, (src, dst)) in moves.into_iter().enumerate() {
         let overwrite = policy == ConflictPolicy::Overwrite;
-        if let Err(err) = state.storage.move_to_safe(&src, &dst, overwrite).await {
+        if let Err(err) = fs.move_to_safe(&src, &dst, overwrite).await {
             tracing::error!(error = %err, src = %src, dst = %dst, "failed to move file");
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -364,6 +376,10 @@ pub async fn fs_copy_handler(
         (Ok(src), Ok(dst)) => (src, dst),
         _ => return permission_denied(),
     };
+    let fs = match user_fs(&user) {
+        Ok(fs) => fs,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, 404, "File root not found"),
+    };
 
     let policy = req.conflict_policy;
     let mut copies = Vec::new();
@@ -373,7 +389,7 @@ pub async fn fs_copy_handler(
         if let Err(msg) = validate_transfer_paths(&src, &dst) {
             return api_error(StatusCode::BAD_REQUEST, 400, msg);
         }
-        let dst_exists = state.storage.get(&dst).await.is_ok();
+        let dst_exists = fs.get(&dst).await.is_ok();
         if dst_exists {
             match policy {
                 ConflictPolicy::Cancel => {
@@ -390,7 +406,7 @@ pub async fn fs_copy_handler(
 
     for (completed, (src, dst)) in copies.into_iter().enumerate() {
         let overwrite = policy == ConflictPolicy::Overwrite;
-        if let Err(err) = state.storage.copy_to_safe(&src, &dst, overwrite).await {
+        if let Err(err) = fs.copy_to_safe(&src, &dst, overwrite).await {
             tracing::error!(error = %err, src = %src, dst = %dst, "failed to copy file");
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -418,9 +434,13 @@ pub async fn fs_remove_handler(
         Ok(path) => path,
         Err(_) => return permission_denied(),
     };
+    let fs = match user_fs(&user) {
+        Ok(fs) => fs,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, 404, "File root not found"),
+    };
     for (completed, name) in req.names.into_iter().enumerate() {
         let target = format!("{}/{}", dir.trim_end_matches('/'), name);
-        if let Err(err) = state.storage.remove(&target).await {
+        if let Err(err) = fs.remove(&target).await {
             tracing::error!(error = %err, target = %target, "failed to remove target");
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -453,6 +473,10 @@ pub async fn fs_put_handler(
         Ok(path) => path,
         Err(_) => return permission_denied(),
     };
+    let fs = match user_fs(&user) {
+        Ok(fs) => fs,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, 404, "File root not found"),
+    };
     let overwrite = headers.get("Overwrite").and_then(|h| h.to_str().ok()) == Some("true");
     if overwrite && !permitted(&user, 8) {
         return permission_denied();
@@ -460,13 +484,7 @@ pub async fn fs_put_handler(
 
     let mut body = request.into_body();
     // Stream body to file
-    state.storage.ensure_mounted(&file_path).await;
-    let (ms, sub) = match state.storage.find_storage(&file_path) {
-        Some(m) => m,
-        None => return api_error(StatusCode::NOT_FOUND, 404, "storage not found"),
-    };
-
-    let target = match ms.driver.safe_resolve(&sub) {
+    let target = match fs.safe_resolve(&file_path) {
         Ok(t) => t,
         Err(err) => {
             tracing::warn!(error = %err, "safe_resolve failed in put");
@@ -474,7 +492,7 @@ pub async fn fs_put_handler(
         }
     };
 
-    if sub.is_empty() {
+    if file_path.trim_matches('/').is_empty() {
         return permission_denied();
     }
     if !overwrite && target.exists() {
@@ -607,6 +625,10 @@ pub async fn fs_batch_rename_handler(
         Ok(path) => path,
         Err(_) => return permission_denied(),
     };
+    let fs = match user_fs(&user) {
+        Ok(fs) => fs,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, 404, "File root not found"),
+    };
 
     let pairs: Vec<(String, String)> = req
         .rename_objects
@@ -614,7 +636,7 @@ pub async fn fs_batch_rename_handler(
         .map(|o| (o.src_name, o.new_name))
         .collect();
 
-    match state.storage.batch_rename(&src_dir, &pairs).await {
+    match fs.batch_rename(&src_dir, &pairs).await {
         Ok(_) => api_success(()),
         Err(RenameError::Conflict(msg)) => api_error(StatusCode::CONFLICT, 409, msg),
         Err(RenameError::NotFound(msg)) => api_error(StatusCode::NOT_FOUND, 404, msg),
@@ -645,11 +667,11 @@ pub async fn fs_link_handler(
         Ok(path) => path,
         Err(_) => return permission_denied(),
     };
-    let sign = match sign_path(
-        signing_secret,
-        &clean_path,
-        &state.storage.storage_context_for_path(&clean_path),
-    ) {
+    let _fs = match user_fs(&user) {
+        Ok(fs) => fs,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, 404, "File root not found"),
+    };
+    let sign = match sign_path(signing_secret, &clean_path, &sign_context(&user)) {
         Ok(sign) => sign,
         Err(err) => {
             tracing::error!(error = %err, "failed to sign file path");
@@ -660,6 +682,11 @@ pub async fn fs_link_handler(
             );
         }
     };
-    let url = format!("/d{}?sign={}", encode_url_path(&clean_path), sign);
+    let url = format!(
+        "/d{}?sign={}&uid={}",
+        encode_url_path(&clean_path),
+        sign,
+        user.id
+    );
     api_success(FsLinkResp { url })
 }

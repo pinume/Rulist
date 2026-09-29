@@ -42,7 +42,7 @@ pub(crate) async fn authenticate_user(headers: &HeaderMap, state: &AppState) -> 
     Some(user)
 }
 
-pub(crate) fn user_path(user: &User, requested: &str) -> Result<String, &'static str> {
+pub(crate) fn user_path(_user: &User, requested: &str) -> Result<String, &'static str> {
     if requested
         .split(|ch| ch == '/' || ch == '\\')
         .any(|part| part == "." || part == "..")
@@ -50,16 +50,11 @@ pub(crate) fn user_path(user: &User, requested: &str) -> Result<String, &'static
         return Err("invalid path");
     }
 
-    let relative = requested.trim_start_matches('/');
-    let base = user.base_path.trim_end_matches('/');
+    let relative = requested.trim_matches('/');
     Ok(if relative.is_empty() {
-        if base.is_empty() {
-            "/".to_string()
-        } else {
-            base.to_string()
-        }
+        "/".to_string()
     } else {
-        format!("{base}/{relative}")
+        format!("/{relative}")
     })
 }
 

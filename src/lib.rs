@@ -84,24 +84,10 @@ fn initial_home_path() -> Result<PathBuf> {
 
 async fn init_database(config: &config::Config, data_dir: &std::path::Path) -> Result<db::DbPool> {
     let db_path = config.resolved_db_path(data_dir);
-    let home_path = if db_path.exists() {
-        None
-    } else {
-        Some(initial_home_path()?)
-    };
+    let home_path = initial_home_path()?;
 
     info!("initializing database at {:?}", db_path);
-    let pool = db::init_db(&db_path).await?;
-
-    if let Some(home_path) = home_path {
-        sqlx::query(
-            "INSERT OR IGNORE INTO `x_storages` (`mount_path`, `local_path`, `show_hidden`) VALUES ('/', ?, 0)",
-        )
-        .bind(home_path.to_string_lossy().into_owned())
-        .execute(&pool)
-        .await?;
-        info!("mounted current user's HOME directory at /");
-    }
+    let pool = db::init_db(&db_path, &home_path).await?;
 
     Ok(pool)
 }

@@ -1,4 +1,4 @@
-import { objStore, State, me } from "~/store"
+import { me, objStore, State } from "~/store"
 import { Obj } from "~/types"
 import { api, encodePath, pathDir, pathJoin, standardizePath } from "~/utils"
 import { useRouter } from "."
@@ -9,11 +9,11 @@ export const getLinkByDirAndObj = (
   obj: Obj,
   encodeAll?: boolean,
 ) => {
-  dir = standardizePath(pathJoin(me().base_path, dir), true)
+  dir = standardizePath(dir, true)
   const path = encodePath(`${dir}/${obj.name}`, encodeAll)
   let ans = `${api}/d${path}`
   if (obj.sign) {
-    ans += `?sign=${obj.sign}`
+    ans += `?sign=${obj.sign}&uid=${me().id}`
   }
   return ans
 }
