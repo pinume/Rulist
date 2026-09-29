@@ -2,7 +2,7 @@ import { Checkbox, createDisclosure } from "@hope-ui/solid"
 import { createSignal, onCleanup, Show } from "solid-js"
 import { ModalInput } from "~/components"
 import { useFetch, useFiles, useRouter } from "~/hooks"
-import { oneSelected, selectedFiles } from "~/store"
+import { can, oneSelected, selectedFiles } from "~/store"
 import { bus, fsRename, handleRespWithNotifySuccess, pathJoin } from "~/utils"
 
 export const Rename = () => {
@@ -29,9 +29,15 @@ export const Rename = () => {
         title="Enter a new name"
         validateFilename={true}
         footerSlot={
-          <Checkbox mr="auto" checked={overwrite()} onChange={() => setOverwrite(!overwrite())}>
-            Overwrite existing files
-          </Checkbox>
+          <Show when={can("overwrite")}>
+            <Checkbox
+              mr="auto"
+              checked={overwrite()}
+              onChange={() => setOverwrite(!overwrite())}
+            >
+              Overwrite existing files
+            </Checkbox>
+          </Show>
         }
         isRenamingFile={!selectedFiles()[0].is_dir}
         opened={isOpen()}

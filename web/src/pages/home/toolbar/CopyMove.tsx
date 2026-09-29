@@ -1,5 +1,5 @@
 import { Checkbox, createDisclosure, VStack, Button } from "@hope-ui/solid"
-import { createSignal, onCleanup } from "solid-js"
+import { createSignal, onCleanup, Show } from "solid-js"
 import { ModalFolderChoose, FolderTreeHandler } from "~/components"
 import { useFetch, useFiles, useRouter } from "~/hooks"
 import { selectedFiles, can } from "~/store"
@@ -48,17 +48,19 @@ const CopyMoveModal = (props: { action: "copy" | "move" }) => {
       headerSlot={(handler) => <CreateFolderButton handler={handler} />}
       footerSlot={
         <VStack w="$full" spacing="$2">
-          <Checkbox
-            mr="auto"
-            checked={overwrite()}
-            onChange={() => {
-              const next = !overwrite()
-              if (next) setSkipExisting(false)
-              setOverwrite(next)
-            }}
-          >
-            Overwrite existing files
-          </Checkbox>
+          <Show when={can("overwrite")}>
+            <Checkbox
+              mr="auto"
+              checked={overwrite()}
+              onChange={() => {
+                const next = !overwrite()
+                if (next) setSkipExisting(false)
+                setOverwrite(next)
+              }}
+            >
+              Overwrite existing files
+            </Checkbox>
+          </Show>
           <Checkbox
             mr="auto"
             checked={skipExisting()}

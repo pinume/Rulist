@@ -14,7 +14,7 @@ import {
 } from "@hope-ui/solid"
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { useFiles, useRouter } from "~/hooks"
-import { mainColor, uploadConfig, setUploadConfig } from "~/store"
+import { can, mainColor, uploadConfig, setUploadConfig } from "~/store"
 import {
   RiDocumentFolderUploadFill,
   RiDocumentFileUploadFill,
@@ -267,12 +267,14 @@ const Upload = () => {
               spacing={{ "@initial": "$2", "@md": "$4" }}
               direction={{ "@initial": "column", "@md": "row" }}
             >
-              <Checkbox
-                checked={uploadConfig.overwrite}
-                onChange={() => setUploadConfig({ overwrite: !uploadConfig.overwrite })}
-              >
-                Overwrite existing files
-              </Checkbox>
+              <Show when={can("overwrite")}>
+                <Checkbox
+                  checked={uploadConfig.overwrite}
+                  onChange={() => setUploadConfig({ overwrite: !uploadConfig.overwrite })}
+                >
+                  Overwrite existing files
+                </Checkbox>
+              </Show>
             </Stack>
           </Show>
         </VStack>
