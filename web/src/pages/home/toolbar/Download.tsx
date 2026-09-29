@@ -50,7 +50,7 @@ export const PackageDownloadModal = () => {
           >
             <ModalBody>
               <p>
-                Browser-based archive downloads use StreamSaver instead of the server and require CORS support from the storage service. Unsupported storage may cause the download to fail.
+                Archive downloads are created in your browser. Keep this page open until the download completes.
               </p>
             </ModalBody>
             <ModalFooter display="flex" gap="$2">

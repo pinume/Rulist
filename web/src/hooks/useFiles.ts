@@ -16,21 +16,21 @@ import { fsGet, fsList, handleRespWithoutNotify, pathJoin } from "~/utils"
 import { useFetch } from "./useFetch"
 import { useRouter } from "./useRouter"
 
-let cancelObj: Canceler
+let cancelFile: Canceler
 let cancelList: Canceler
 
-const IsDirRecord: Record<string, boolean> = {}
+const directoryPaths: Record<string, boolean> = {}
 export const useFiles = () => {
   const { pathname, to } = useRouter()
-  const [, getObj] = useFetch((path: string) =>
+  const [, getFile] = useFetch((path: string) =>
     fsGet(
       path,
       new axios.CancelToken((c) => {
-        cancelObj = c
+        cancelFile = c
       }),
     ),
   )
-  const [, getObjs] = useFetch(
+  const [, listFiles] = useFetch(
     (arg?: {
       path: string
       force?: boolean
@@ -56,9 +56,9 @@ export const useFiles = () => {
       path = pathJoin(pathname(), path)
     }
     if (dir) {
-      IsDirRecord[path] = true
+      directoryPaths[path] = true
     } else {
-      delete IsDirRecord[path]
+      delete directoryPaths[path]
     }
   }
 
@@ -70,7 +70,7 @@ export const useFiles = () => {
     force?: boolean,
     page = 1,
   ) => {
-    cancelObj?.()
+    cancelFile?.()
     cancelList?.()
     FileStore.setErr("")
     const { orderBy, reverse } = loadSortState(path)
@@ -78,19 +78,19 @@ export const useFiles = () => {
     if (hasHistory(path)) {
       console.log(`handle [${getHistoryKey(path)}] from history`)
       return recoverHistory(path)
-    } else if (IsDirRecord[path]) {
+    } else if (directoryPaths[path]) {
       console.log(`handle [${getHistoryKey(path)}] as folder`)
       return loadFolder(path, force, page)
     } else {
-      console.log(`handle [${getHistoryKey(path)}] as obj`)
-      return handleObj(path)
+      console.log(`handle [${getHistoryKey(path)}] as file`)
+      return loadFile(path)
     }
   }
 
-  // handle enter obj that don't know if it is dir or file
-  const handleObj = async (path: string) => {
+  // Load a path whose type is not known yet.
+  const loadFile = async (path: string) => {
     shouldKeepState() || FileStore.setState(ViewState.Loading)
-    const resp = await getObj(path)
+    const resp = await getFile(path)
     handleRespWithoutNotify(
       resp,
       (data) => {
@@ -116,7 +116,7 @@ export const useFiles = () => {
     reverse = fileStore.reverse,
   ) => {
     shouldKeepState() || FileStore.setState(ViewState.Loading)
-    const resp = await getObjs({ path, force, page, orderBy, reverse })
+    const resp = await listFiles({ path, force, page, orderBy, reverse })
     handleRespWithoutNotify(
       resp,
       (data) => {
