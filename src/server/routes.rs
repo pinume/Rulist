@@ -1,6 +1,5 @@
 use axum::Router;
 use axum::extract::{Request, State};
-use axum::http::StatusCode;
 use axum::http::header::{HeaderName, HeaderValue, X_CONTENT_TYPE_OPTIONS};
 use axum::middleware::{self, Next};
 use axum::response::Response;
@@ -8,13 +7,11 @@ use axum::routing::{get, post, put};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-use crate::db::get_public_settings;
-
-use super::{SharedState, api_error, api_success, auth, fs, preview, stream, users};
+use super::{SharedState, api_success, auth, fs, preview, stream, users};
 
 pub fn build_app(state: SharedState) -> Router {
     let mut cors = CorsLayer::new().allow_methods(Any).allow_headers(Any);
-    if state.config.scheme.allow_cors {
+    if state.config.server.allow_cors {
         cors = cors.allow_origin(Any);
     }
 
@@ -83,17 +80,17 @@ pub fn build_app(state: SharedState) -> Router {
 }
 
 async fn public_settings_handler(State(state): State<SharedState>) -> Response {
-    match get_public_settings(&state.pool).await {
-        Ok(settings) => api_success(settings),
-        Err(err) => {
-            tracing::error!(error = %err, "failed to get public settings");
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Internal server error",
-            )
-        }
-    }
+    let ui = &state.config.ui;
+    api_success(std::collections::HashMap::from([
+        ("site_title", ui.site_title.clone()),
+        ("logo", ui.logo.clone()),
+        ("favicon", ui.favicon.clone()),
+        ("main_color", ui.main_color.clone()),
+        ("hide_files", ui.hide_files.join("\n")),
+        ("package_download", ui.package_download.to_string()),
+        ("announcement", ui.announcement.clone()),
+        ("version", format!("v{}-rust", env!("CARGO_PKG_VERSION"))),
+    ]))
 }
 
 async fn security_headers_middleware(request: Request, next: Next) -> Response {

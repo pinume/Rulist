@@ -3,7 +3,6 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use tokio::io::AsyncWriteExt;
 
-use crate::db::get_setting;
 use crate::driver::local::RenameError;
 use crate::model::{
     BatchRenameReq, ConflictPolicy, DirItem, FsDirNamesReq, FsDirsReq, FsGetReq, FsLinkReq,
@@ -16,23 +15,8 @@ use crate::server::{
 };
 use crate::sign::sign_path;
 
-pub(crate) async fn signing_token(state: &SharedState) -> Result<String, Response> {
-    match get_setting(&state.pool, "token").await {
-        Ok(Some(token)) if !token.trim().is_empty() => Ok(token),
-        Ok(_) => Err(api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            500,
-            "Signing token is unavailable",
-        )),
-        Err(err) => {
-            tracing::error!(error = %err, "failed to load signing token");
-            Err(api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Signing token is unavailable",
-            ))
-        }
-    }
+pub(crate) fn signing_secret(state: &SharedState) -> &str {
+    &state.config.security.signing_secret
 }
 
 pub async fn fs_list_handler(
@@ -70,16 +54,13 @@ pub async fn fs_list_handler(
             }
 
             // Attach signs and raw_urls to files
-            let token = match signing_token(&state).await {
-                Ok(token) => token,
-                Err(response) => return response,
-            };
+            let signing_secret = signing_secret(&state);
 
             for item in &mut content {
                 if !item.is_dir {
                     let item_path = format!("{}/{}", path.trim_end_matches('/'), item.name);
                     let sign = match sign_path(
-                        &token,
+                        signing_secret,
                         &item_path,
                         &state.storage.storage_context_for_path(&item_path),
                     ) {
@@ -141,14 +122,11 @@ pub async fn fs_get_handler(
 
     match state.storage.get(&path).await {
         Ok(mut file) => {
-            let token = match signing_token(&state).await {
-                Ok(token) => token,
-                Err(response) => return response,
-            };
+            let signing_secret = signing_secret(&state);
 
             if !file.is_dir {
                 let s = match sign_path(
-                    &token,
+                    signing_secret,
                     &path,
                     &state.storage.storage_context_for_path(&path),
                 ) {
@@ -661,17 +639,14 @@ pub async fn fs_link_handler(
         return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
     };
 
-    let token = match signing_token(&state).await {
-        Ok(token) => token,
-        Err(response) => return response,
-    };
+    let signing_secret = signing_secret(&state);
 
     let clean_path = match user_path(&user, &req.path) {
         Ok(path) => path,
         Err(_) => return permission_denied(),
     };
     let sign = match sign_path(
-        &token,
+        signing_secret,
         &clean_path,
         &state.storage.storage_context_for_path(&clean_path),
     ) {

@@ -160,10 +160,10 @@ pub async fn run() -> Result<()> {
         Commands::Server(server_args) => {
             let (mut config, config_path) = config::Config::load_or_create(&data_dir)?;
             if let Some(port) = server_args.port {
-                config.scheme.http_port = port;
+                config.server.port = port;
             }
             if let Some(host) = server_args.host {
-                config.scheme.address = host;
+                config.server.address = host;
             }
 
             info!("loaded configuration from {:?}", config_path);

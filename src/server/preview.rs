@@ -5,7 +5,7 @@ use axum::response::Response;
 use crate::preview::{
     PreviewMeta, PreviewReq, PreviewResponse, PreviewStrategy, detect_from_path, processor,
 };
-use crate::server::fs::signing_token;
+use crate::server::fs::signing_secret;
 use crate::server::{
     SharedState, api_error, api_success, authenticate_user, encode_url_path, permission_denied,
     user_path,
@@ -42,13 +42,10 @@ pub async fn preview_handler(
                 );
             }
 
-            let token = match signing_token(&state).await {
-                Ok(token) => token,
-                Err(response) => return response,
-            };
+            let signing_secret = signing_secret(&state);
 
             let sign = match sign_path(
-                &token,
+                signing_secret,
                 &path,
                 &state.storage.storage_context_for_path(&path),
             ) {

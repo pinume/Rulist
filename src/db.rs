@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -9,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection, SqlitePoolOptions};
 use sqlx::{Pool, Sqlite};
 
-use crate::auth::{hash_password, rand_string, rand_token};
+use crate::auth::{hash_password, rand_string};
 use crate::model::{ROLE_ADMIN, User};
 
 pub type DbPool = Pool<Sqlite>;
@@ -36,13 +35,6 @@ async fn init_schema(pool: &DbPool) -> Result<()> {
                 ),
             `otp_secret` TEXT,
             `last_otp_step` INTEGER NOT NULL DEFAULT -1
-        )
-        "#,
-        r#"
-        CREATE TABLE IF NOT EXISTS `x_setting_items` (
-            `key` TEXT PRIMARY KEY,
-            `value` TEXT NOT NULL,
-            `flag` INTEGER NOT NULL DEFAULT 0
         )
         "#,
         r#"
@@ -111,7 +103,6 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool> {
         .await?;
 
     validate_admin_invariants(&pool).await?;
-    seed_settings(&pool).await?;
     seed_admin(&pool).await?;
 
     Ok(pool)
@@ -134,41 +125,6 @@ async fn validate_admin_invariants(pool: &DbPool) -> Result<()> {
     }
     if admin_count == 0 && get_user_by_name(pool, "admin").await?.is_some() {
         bail!("username admin is already assigned to a non-administrator");
-    }
-
-    Ok(())
-}
-
-async fn seed_settings(pool: &DbPool) -> Result<()> {
-    sqlx::query(
-        r#"
-        INSERT OR IGNORE INTO `x_setting_items` (`key`, `value`, `flag`) VALUES
-            ('site_title', 'Rulist', 0),
-            ('version', 'v0.1.2-rust', 2),
-            ('announcement', '', 0),
-            ('robots_txt', 'User-agent: *\nAllow: /', 0),
-            ('logo', 'rulist.svg'||char(10)||'rulist-dark.svg', 0),
-            ('favicon', '', 0),
-            ('main_color', '#1890ff', 0),
-            ('hide_files', '/\/README.md/i', 0),
-            ('package_download', 'true', 0)
-        "#,
-    )
-    .execute(pool)
-    .await?;
-
-    let existing: Option<String> =
-        sqlx::query_scalar("SELECT `value` FROM `x_setting_items` WHERE `key` = 'token'")
-            .fetch_optional(pool)
-            .await?;
-
-    if existing.is_none() {
-        sqlx::query(
-            "INSERT INTO `x_setting_items` (`key`, `value`, `flag`) VALUES ('token', ?, 1)",
-        )
-        .bind(rand_token())
-        .execute(pool)
-        .await?;
     }
 
     Ok(())
@@ -251,30 +207,6 @@ pub async fn set_user_password(pool: &DbPool, username: &str, new_password: &str
 
 pub async fn set_admin_password(pool: &DbPool, new_password: &str) -> Result<()> {
     set_user_password(pool, "admin", new_password).await
-}
-
-pub async fn get_setting(pool: &DbPool, key: &str) -> Result<Option<String>> {
-    let value: Option<String> =
-        sqlx::query_scalar("SELECT `value` FROM `x_setting_items` WHERE `key` = ?")
-            .bind(key)
-            .fetch_optional(pool)
-            .await?;
-    Ok(value)
-}
-
-pub async fn get_public_settings(pool: &DbPool) -> Result<HashMap<String, String>> {
-    let rows = sqlx::query_as::<_, (String, String)>(
-        "SELECT `key`, `value` FROM `x_setting_items` WHERE `flag` IN (0, 2)",
-    )
-    .fetch_all(pool)
-    .await?;
-
-    let mut settings: HashMap<_, _> = rows.into_iter().collect();
-    settings.insert(
-        "version".to_string(),
-        format!("v{}-rust", env!("CARGO_PKG_VERSION")),
-    );
-    Ok(settings)
 }
 
 pub async fn get_user_by_name(pool: &DbPool, username: &str) -> Result<Option<User>> {

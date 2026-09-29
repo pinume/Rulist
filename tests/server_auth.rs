@@ -179,17 +179,23 @@ async fn database_rejects_disabling_passwordless_for_unset_password() {
 }
 
 #[tokio::test]
-async fn signing_token_is_not_an_admin_credential() {
+async fn signing_secret_is_not_an_admin_credential() {
     let temp = tempfile::tempdir().unwrap();
     let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
-    let legacy_token = db::get_setting(&pool, "token").await.unwrap().unwrap();
-    let app = app_for(&pool).await;
+    let config = Config::default();
+    let signing_secret = config.security.signing_secret.clone();
+    let storage = StorageManager::load_from_db(&pool).await.unwrap();
+    let app = build_app(Arc::new(AppState {
+        pool: pool.clone(),
+        config,
+        storage,
+    }));
 
     let (status, body) = json_request(
         &app,
         "GET",
         "/api/admin/user/list",
-        Some(&legacy_token),
+        Some(&signing_secret),
         Value::Null,
     )
     .await;
@@ -400,7 +406,7 @@ async fn server_rejects_addresses_other_than_exact_localhost() {
 
     for host in ["127.0.0.2", "0.0.0.0"] {
         let mut config = Config::default();
-        config.scheme.address = host.to_string();
+        config.server.address = host.to_string();
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(1),
             rulist::server::run_server(config, pool.clone(), StorageManager::default()),

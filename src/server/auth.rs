@@ -213,8 +213,8 @@ pub async fn login_handler(
         user.id,
         &user.username,
         user.pwd_ts,
-        &state.config.jwt_secret,
-        state.config.token_expires_in,
+        &state.config.security.jwt_secret,
+        state.config.security.token_expires_hours,
     ) {
         Ok(token) => {
             if let Err(err) =
@@ -252,7 +252,7 @@ pub async fn logout_handler(State(state): State<SharedState>, headers: HeaderMap
     };
     let token = auth_header.strip_prefix("Bearer ").unwrap_or(auth_header);
 
-    if let Ok(claims) = parse_jwt(token, &state.config.jwt_secret) {
+    if let Ok(claims) = parse_jwt(token, &state.config.security.jwt_secret) {
         let now = now_ts();
         if let Err(err) = sqlx::query("DELETE FROM `x_revoked_tokens` WHERE `expires_at` < ?")
             .bind(now)

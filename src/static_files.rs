@@ -49,19 +49,12 @@ pub fn serve_dist_asset(path: &str) -> Option<Response<Body>> {
     Some(response)
 }
 
-pub async fn render_html(pool: &crate::db::DbPool) -> String {
+pub fn render_html(site_title: &str) -> String {
     let raw_html = match DistAssets::get("index.html") {
         Some(file) => String::from_utf8_lossy(&file.data).to_string(),
         None => return "Rulist frontend not found".to_string(),
     };
 
-    let settings = crate::db::get_public_settings(pool)
-        .await
-        .unwrap_or_default();
-    let site_title = settings
-        .get("site_title")
-        .map(String::as_str)
-        .unwrap_or("Rulist");
     let safe_site_title = escape_html(site_title);
 
     raw_html
@@ -73,14 +66,8 @@ pub async fn render_html(pool: &crate::db::DbPool) -> String {
 }
 
 pub async fn manifest_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let settings = crate::db::get_public_settings(&state.pool)
-        .await
-        .unwrap_or_default();
-    let site_title = settings
-        .get("site_title")
-        .cloned()
-        .unwrap_or_else(|| "Rulist".to_string());
-    let logo = settings.get("logo").cloned().unwrap_or_default();
+    let site_title = &state.config.ui.site_title;
+    let logo = &state.config.ui.logo;
     let logo_first = logo.lines().next().unwrap_or(&logo).trim();
     let icons = if logo.trim().is_empty()
         || logo.trim() == "favicon.ico"
@@ -111,12 +98,8 @@ pub async fn manifest_handler(State(state): State<Arc<AppState>>) -> impl IntoRe
 }
 
 pub async fn favicon_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let favicon_url = crate::db::get_setting(&state.pool, "favicon")
-        .await
-        .unwrap_or_default();
-    if let Some(favicon) = favicon_url
-        && !favicon.trim().is_empty()
-    {
+    let favicon = &state.config.ui.favicon;
+    if !favicon.trim().is_empty() {
         return Redirect::temporary(&favicon).into_response();
     }
 
@@ -129,16 +112,11 @@ pub async fn favicon_handler(State(state): State<Arc<AppState>>) -> impl IntoRes
     StatusCode::NOT_FOUND.into_response()
 }
 
-pub async fn robots_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let robots = crate::db::get_setting(&state.pool, "robots_txt")
-        .await
-        .unwrap_or(None)
-        .unwrap_or_else(|| "User-agent: *\nAllow: /\n".to_string());
-
+pub async fn robots_handler() -> impl IntoResponse {
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
-        .body(Body::from(robots))
+        .body(Body::from("User-agent: *\nAllow: /\n"))
         .unwrap()
         .into_response()
 }
@@ -171,7 +149,7 @@ pub async fn spa_fallback_handler(
         return response;
     }
 
-    let html = render_html(&state.pool).await;
+    let html = render_html(&state.config.ui.site_title);
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")

@@ -32,12 +32,6 @@ fn hex_encode(bytes: impl AsRef<[u8]>) -> String {
     bytes.as_ref().iter().map(|b| format!("{b:02x}")).collect()
 }
 
-pub fn rand_token() -> String {
-    let mut bytes = [0u8; 48];
-    thread_rng().fill(&mut bytes[..]);
-    format!("rulist-{}", hex_encode(bytes))
-}
-
 pub fn hash_identifier(value: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(value.as_bytes());

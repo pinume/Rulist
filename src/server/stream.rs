@@ -12,7 +12,6 @@ use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
 use tokio_util::io::ReaderStream;
 
-use crate::db::get_setting;
 use crate::server::{SharedState, authenticate_user, encode_url_path};
 use crate::sign::verify_sign;
 
@@ -72,18 +71,16 @@ async fn stream_file(
     }
 
     if sign.is_some() {
-        let token = match get_setting(&state.pool, "token").await {
-            Ok(Some(token)) if !token.trim().is_empty() => token,
-            Ok(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-            Err(err) => {
-                tracing::error!(error = %err, "failed to load signing token");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        };
-
         let s = sign.unwrap_or_default();
         let context = state.storage.storage_context_for_path(&clean_path);
-        if verify_sign(&token, &clean_path, &context, &s).is_err() {
+        if verify_sign(
+            &state.config.security.signing_secret,
+            &clean_path,
+            &context,
+            &s,
+        )
+        .is_err()
+        {
             return (
                 StatusCode::FORBIDDEN,
                 "Invalid or expired download link signature",

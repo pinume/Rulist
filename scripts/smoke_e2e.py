@@ -101,6 +101,12 @@ def main():
                 else:
                     raise AssertionError(f"server did not become ready:\n{log_path.read_text()}")
 
+                status, raw_settings = http(f"{base}/api/public/settings")
+                expect(200, status, "public settings")
+                settings = json.loads(raw_settings)["data"]
+                if settings["site_title"] != "Rulist" or settings["package_download"] != "true":
+                    raise AssertionError(f"unexpected public settings: {settings}")
+
                 status, _ = http(
                     f"{base}/api/fs/put",
                     "PUT",

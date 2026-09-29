@@ -41,8 +41,8 @@ pub async fn run_server(
     });
     let app = build_app(state);
 
-    let ip: IpAddr = config.scheme.address.parse()?;
-    let addr = SocketAddr::new(ip, config.scheme.http_port);
+    let ip: IpAddr = config.server.address.parse()?;
+    let addr = SocketAddr::new(ip, config.server.port);
     if addr.ip() != IpAddr::V4(Ipv4Addr::LOCALHOST) && addr.ip() != IpAddr::V6(Ipv6Addr::LOCALHOST)
     {
         anyhow::bail!(
