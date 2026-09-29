@@ -46,7 +46,6 @@ export enum ViewState {
 }
 const createInitialFileStore = () => ({
   file: {} as FileEntry,
-  raw_url: "",
   files: [] as FileItem[],
   total: 0,
   page: 1,
@@ -68,7 +67,6 @@ const setListing = (files: FileEntry[], total: number, page: number) => {
 export const FileStore = {
   set: (data: object) => setFileStore(data),
   setFile: (file: FileEntry) => setFileStore("file", file),
-  setRawUrl: (raw_url: string) => setFileStore("raw_url", raw_url),
   setListing,
   setSort: (orderBy: OrderBy, reverse: boolean) => setFileStore({ orderBy, reverse }),
   setState: (state: ViewState) => setFileStore("state", state),

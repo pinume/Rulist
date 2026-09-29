@@ -42,7 +42,6 @@ test("resetSessionState clears all user-scoped browser state", async () => {
       modified: "2026-01-01T00:00:00Z",
       type: 0,
     })
-    files.FileStore.setRawUrl("/old.txt?sign=stale")
     files.FileStore.setListing(
       [
         {
@@ -70,7 +69,6 @@ test("resetSessionState clears all user-scoped browser state", async () => {
     assert.equal(session.currentUser(), null)
     assert.equal(files.fileStore.state, files.ViewState.Initial)
     assert.deepEqual(files.fileStore.file, {})
-    assert.equal(files.fileStore.raw_url, "")
     assert.deepEqual(files.fileStore.files, [])
     assert.deepEqual(files.selectedFiles(), [])
     assert.equal(files.fileStore.total, 0)

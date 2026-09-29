@@ -98,7 +98,6 @@ export const useFiles = () => {
           rememberDirectory(path)
           loadFolder(path)
         } else {
-          FileStore.setRawUrl(data.raw_url)
           shouldKeepState() || FileStore.setState(ViewState.File)
         }
       },
