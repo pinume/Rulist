@@ -26,6 +26,7 @@ test("resetSessionState clears all user-scoped browser state", async () => {
     const { resetSessionState } = await server.ssrLoadModule(
       "/src/store/reset.ts",
     )
+    const generationBefore = files.getFileRequestGeneration()
 
     session.setCurrentUser({
       id: 1,
@@ -81,6 +82,7 @@ test("resetSessionState clears all user-scoped browser state", async () => {
     assert.deepEqual(files.uploadConfig, { asTask: false, overwrite: false })
     assert.equal(files.shouldKeepState(), false)
     assert.equal(history.HistoryMap.size, 0)
+    assert.equal(files.getFileRequestGeneration(), generationBefore + 1)
   } finally {
     await server?.close()
     if (documentDescriptor) {

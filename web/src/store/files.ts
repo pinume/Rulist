@@ -6,6 +6,12 @@ export type OrderBy = "name" | "size" | "modified"
 export const LIST_PAGE_SIZE = 100
 type SortState = { orderBy: OrderBy; reverse: boolean }
 const defaultSort: SortState = { orderBy: "name", reverse: false }
+let fileRequestGeneration = 0
+
+export const getFileRequestGeneration = () => fileRequestGeneration
+export const invalidateFileRequests = () => {
+  fileRequestGeneration++
+}
 
 export const saveSortState = (dir: string, state: SortState) => {
   try {
@@ -181,6 +187,7 @@ export const selectedMsg = (filterType?: FileType) => {
 }
 
 export const resetFileState = () => {
+  invalidateFileRequests()
   setFileStore(createInitialFileStore())
   setDirectoryFilterValue("")
   lastClickedIndex = null

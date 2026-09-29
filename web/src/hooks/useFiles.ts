@@ -11,6 +11,7 @@ import {
   clearHistory,
   shouldKeepState,
   fileStore,
+  getFileRequestGeneration,
   isKnownDirectoryPath,
   rememberDirectoryPath as rememberKnownDirectoryPath,
 } from "~/store"
@@ -86,7 +87,9 @@ export const useFiles = () => {
   // Load a path whose type is not known yet.
   const loadFile = async (path: string) => {
     shouldKeepState() || FileStore.setState(ViewState.Loading)
+    const generation = getFileRequestGeneration()
     const resp = await getFile(path)
+    if (generation !== getFileRequestGeneration()) return
     handleRespWithoutNotify(
       resp,
       (data) => {
@@ -111,7 +114,9 @@ export const useFiles = () => {
     reverse = fileStore.reverse,
   ) => {
     shouldKeepState() || FileStore.setState(ViewState.Loading)
+    const generation = getFileRequestGeneration()
     const resp = await listFiles({ path, page, orderBy, reverse })
+    if (generation !== getFileRequestGeneration()) return
     handleRespWithoutNotify(
       resp,
       (data) => {
