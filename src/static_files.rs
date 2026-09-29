@@ -36,7 +36,7 @@ pub fn serve_dist_asset(path: &str) -> Option<Response<Body>> {
         .status(StatusCode::OK)
         .header(
             header::CONTENT_TYPE,
-            HeaderValue::from_str(mime.as_ref())
+            HeaderValue::from_str(mime)
                 .unwrap_or(HeaderValue::from_static("application/octet-stream")),
         )
         .header(
@@ -68,7 +68,7 @@ pub fn render_html(site_title: &str) -> String {
 pub async fn manifest_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let site_title = &state.config.site.site_title;
     let logo = &state.config.site.logo;
-    let logo_first = logo.lines().next().unwrap_or(&logo).trim();
+    let logo_first = logo.lines().next().unwrap_or(logo).trim();
     let icons = if logo.trim().is_empty()
         || logo.trim() == "favicon.ico"
         || logo.trim() == "rulist.svg\nrulist-dark.svg"
@@ -100,7 +100,7 @@ pub async fn manifest_handler(State(state): State<Arc<AppState>>) -> impl IntoRe
 pub async fn favicon_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let favicon = &state.config.site.favicon;
     if !favicon.trim().is_empty() {
-        return Redirect::temporary(&favicon).into_response();
+        return Redirect::temporary(favicon).into_response();
     }
 
     if let Some(mut response) = serve_dist_asset("favicon.ico") {

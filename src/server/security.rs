@@ -32,7 +32,7 @@ pub(crate) async fn authenticate_user(headers: &HeaderMap, state: &AppState) -> 
 
 pub(crate) fn user_path(_user: &User, requested: &str) -> Result<String, &'static str> {
     if requested
-        .split(|ch| ch == '/' || ch == '\\')
+        .split(['/', '\\'])
         .any(|part| part == "." || part == "..")
     {
         return Err("invalid path");

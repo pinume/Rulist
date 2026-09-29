@@ -155,7 +155,7 @@ async fn stream_file(
             let range_str = format!("bytes {start}-{end}/{file_size}");
             apply_stream_headers(
                 &mut resp,
-                &content_type,
+                content_type,
                 part_len,
                 disposition,
                 as_attachment,
@@ -172,7 +172,7 @@ async fn stream_file(
     let mut resp = (StatusCode::OK, Body::from_stream(stream)).into_response();
     apply_stream_headers(
         &mut resp,
-        &content_type,
+        content_type,
         file_size,
         disposition,
         as_attachment,
