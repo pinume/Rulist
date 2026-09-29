@@ -168,7 +168,7 @@ async fn stream_file(
     }
 
     // Full response
-    let stream = ReaderStream::new(file);
+    let stream = ReaderStream::new(file.take(file_size));
     let mut resp = (StatusCode::OK, Body::from_stream(stream)).into_response();
     apply_stream_headers(
         &mut resp,
