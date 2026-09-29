@@ -34,7 +34,7 @@ import { StreamUpload } from "./stream"
 const statusText: Record<string, string> = {
   pending: "Pending",
   uploading: "Uploading",
-  backending: "Uploading in background",
+  backending: "Finalizing",
   success: "Success",
   error: "Error",
 }
@@ -147,12 +147,12 @@ const Upload = () => {
         uploadPath,
         file,
         (key, value) => setUpload(id, key, value),
-        uploadConfig.asTask,
         uploadConfig.overwrite,
       ).catch((err) => err)
       if (!err) {
         setUpload(id, "status", "success")
         setUpload(id, "progress", 100)
+        fileMap.delete(id)
       } else {
         setUpload(id, "status", "error")
         setUpload(id, "msg", err.message)
@@ -173,11 +173,15 @@ const Upload = () => {
             <HStack spacing="$2">
               <Button
                 colorScheme="accent"
-                onClick={() =>
+                onClick={() => {
+                  const completed = uploadFiles.uploads.filter(({ status }) =>
+                    ["success", "error"].includes(status),
+                  )
+                  for (const upload of completed) fileMap.delete(upload.id)
                   setUploadFiles("uploads", (items) =>
                     items.filter(({ status }) => !["success", "error"].includes(status)),
                   )
-                }
+                }}
               >
                 Clear completed
               </Button>
@@ -263,12 +267,6 @@ const Upload = () => {
               spacing={{ "@initial": "$2", "@md": "$4" }}
               direction={{ "@initial": "column", "@md": "row" }}
             >
-              <Checkbox
-                checked={uploadConfig.asTask}
-                onChange={() => setUploadConfig({ asTask: !uploadConfig.asTask })}
-              >
-                Add as task
-              </Checkbox>
               <Checkbox
                 checked={uploadConfig.overwrite}
                 onChange={() => setUploadConfig({ overwrite: !uploadConfig.overwrite })}

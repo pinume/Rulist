@@ -6,16 +6,13 @@ export const StreamUpload = async (
   uploadPath: string,
   file: File,
   setUpload: SetUpload,
-  asTask = false,
   overwrite = false,
 ): Promise<undefined> => {
   let oldTimestamp = new Date().valueOf()
   let oldLoaded = 0
   const headers: { [k: string]: any } = {
     "File-Path": encodeURIComponent(uploadPath),
-    "As-Task": asTask,
     "Content-Type": file.type || "application/octet-stream",
-    "Last-Modified": file.lastModified,
     Overwrite: overwrite.toString(),
   }
   setUpload("status", "uploading")

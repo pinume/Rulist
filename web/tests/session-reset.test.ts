@@ -61,7 +61,7 @@ test("resetSessionState clears all user-scoped browser state", async () => {
     files.setDirectoryFilter("old")
     files.setLastClickedIndex(0)
     files.rememberDirectoryPath("/old", true)
-    files.setUploadConfig({ asTask: true, overwrite: true })
+    files.setUploadConfig({ overwrite: true })
     files.setShouldKeepState(true)
     history.HistoryMap.set("/old", { state: {}, scroll: 12 })
 
@@ -77,7 +77,7 @@ test("resetSessionState clears all user-scoped browser state", async () => {
     assert.equal(files.fileStore.page, 1)
     assert.equal(files.directoryFilter(), "")
     assert.equal(files.isKnownDirectoryPath("/old"), false)
-    assert.deepEqual(files.uploadConfig, { asTask: false, overwrite: false })
+    assert.deepEqual(files.uploadConfig, { overwrite: false })
     assert.equal(files.shouldKeepState(), false)
     assert.equal(history.HistoryMap.size, 0)
     assert.equal(files.getFileRequestGeneration(), generationBefore + 1)

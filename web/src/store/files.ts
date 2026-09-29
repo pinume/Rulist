@@ -169,12 +169,11 @@ export const resetFileState = () => {
   setDirectoryFilterValue("")
   lastClickedIndex = null
   for (const path of Object.keys(directoryPaths)) delete directoryPaths[path]
-  setUploadConfig({ asTask: false, overwrite: false })
+  setUploadConfig({ overwrite: false })
   setShouldKeepState(false)
 }
 
 export const [uploadConfig, setUploadConfig] = createStore({
-  asTask: false,
   overwrite: false,
 })
 
