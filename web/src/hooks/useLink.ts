@@ -1,4 +1,4 @@
-import { me, fileStore, ViewState } from "~/store"
+import { currentUser, fileStore, ViewState } from "~/store"
 import { FileEntry } from "~/types"
 import { api, encodePath, pathDir, pathJoin, standardizePath } from "~/utils"
 import { useRouter } from "."
@@ -12,8 +12,9 @@ export const getLinkByDirAndObj = (
   dir = standardizePath(dir, true)
   const path = encodePath(`${dir}/${obj.name}`, encodeAll)
   let ans = `${api}/d${path}`
-  if (obj.sign) {
-    ans += `?sign=${obj.sign}&uid=${me().id}`
+  const user = currentUser()
+  if (obj.sign && user) {
+    ans += `?sign=${obj.sign}&uid=${user.id}`
   }
   return ans
 }

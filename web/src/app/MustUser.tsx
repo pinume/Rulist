@@ -1,7 +1,7 @@
 import { createSignal, JSXElement, Match, Switch } from "solid-js"
 import { Error, FullScreenLoading } from "~/components"
 import { useFetch } from "~/hooks"
-import { setMe } from "~/store"
+import { setCurrentUser } from "~/store"
 import { User } from "~/types"
 import { PResp } from "~/types"
 import { r, handleResp } from "~/utils"
@@ -14,7 +14,7 @@ const MustUser = (props: { children: JSXElement }) => {
     handleResp(
       await data(),
       (user) => {
-        setMe(user)
+        setCurrentUser(user)
         setReady(true)
       },
       setErr,

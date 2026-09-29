@@ -28,12 +28,7 @@ export const UserPermissions = Object.keys(UserPermissionBits) as Array<
   keyof typeof UserPermissionBits
 >
 
-export const UserMethods = {
-  is_admin: (user: User) => user.role === UserRole.ADMIN,
-  is_general: (user: User) => user.role === UserRole.GENERAL,
-  can: (user: User, permission: number) => {
-    return (
-      UserMethods.is_admin(user) || ((user.permission >> permission) & 1) === 1
-    )
-  },
-}
+export const isAdmin = (user: User) => user.role === UserRole.ADMIN
+
+export const can = (user: User, permission: number) =>
+  isAdmin(user) || ((user.permission >> permission) & 1) === 1

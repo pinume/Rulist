@@ -18,7 +18,7 @@ import {
   selectIndex,
   selectRange,
   setLastClickedIndex,
-  userCan,
+  can,
 } from "~/store"
 import { FileItem } from "~/types"
 import {
@@ -65,7 +65,7 @@ export const ListItem = (props: { obj: FileItem; index: number }) => {
     if (!props.obj.is_dir) return true
     if (getSettingBool("package_download")) return true
     return fileStore.write &&
-      (userCan("rename") || userCan("copy") || userCan("move") || userCan("delete"))
+      (can("rename") || can("copy") || can("move") || can("delete"))
   }
 
   return (
@@ -218,7 +218,7 @@ export const ListItem = (props: { obj: FileItem; index: number }) => {
                     Download
                   </MenuItem>
                 </Show>
-                <Show when={userCan("rename") && fileStore.write}>
+                <Show when={can("rename") && fileStore.write}>
                   <MenuItem
                     cursor="pointer"
                     icon={<Icon as={operations.rename.icon} color={operations.rename.color} />}
@@ -230,7 +230,7 @@ export const ListItem = (props: { obj: FileItem; index: number }) => {
                     Rename
                   </MenuItem>
                 </Show>
-                <Show when={userCan("copy") && fileStore.write}>
+                <Show when={can("copy") && fileStore.write}>
                   <MenuItem
                     cursor="pointer"
                     icon={<Icon as={operations.copy.icon} color={operations.copy.color} />}
@@ -242,7 +242,7 @@ export const ListItem = (props: { obj: FileItem; index: number }) => {
                     Copy
                   </MenuItem>
                 </Show>
-                <Show when={userCan("move") && fileStore.write}>
+                <Show when={can("move") && fileStore.write}>
                   <MenuItem
                     cursor="pointer"
                     icon={<Icon as={operations.move.icon} color={operations.move.color} />}
@@ -254,7 +254,7 @@ export const ListItem = (props: { obj: FileItem; index: number }) => {
                     Move
                   </MenuItem>
                 </Show>
-                <Show when={userCan("delete") && fileStore.write}>
+                <Show when={can("delete") && fileStore.write}>
                   <MenuItem
                     cursor="pointer"
                     icon={<Icon as={operations.delete.icon} color={operations.delete.color} />}

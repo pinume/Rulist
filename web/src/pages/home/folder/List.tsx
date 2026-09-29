@@ -27,7 +27,7 @@ import {
   fileStore,
   selectAll,
   selectedMsg,
-  userCan,
+  can,
   visibleFileIndexes,
 } from "~/store"
 import { Col, cols, ListItem } from "./ListItem"
@@ -280,17 +280,17 @@ const ListLayout = () => {
           <Text size="sm" fontWeight="semibold" mr="auto">
             {selectedMsg()}
           </Text>
-          <Show when={userCan("copy") && fileStore.write}>
+          <Show when={can("copy") && fileStore.write}>
             <Button size="sm" variant="ghost" color={getMainColor()} onClick={() => bus.emit("tool", "copy")}>
               Copy
             </Button>
           </Show>
-          <Show when={userCan("move") && fileStore.write}>
+          <Show when={can("move") && fileStore.write}>
             <Button size="sm" variant="ghost" color={getMainColor()} onClick={() => bus.emit("tool", "move")}>
               Move
             </Button>
           </Show>
-          <Show when={userCan("delete") && fileStore.write}>
+          <Show when={can("delete") && fileStore.write}>
             <Button size="sm" variant="ghost" color="$danger9" onClick={() => bus.emit("tool", "delete")}>
               Delete
             </Button>

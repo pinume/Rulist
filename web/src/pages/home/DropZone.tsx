@@ -3,7 +3,7 @@ import { FiUploadCloud } from "solid-icons/fi"
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js"
 import { Portal } from "solid-js/web"
 import { useRouter } from "~/hooks"
-import { getMainColor, fileStore, ViewState, userCan } from "~/store"
+import { getMainColor, fileStore, ViewState, can } from "~/store"
 import { notify } from "~/utils"
 import {
   enqueueFilesForUpload,
@@ -17,7 +17,7 @@ export const DropZone = () => {
 
   const canWrite = () =>
     fileStore.state === ViewState.Folder &&
-    userCan("write_content") &&
+    can("write_content") &&
     !!fileStore.write
 
   const hasOpenModal = () =>

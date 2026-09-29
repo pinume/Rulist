@@ -14,7 +14,7 @@ import {
   RiDocumentFolderAddLine,
 } from "solid-icons/ri"
 import { createMemo, Show } from "solid-js"
-import { getMainColor, fileStore, ViewState, userCan } from "~/store"
+import { getMainColor, fileStore, ViewState, can } from "~/store"
 import { bus } from "~/utils"
 import { enqueueFilesForUpload } from "../uploads/util"
 
@@ -22,7 +22,7 @@ export const AddMenu = () => {
   const canWrite = createMemo(
     () =>
       fileStore.state === ViewState.Folder &&
-      userCan("write_content") &&
+      can("write_content") &&
       fileStore.write,
   )
 

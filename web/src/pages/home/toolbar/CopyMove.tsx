@@ -2,7 +2,7 @@ import { Checkbox, createDisclosure, VStack, Button } from "@hope-ui/solid"
 import { createSignal, onCleanup } from "solid-js"
 import { ModalFolderChoose, FolderTreeHandler } from "~/components"
 import { useFetch, usePath, useRouter } from "~/hooks"
-import { selectedFiles, userCan } from "~/store"
+import { selectedFiles, can } from "~/store"
 import {
   bus,
   ConflictPolicy,
@@ -13,7 +13,7 @@ import {
 import { CgFolderAdd } from "solid-icons/cg"
 
 export const CreateFolderButton = (props: { handler?: FolderTreeHandler }) => {
-  if (!userCan("write_content")) return null
+  if (!can("write_content")) return null
   return (
     <Button leftIcon={<CgFolderAdd />} size="sm" onClick={() => props.handler?.startCreateFolder()}>
       New folder
