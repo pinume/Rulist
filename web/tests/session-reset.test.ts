@@ -57,7 +57,6 @@ test("resetSessionState clears all user-scoped browser state", async () => {
       1,
       1,
     )
-    files.FileStore.setWrite(true)
     files.FileStore.setState(files.ViewState.File)
     files.setDirectoryFilter("old")
     files.setLastClickedIndex(0)
@@ -76,7 +75,6 @@ test("resetSessionState clears all user-scoped browser state", async () => {
     assert.deepEqual(files.selectedFiles(), [])
     assert.equal(files.fileStore.total, 0)
     assert.equal(files.fileStore.page, 1)
-    assert.equal(files.fileStore.write, undefined)
     assert.equal(files.directoryFilter(), "")
     assert.equal(files.isKnownDirectoryPath("/old"), false)
     assert.deepEqual(files.uploadConfig, { asTask: false, overwrite: false })

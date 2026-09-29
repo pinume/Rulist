@@ -29,7 +29,6 @@ pub struct FsListReq {
 pub struct FsListResp {
     pub content: Vec<FileEntry>,
     pub total: i64,
-    pub write: bool,
 }
 #[derive(Debug, Clone, serde::Deserialize, Default)]
 pub struct FsGetReq {
@@ -177,7 +176,6 @@ pub async fn list_handler(
             let resp = FsListResp {
                 content,
                 total,
-                write: permitted(&user, 3),
             };
             api_success(resp)
         }

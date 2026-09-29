@@ -22,8 +22,7 @@ export const AddMenu = () => {
   const canWrite = createMemo(
     () =>
       fileStore.state === ViewState.Folder &&
-      can("write_content") &&
-      fileStore.write,
+      can("write_content"),
   )
 
   let fileInputRef: HTMLInputElement | undefined

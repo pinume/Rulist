@@ -17,8 +17,7 @@ export const DropZone = () => {
 
   const canWrite = () =>
     fileStore.state === ViewState.Folder &&
-    can("write_content") &&
-    !!fileStore.write
+    can("write_content")
 
   const hasOpenModal = () =>
     !!document.querySelector(".hope-modal__overlay, .hope-modal__content")

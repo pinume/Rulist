@@ -232,17 +232,17 @@ const ListLayout = () => {
           <Text size="sm" fontWeight="semibold" mr="auto">
             {selectedMsg()}
           </Text>
-          <Show when={can("copy") && fileStore.write}>
+          <Show when={can("copy")}>
             <Button size="sm" variant="ghost" color={mainColor()} onClick={() => bus.emit("tool", "copy")}>
               Copy
             </Button>
           </Show>
-          <Show when={can("move") && fileStore.write}>
+          <Show when={can("move")}>
             <Button size="sm" variant="ghost" color={mainColor()} onClick={() => bus.emit("tool", "move")}>
               Move
             </Button>
           </Show>
-          <Show when={can("delete") && fileStore.write}>
+          <Show when={can("delete")}>
             <Button size="sm" variant="ghost" color="$danger9" onClick={() => bus.emit("tool", "delete")}>
               Delete
             </Button>

@@ -54,7 +54,6 @@ const createInitialFileStore = () => ({
   reverse: false,
   state: ViewState.Initial,
   err: "",
-  write: undefined as boolean | undefined,
 })
 const [fileStore, setFileStore] = createStore<
   ReturnType<typeof createInitialFileStore>
@@ -72,7 +71,6 @@ export const FileStore = {
   setRawUrl: (raw_url: string) => setFileStore("raw_url", raw_url),
   setListing,
   setSort: (orderBy: OrderBy, reverse: boolean) => setFileStore({ orderBy, reverse }),
-  setWrite: (write: boolean) => setFileStore("write", write),
   setState: (state: ViewState) => setFileStore("state", state),
   setErr: (err: string) => setFileStore("err", err),
 }

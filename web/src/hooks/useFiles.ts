@@ -126,7 +126,6 @@ export const useFiles = () => {
           return
         }
         FileStore.setListing(data.content ?? [], data.total, page)
-        FileStore.setWrite(data.write)
         shouldKeepState() || FileStore.setState(ViewState.Folder)
       },
       handleErr,

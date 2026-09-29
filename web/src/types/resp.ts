@@ -9,7 +9,6 @@ export interface Resp<T> {
 export type FsListResp = Resp<{
   content: FileEntry[]
   total: number
-  write: boolean
 }>
 
 export type FsGetResp = Resp<FileEntry & { raw_url: string }>
