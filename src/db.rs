@@ -42,12 +42,7 @@ async fn init_schema(pool: &DbPool) -> Result<()> {
         CREATE TABLE IF NOT EXISTS `x_setting_items` (
             `key` TEXT PRIMARY KEY,
             `value` TEXT NOT NULL,
-            `help` TEXT,
-            `type` TEXT NOT NULL DEFAULT 'string',
-            `options` TEXT,
-            `group` INTEGER NOT NULL DEFAULT 0,
-            `flag` INTEGER NOT NULL DEFAULT 0,
-            `index` INTEGER
+            `flag` INTEGER NOT NULL DEFAULT 0
         )
         "#,
         r#"
@@ -149,19 +144,19 @@ async fn validate_admin_invariants(pool: &DbPool) -> Result<()> {
 async fn seed_settings(pool: &DbPool) -> Result<()> {
     sqlx::query(
         r#"
-        INSERT OR IGNORE INTO `x_setting_items` (`key`, `value`, `type`, `group`, `flag`) VALUES
-            ('site_title', 'Rulist', 'string', 0, 0),
-            ('version', 'v0.1.2-rust', 'string', 0, 2),
-            ('announcement', '', 'text', 0, 0),
-            ('robots_txt', 'User-agent: *\nAllow: /', 'text', 0, 0),
-            ('logo', 'rulist.svg'||char(10)||'rulist-dark.svg', 'text', 1, 0),
-            ('favicon', '', 'string', 1, 0),
-            ('main_color', '#1890ff', 'string', 1, 0),
-            ('hide_files', '/\/README.md/i', 'text', 0, 0),
-            ('home_container', 'max_980px', 'select', 1, 0),
-            ('home_icon', '🏠', 'string', 1, 0),
-            ('package_download', 'true', 'bool', 0, 0),
-            ('sign_all', 'false', 'bool', 0, 0)
+        INSERT OR IGNORE INTO `x_setting_items` (`key`, `value`, `flag`) VALUES
+            ('site_title', 'Rulist', 0),
+            ('version', 'v0.1.2-rust', 2),
+            ('announcement', '', 0),
+            ('robots_txt', 'User-agent: *\nAllow: /', 0),
+            ('logo', 'rulist.svg'||char(10)||'rulist-dark.svg', 0),
+            ('favicon', '', 0),
+            ('main_color', '#1890ff', 0),
+            ('hide_files', '/\/README.md/i', 0),
+            ('home_container', 'max_980px', 0),
+            ('home_icon', '🏠', 0),
+            ('package_download', 'true', 0),
+            ('sign_all', 'false', 0)
         "#,
     )
     .execute(pool)
@@ -174,7 +169,7 @@ async fn seed_settings(pool: &DbPool) -> Result<()> {
 
     if existing.is_none() {
         sqlx::query(
-            "INSERT INTO `x_setting_items` (`key`, `value`, `type`, `group`, `flag`) VALUES ('token', ?, 'string', 0, 1)",
+            "INSERT INTO `x_setting_items` (`key`, `value`, `flag`) VALUES ('token', ?, 1)",
         )
         .bind(rand_token())
         .execute(pool)

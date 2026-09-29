@@ -5,7 +5,7 @@ use axum::response::Response;
 use crate::auth::{
     generate_jwt, hash_identifier, hash_password, matching_totp_step, parse_jwt, verify_password,
 };
-use crate::db::{get_setting, get_user_by_name};
+use crate::db::get_user_by_name;
 use crate::model::{LoginReq, PERM_ALLOW_EMPTY_PASSWORD, UpdateCurrentReq};
 use crate::server::{SharedState, api_error, api_success, authenticate_user};
 
@@ -251,28 +251,6 @@ pub async fn logout_handler(State(state): State<SharedState>, headers: HeaderMap
         return api_success(());
     };
     let token = auth_header.strip_prefix("Bearer ").unwrap_or(auth_header);
-
-    match get_setting(&state.pool, "token").await {
-        Ok(Some(master))
-            if !master.is_empty()
-                && subtle::ConstantTimeEq::ct_eq(master.as_bytes(), token.as_bytes()).into() =>
-        {
-            return api_error(
-                StatusCode::BAD_REQUEST,
-                400,
-                "Master token cannot be revoked",
-            );
-        }
-        Ok(_) => {}
-        Err(err) => {
-            tracing::error!(error = %err, "failed to load master token during logout");
-            return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Internal server error",
-            );
-        }
-    }
 
     if let Ok(claims) = parse_jwt(token, &state.config.jwt_secret) {
         let now = now_ts();

@@ -115,39 +115,6 @@ impl LocalDriver {
         Ok(target)
     }
 
-    pub async fn is_physically_empty(&self, subpath: &str) -> Result<bool> {
-        let full_path = self.safe_resolve(subpath)?;
-        let meta = fs::symlink_metadata(&full_path).await?;
-        if !meta.is_dir() {
-            return Err(anyhow!("path is not a directory"));
-        }
-        let mut entries = fs::read_dir(&full_path).await?;
-        Ok(entries.next_entry().await?.is_none())
-    }
-
-    pub async fn read_dir_physical(&self, subpath: &str) -> Result<Vec<(String, bool)>> {
-        let full_path = self.safe_resolve(subpath)?;
-        let meta = fs::symlink_metadata(&full_path).await?;
-        if !meta.is_dir() {
-            return Err(anyhow!("path is not a directory"));
-        }
-
-        let mut read_dir = fs::read_dir(&full_path).await?;
-        let mut entries = Vec::new();
-        while let Some(entry) = read_dir.next_entry().await? {
-            let file_name = entry.file_name().to_string_lossy().to_string();
-            if self.hidden_name_denied(&file_name) {
-                continue;
-            }
-            let file_type = entry.file_type().await?;
-            if file_type.is_symlink() {
-                continue;
-            }
-            entries.push((file_name, file_type.is_dir()));
-        }
-        Ok(entries)
-    }
-
     pub async fn list(&self, subpath: &str) -> Result<Vec<FileObj>> {
         let full_path = self.safe_resolve(subpath)?;
         let show_hidden = self.show_hidden;

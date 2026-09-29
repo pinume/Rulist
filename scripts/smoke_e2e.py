@@ -73,10 +73,12 @@ def main():
         initial_password = match.group(1)
 
         with sqlite3.connect(data_dir / "data.db") as connection:
-            connection.execute(
-                "INSERT INTO x_storages (mount_path, addition) VALUES (?, ?)",
-                ("/", json.dumps({"root_folder_path": str(storage_dir)})),
-            )
+            updated = connection.execute(
+                "UPDATE x_storages SET addition = ? WHERE mount_path = ?",
+                (json.dumps({"root_folder_path": str(storage_dir)}), "/"),
+            ).rowcount
+            if updated != 1:
+                raise AssertionError(f"expected one default root mount, updated {updated}")
 
         port = pick_port()
         base = f"http://127.0.0.1:{port}"

@@ -176,19 +176,6 @@ pub struct FsMoveCopyReq {
     pub conflict_policy: ConflictPolicy,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct FsRecursiveMoveReq {
-    pub src_dir: String,
-    pub dst_dir: String,
-    #[serde(default)]
-    pub conflict_policy: ConflictPolicy,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct FsRemoveEmptyDirsReq {
-    pub src_dir: String,
-}
-
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct FsDirsReq {
     #[serde(default)]

@@ -46,16 +46,8 @@ pub fn build_app(state: SharedState) -> Router {
         .route("/api/fs/mkdir", post(fs::fs_mkdir_handler))
         .route("/api/fs/rename", post(fs::fs_rename_handler))
         .route("/api/fs/move", post(fs::fs_move_handler))
-        .route(
-            "/api/fs/recursive_move",
-            post(fs::fs_recursive_move_handler),
-        )
         .route("/api/fs/copy", post(fs::fs_copy_handler))
         .route("/api/fs/remove", post(fs::fs_remove_handler))
-        .route(
-            "/api/fs/remove_empty_directory",
-            post(fs::fs_remove_empty_dirs_handler),
-        )
         .route("/api/fs/put", put(fs::fs_put_handler))
         .route("/api/fs/batch_rename", post(fs::fs_batch_rename_handler))
         .route("/api/fs/link", post(fs::fs_link_handler))
