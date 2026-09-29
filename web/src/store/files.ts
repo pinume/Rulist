@@ -138,30 +138,9 @@ export const clearDirectoryFilter = () => setDirectoryFilter("")
 export { directoryFilter }
 export const visibleFileIndexes = createMemo(() => {
   const query = directoryFilter().trim().toLowerCase()
-  const indexes = fileStore.files.flatMap((obj, index) =>
+  return fileStore.files.flatMap((obj, index) =>
     !query || obj.name.toLowerCase().includes(query) ? [index] : [],
   )
-  const orderBy = fileStore.orderBy
-  const reverse = fileStore.reverse
-
-  return indexes.sort((i, j) => {
-    const a = fileStore.files[i]
-    const b = fileStore.files[j]
-    if (!a || !b) return 0
-    if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
-    let res = 0
-    if (orderBy === "size") {
-      res = a.size - b.size
-    } else if (orderBy === "modified") {
-      res = (new Date(a.modified).getTime() || 0) - (new Date(b.modified).getTime() || 0)
-    } else {
-      res = a.name.localeCompare(b.name, undefined, { numeric: true })
-    }
-    if (res === 0) res = a.name.localeCompare(b.name, undefined, { numeric: true })
-    const orderedRes = reverse ? -res : res
-    if (orderedRes !== 0) return orderedRes
-    return 0
-  })
 })
 const getCountStr = (objs: FileItem[], prefix: "count" | "selected", filterType?: FileType) => {
   if (filterType) objs = objs.filter((obj) => obj.is_dir || obj.type === filterType)
