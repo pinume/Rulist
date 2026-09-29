@@ -73,6 +73,10 @@ pub struct FsDirsReq {
     #[serde(default)]
     pub path: String,
 }
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct FsMkdirReq {
+    pub path: String,
+}
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DirItem {
     pub name: String,
@@ -307,7 +311,7 @@ pub async fn dirs_handler(
 pub async fn mkdir_handler(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    Json(req): Json<serde_json::Value>,
+    Json(req): Json<FsMkdirReq>,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "unauthorized");
@@ -315,10 +319,14 @@ pub async fn mkdir_handler(
     if !permitted(&user, 3) {
         return permission_denied();
     }
-    let path = match user_path(
-        &user,
-        req.get("path").and_then(|v| v.as_str()).unwrap_or(""),
-    ) {
+    if req.path.trim_matches('/').is_empty() {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            400,
+            "directory path cannot be empty",
+        );
+    }
+    let path = match user_path(&user, &req.path) {
         Ok(path) => path,
         Err(_) => return permission_denied(),
     };

@@ -70,7 +70,7 @@ async fn filesystem_handlers_map_io_errors_and_conflicts_to_http_statuses() {
         "FilesPass123!",
         0,
         Some(root.to_str().unwrap()),
-        (1 << 5) | (1 << 6),
+        (1 << 3) | (1 << 5) | (1 << 6),
         false,
     )
     .await
@@ -99,6 +99,17 @@ async fn filesystem_handlers_map_io_errors_and_conflicts_to_http_statuses() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(not_directory["code"], 400);
+
+    let (status, empty_mkdir) = json_request(
+        &app,
+        "POST",
+        "/api/fs/mkdir",
+        Some(&token),
+        json!({ "path": "" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(empty_mkdir["code"], 400);
 
     for (route, src_dir, dst_dir) in [
         ("/api/fs/copy", "/copy-src", "/copy-dst"),
