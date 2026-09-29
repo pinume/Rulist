@@ -84,11 +84,11 @@ export const getIconByTypeAndName = (type: number, name: string) => {
   }
 }
 
-export const getIconByObj = (obj: Pick<FileEntry, "type" | "name">) => {
+export const getIconByFile = (obj: Pick<FileEntry, "type" | "name">) => {
   return getIconByTypeAndName(obj.type, obj.name)
 }
 
-export const getIconColorByObj = (obj: Pick<FileEntry, "type" | "name">) => {
+export const getIconColorByFile = (obj: Pick<FileEntry, "type" | "name">) => {
   if (obj.type === FileType.FOLDER) return mainColor()
   const name = obj.name.toLowerCase()
   if (/\.(zip|tar|gz|tgz|bz2|xz|7z|rar)$/.test(name)) return "#d97706"

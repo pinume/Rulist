@@ -28,7 +28,7 @@ import {
   getFileSize,
   hoverColor,
 } from "~/utils"
-import { getIconByObj, getIconColorByObj } from "~/utils/icon"
+import { getIconByFile, getIconColorByFile } from "~/utils/icon"
 import { BsThreeDotsVertical } from "solid-icons/bs"
 import { operations } from "../toolbar/operations"
 
@@ -113,8 +113,8 @@ export const ListItem = (props: { obj: FileItem; index: number }) => {
           <Icon
             class="icon"
             boxSize="$6"
-            color={getIconColorByObj(props.obj)}
-            as={getIconByObj(props.obj)}
+            color={getIconColorByFile(props.obj)}
+            as={getIconByFile(props.obj)}
             mr="$1"
           />
           <LinkWithPush

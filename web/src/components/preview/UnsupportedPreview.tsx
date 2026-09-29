@@ -2,7 +2,7 @@ import { Box, Button, HStack, Icon, Text, VStack } from "@hope-ui/solid"
 import { FiDownload, FiExternalLink } from "solid-icons/fi"
 import { FileType, PreviewMeta } from "~/types"
 import { getFileSize, startDownload } from "~/utils"
-import { getIconByObj, getIconColorByObj } from "~/utils/icon"
+import { getIconByFile, getIconColorByFile } from "~/utils/icon"
 
 export const UnsupportedPreview = (props: { meta: PreviewMeta }) => (
   <Box display="flex" justifyContent="center" alignItems="center" p="$8">
@@ -17,9 +17,9 @@ export const UnsupportedPreview = (props: { meta: PreviewMeta }) => (
       alignItems="center"
     >
       <Icon
-          as={getIconByObj({ type: FileType.UNKNOWN, name: props.meta.name })}
+        as={getIconByFile({ type: FileType.UNKNOWN, name: props.meta.name })}
         boxSize="$16"
-          color={getIconColorByObj({ type: FileType.UNKNOWN, name: props.meta.name })}
+        color={getIconColorByFile({ type: FileType.UNKNOWN, name: props.meta.name })}
       />
       <Text fontWeight="$semibold" size="lg" textAlign="center" noOfLines={2}>
         {props.meta.name}

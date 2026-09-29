@@ -11,7 +11,7 @@ import {
 import { FiDownload, FiExternalLink } from "solid-icons/fi"
 import { FileType, PreviewMeta } from "~/types"
 import { formatDate, getFileSize, startDownload } from "~/utils"
-import { getIconByObj, getIconColorByObj } from "~/utils/icon"
+import { getIconByFile, getIconColorByFile } from "~/utils/icon"
 
 export const PreviewHeader = (props: { meta: PreviewMeta }) => {
   const headerBg = useColorModeValue("$neutral1", "$neutral2")
@@ -42,8 +42,8 @@ export const PreviewHeader = (props: { meta: PreviewMeta }) => {
     >
       <HStack spacing="$3" minW="0" flex="1">
         <Icon
-          as={getIconByObj({ type: FileType.UNKNOWN, name: props.meta.name })}
-          color={getIconColorByObj({ type: FileType.UNKNOWN, name: props.meta.name })}
+          as={getIconByFile({ type: FileType.UNKNOWN, name: props.meta.name })}
+          color={getIconColorByFile({ type: FileType.UNKNOWN, name: props.meta.name })}
           boxSize="$7"
           flexShrink={0}
         />

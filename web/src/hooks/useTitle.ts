@@ -13,7 +13,7 @@ export const useTitle = (title: string | (() => string)) => {
   }
 }
 
-export const useObjTitle = () => {
+export const useFileTitle = () => {
   const { pathname } = useRouter()
   useTitle(
     () =>

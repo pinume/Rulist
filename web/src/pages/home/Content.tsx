@@ -1,7 +1,7 @@
 import { useColorModeValue, VStack } from "@hope-ui/solid"
 import { createEffect, lazy, Match, on, Suspense, Switch } from "solid-js"
 import { Error, FullLoading } from "~/components"
-import { useFiles, useObjTitle, useRouter } from "~/hooks"
+import { useFileTitle, useFiles, useRouter } from "~/hooks"
 import { fileStore, recordHistory, ViewState } from "~/store"
 
 const Folder = lazy(() => import("./folder/Folder"))
@@ -15,7 +15,7 @@ export const Content = () => {
     on(pathname, async (pathname) => {
       if (lastPathname) recordHistory(lastPathname)
       lastPathname = pathname
-      useObjTitle()
+      useFileTitle()
       await loadPath(pathname)
     }),
   )

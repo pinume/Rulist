@@ -3,8 +3,8 @@ import { FileEntry } from "~/types"
 import { api, encodePath, pathDir, pathJoin, standardizePath } from "~/utils"
 import { useRouter } from "."
 
-// get download url by dir and obj
-export const getLinkByDirAndObj = (
+// get download url by directory and file
+export const getLinkByDirAndFile = (
   dir: string,
   obj: FileEntry,
   encodeAll?: boolean,
@@ -24,7 +24,7 @@ export const useLink = () => {
   const { pathname } = useRouter()
   const rawLink = (obj: FileEntry, encodeAll?: boolean) => {
     const dir = fileStore.state === ViewState.File ? pathDir(pathname()) : pathname()
-    return getLinkByDirAndObj(dir, obj, encodeAll)
+    return getLinkByDirAndFile(dir, obj, encodeAll)
   }
   return { rawLink }
 }
