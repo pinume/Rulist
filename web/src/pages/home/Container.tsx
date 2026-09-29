@@ -1,14 +1,6 @@
-import { JSXElement, Match, Switch } from "solid-js"
-import { getSetting } from "~/store"
-import { Box, Container as HopeContainer } from "@hope-ui/solid"
+import { Box } from "@hope-ui/solid"
+import { JSXElement } from "solid-js"
 
-export const Container = (props: { children: JSXElement }) => {
-  const container = getSetting("home_container")
-  return (
-    <Switch fallback={<Box w="$full">{props.children}</Box>}>
-      <Match when={container === "hope_container"}>
-        <HopeContainer>{props.children}</HopeContainer>
-      </Match>
-    </Switch>
-  )
-}
+export const Container = (props: { children: JSXElement }) => (
+  <Box w="$full">{props.children}</Box>
+)

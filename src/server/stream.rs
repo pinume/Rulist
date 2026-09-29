@@ -71,19 +71,7 @@ async fn stream_file(
         return (StatusCode::BAD_REQUEST, "Invalid path").into_response();
     }
 
-    // Check signature if sign_all is enabled or sign is provided
-    let sign_all = match get_setting(&state.pool, "sign_all").await {
-        Ok(Some(value)) if value == "true" || value == "1" => true,
-        Ok(Some(value)) if value == "false" || value == "0" => false,
-        Ok(Some(_)) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-        Ok(None) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-        Err(err) => {
-            tracing::error!(error = %err, "failed to load signing settings");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
-
-    if sign_all || sign.is_some() {
+    if sign.is_some() {
         let token = match get_setting(&state.pool, "token").await {
             Ok(Some(token)) if !token.trim().is_empty() => token,
             Ok(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),

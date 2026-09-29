@@ -11,7 +11,7 @@ import tempfile
 import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
 
@@ -154,6 +154,16 @@ def main():
                 expect(200, status, "signed download")
                 if downloaded != CONTENT:
                     raise AssertionError("signed download bytes differ from uploaded bytes")
+
+                unsigned_path = urlsplit(link["data"]["url"]).path
+                status, _ = http(f"{base}{unsigned_path}")
+                expect(401, status, "unsigned download")
+                status, downloaded = http(
+                    f"{base}{unsigned_path}", headers={"Authorization": f"Bearer {token}"}
+                )
+                expect(200, status, "authenticated unsigned download")
+                if downloaded != CONTENT:
+                    raise AssertionError("authenticated unsigned download bytes differ from uploaded bytes")
 
                 status, _ = http(f"{base}/api/fs/put", "PUT", b"replacement", upload_headers)
                 expect(409, status, "duplicate upload")

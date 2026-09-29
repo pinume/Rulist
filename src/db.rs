@@ -153,10 +153,7 @@ async fn seed_settings(pool: &DbPool) -> Result<()> {
             ('favicon', '', 0),
             ('main_color', '#1890ff', 0),
             ('hide_files', '/\/README.md/i', 0),
-            ('home_container', 'max_980px', 0),
-            ('home_icon', '🏠', 0),
-            ('package_download', 'true', 0),
-            ('sign_all', 'false', 0)
+            ('package_download', 'true', 0)
         "#,
     )
     .execute(pool)
