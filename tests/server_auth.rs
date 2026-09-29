@@ -122,6 +122,71 @@ async fn filesystem_handlers_map_io_errors_and_conflicts_to_http_statuses() {
     }
 }
 
+#[tokio::test]
+async fn spa_fallback_returns_404_for_unknown_api_and_stream_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("files");
+    tokio::fs::create_dir_all(&root).await.unwrap();
+
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+    db::create_user(
+        &pool,
+        "fallback-user",
+        "FallbackPass123!",
+        0,
+        Some(root.to_str().unwrap()),
+        0,
+        false,
+    )
+    .await
+    .unwrap();
+    let app = app_for(&pool).await;
+
+    assert_eq!(
+        raw_status_request(&app, "/api/not-exist").await,
+        StatusCode::NOT_FOUND
+    );
+    let page = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/unknown-page")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.status(), StatusCode::OK);
+    assert_eq!(
+        page.headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("text/html; charset=utf-8")
+    );
+
+    let token = login_token(&app, "fallback-user", "FallbackPass123!").await;
+    let (status, link) = json_request(
+        &app,
+        "POST",
+        "/api/fs/link",
+        Some(&token),
+        json!({ "path": "/unknown-file" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let download_path = link["data"]["url"].as_str().unwrap();
+    assert_eq!(
+        raw_status_request(&app, download_path).await,
+        StatusCode::NOT_FOUND
+    );
+    let preview_path = download_path.replacen("/d/", "/p/", 1);
+    assert_eq!(
+        raw_status_request(&app, &preview_path).await,
+        StatusCode::NOT_FOUND
+    );
+}
+
 async fn raw_status_request(app: &axum::Router, path: &str) -> StatusCode {
     app.clone()
         .oneshot(

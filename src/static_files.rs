@@ -144,7 +144,16 @@ pub async fn spa_fallback_handler(
         return StatusCode::NOT_FOUND.into_response();
     }
 
-    let path = uri.path().trim_start_matches('/');
+    let request_path = uri.path();
+    if request_path == "/api"
+        || request_path.starts_with("/api/")
+        || request_path.starts_with("/d/")
+        || request_path.starts_with("/p/")
+    {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let path = request_path.trim_start_matches('/');
     if let Some(response) = serve_dist_asset(path) {
         return response;
     }
