@@ -375,7 +375,10 @@ pub async fn admin_user_update_handler(
     let next_permission = req.permission.unwrap_or(target.permission);
     let allow_empty =
         !target.is_admin() && next_permission & (1 << crate::model::PERM_ALLOW_EMPTY_PASSWORD) != 0;
-    let nonempty_password_supplied = req.password.as_deref().is_some_and(|password| !password.is_empty());
+    let nonempty_password_supplied = req
+        .password
+        .as_deref()
+        .is_some_and(|password| !password.is_empty());
     if !target.is_admin() && target.password_unset && !allow_empty && !nonempty_password_supplied {
         return api_error(
             StatusCode::BAD_REQUEST,

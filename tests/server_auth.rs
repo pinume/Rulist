@@ -148,7 +148,6 @@ async fn unknown_user_login_is_recorded_before_password_verification() {
     assert_eq!(attempts, 1);
 }
 
-
 #[tokio::test]
 async fn database_rejects_disabling_passwordless_for_unset_password() {
     let temp = tempfile::tempdir().unwrap();
@@ -183,10 +182,7 @@ async fn database_rejects_disabling_passwordless_for_unset_password() {
 async fn signing_token_is_not_an_admin_credential() {
     let temp = tempfile::tempdir().unwrap();
     let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
-    let legacy_token = db::get_setting(&pool, "token")
-        .await
-        .unwrap()
-        .unwrap();
+    let legacy_token = db::get_setting(&pool, "token").await.unwrap().unwrap();
     let app = app_for(&pool).await;
 
     let (status, body) = json_request(
@@ -208,7 +204,9 @@ async fn disabling_passwordless_login_requires_a_nonempty_password() {
     tokio::fs::create_dir_all(&user_root).await.unwrap();
 
     let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
-    db::set_admin_password(&pool, "AdminPass123!").await.unwrap();
+    db::set_admin_password(&pool, "AdminPass123!")
+        .await
+        .unwrap();
     let permission = 1 << PERM_ALLOW_EMPTY_PASSWORD;
     let user_id = db::create_user_direct(
         &pool,
@@ -285,7 +283,9 @@ async fn disabling_passwordless_login_requires_a_nonempty_password() {
 async fn admin_password_update_keeps_pwd_ts_monotonic() {
     let temp = tempfile::tempdir().unwrap();
     let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
-    db::set_admin_password(&pool, "AdminPass123!").await.unwrap();
+    db::set_admin_password(&pool, "AdminPass123!")
+        .await
+        .unwrap();
     let admin = db::get_admin(&pool).await.unwrap().unwrap();
     let old_pwd_ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -408,6 +408,10 @@ async fn server_rejects_addresses_other_than_exact_localhost() {
         .await
         .expect("server should reject the address before binding");
         let error = result.expect_err("non-localhost address must be rejected");
-        assert!(error.to_string().contains("only 127.0.0.1 or ::1 is permitted"));
+        assert!(
+            error
+                .to_string()
+                .contains("only 127.0.0.1 or ::1 is permitted")
+        );
     }
 }

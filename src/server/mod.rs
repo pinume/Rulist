@@ -19,9 +19,7 @@ use crate::driver::StorageManager;
 use crate::model::ApiResponse;
 
 pub use routes::build_app;
-pub(crate) use security::{
-    authenticate_user, encode_url_path, permitted, user_path, valid_name,
-};
+pub(crate) use security::{authenticate_user, encode_url_path, permitted, user_path, valid_name};
 
 pub struct AppState {
     pub pool: DbPool,
@@ -45,8 +43,7 @@ pub async fn run_server(
 
     let ip: IpAddr = config.scheme.address.parse()?;
     let addr = SocketAddr::new(ip, config.scheme.http_port);
-    if addr.ip() != IpAddr::V4(Ipv4Addr::LOCALHOST)
-        && addr.ip() != IpAddr::V6(Ipv6Addr::LOCALHOST)
+    if addr.ip() != IpAddr::V4(Ipv4Addr::LOCALHOST) && addr.ip() != IpAddr::V6(Ipv6Addr::LOCALHOST)
     {
         anyhow::bail!(
             "security restriction: only 127.0.0.1 or ::1 is permitted, got {}",
