@@ -37,6 +37,7 @@ local directory.
 
 `config.json` stores the JWT secret, token lifetime, database path, HTTP scheme,
 and site settings. SQLite stores only users and authentication-security state;
-file contents remain on the Linux filesystem.
+file contents remain on the Linux filesystem. Rulist exposes only
+UTF-8-compatible file names through the web interface.
 
 Use HTTPS in production.

@@ -1,4 +1,5 @@
 use rulist::filesystem::local::LocalFs;
+use std::os::unix::ffi::OsStringExt;
 
 fn driver_with_hidden(root: &std::path::Path, show_hidden: bool) -> LocalFs {
     LocalFs::new(root, show_hidden).unwrap()
@@ -42,6 +43,21 @@ async fn rejects_special_files() {
     assert!(!entries.iter().any(|entry| entry.name == "test.sock"));
     assert!(fs.get("test.sock").await.is_err());
     assert!(fs.open("test.sock").await.is_err());
+}
+
+#[tokio::test]
+async fn skips_non_utf8_filenames() {
+    let temp = tempfile::tempdir().unwrap();
+    let invalid_name = std::ffi::OsString::from_vec(b"invalid-\xff.txt".to_vec());
+    std::fs::write(temp.path().join(invalid_name), b"hidden from web").unwrap();
+    tokio::fs::write(temp.path().join("valid.txt"), b"visible")
+        .await
+        .unwrap();
+    let fs = driver(temp.path());
+
+    let entries = fs.list("").await.unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].name, "valid.txt");
 }
 
 #[tokio::test]

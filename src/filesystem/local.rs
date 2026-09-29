@@ -103,7 +103,13 @@ impl LocalFs {
             let mut items = Vec::new();
 
             for entry in read_dir.flatten() {
-                let file_name = entry.file_name().to_string_lossy().to_string();
+                let Some(file_name) = entry.file_name().to_str().map(str::to_owned) else {
+                    tracing::warn!(
+                        path = ?entry.path(),
+                        "skipping non-UTF-8 filename"
+                    );
+                    continue;
+                };
                 if !show_hidden && file_name.starts_with('.') {
                     continue;
                 }
@@ -155,10 +161,13 @@ impl LocalFs {
         if !file_type.is_file() && !file_type.is_dir() {
             anyhow::bail!("unsupported filesystem entry type");
         }
-        let file_name = full_path
-            .file_name()
-            .map(|name| name.to_string_lossy().to_string())
-            .unwrap_or_else(|| "/".to_string());
+        let file_name = match full_path.file_name() {
+            Some(name) => name
+                .to_str()
+                .map(str::to_owned)
+                .ok_or_else(|| anyhow!("filename is not valid UTF-8"))?,
+            None => "/".to_string(),
+        };
         let is_dir = meta.is_dir();
         let size = if is_dir { 0 } else { meta.len() as i64 };
         let modified = meta
