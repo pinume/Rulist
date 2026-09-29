@@ -9,14 +9,14 @@
 - [x] 将应用配置迁入 `config.json`：删除数据库设置表与读取路径，签名密钥和 UI 设置改由配置提供。提交：`f760d5f`。
 - [x] 前置清理已提交：删除废弃文件端点及 schema 元数据、清理无效应用设置，并将存储数据模型收敛为本地目录。提交：`f9fff7e`、`4b8476a`、`e761724`。
 - [x] **阶段 3：用户直接绑定本地目录。** 用户根目录、文件访问、签名链接和前端路径语义已通过根代理审查与 E2E。提交：`e92123b`。
+- [x] **阶段 4：删除 Storage 抽象。** 删除 `x_storages`、`StorageManager`、`Storage` 模型、"查看挂载" CLI 入口；将 `driver/` 改名为 `filesystem/`、`LocalDriver` 改为 `LocalFs`。提交：`2cb9893`。
 
 ## 当前阶段
 
-- [ ] **阶段 4：删除 Storage 抽象。** 当前下一阶段。
+- [ ] **阶段 5：整理 Rust 模块。** 当前下一阶段。
 
 ## 待办
 
-- [ ] 删除 `x_storages`、StorageManager、虚拟 `/.users/{id}` 映射；将 `driver/` 收敛并改名为 `filesystem/`、`LocalDriver` 改为 `LocalFs`。
 - [ ] **阶段 5：整理 Rust 模块。** 引入 `app.rs`，拆分 `db/`，将类型移至相邻模块，删除 `model.rs`，将 `server/fs.rs` 改为 `server/files.rs`。
 - [ ] **阶段 6：统一用户业务并重构 CLI。** HTTP 与交互式 CLI 共用用户操作和密码校验；CLI 不自行执行 SQL。
 - [ ] **阶段 7：收敛前端模型。** 统一文件对象命名；确认并移除无实际用途的 `provider`、`readme`、`header` 字段。
