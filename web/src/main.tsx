@@ -4,6 +4,11 @@ import { render } from "solid-js/web"
 
 import { Index } from "./app"
 
+window.addEventListener("vite:preloadError", (event) => {
+  event.preventDefault()
+  window.location.reload()
+})
+
 declare module "solid-js" {
   namespace JSX {
     interface CustomEvents extends HTMLElementEventMap {}
