@@ -9,6 +9,19 @@ use rulist::db;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
+async fn raw_response_request(app: &axum::Router, path: &str) -> axum::response::Response {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(path)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
 #[tokio::test]
 async fn spa_fallback_returns_404_for_unknown_api_and_stream_paths() {
     let temp = tempfile::tempdir().unwrap();
@@ -72,6 +85,61 @@ async fn spa_fallback_returns_404_for_unknown_api_and_stream_paths() {
         raw_status_request(&app, &preview_path).await,
         StatusCode::NOT_FOUND
     );
+}
+
+#[tokio::test]
+async fn signed_stream_responses_are_not_cached_or_used_as_referrers() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("files");
+    tokio::fs::create_dir_all(&root).await.unwrap();
+    tokio::fs::write(root.join("signed.txt"), b"signed content")
+        .await
+        .unwrap();
+
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+    db::create_user(
+        &pool,
+        "stream-user",
+        "StreamPass123!",
+        0,
+        Some(root.to_str().unwrap()),
+        0,
+        false,
+    )
+    .await
+    .unwrap();
+    let app = app_for(&pool).await;
+    let token = login_token(&app, "stream-user", "StreamPass123!").await;
+    let (status, link) = json_request(
+        &app,
+        "POST",
+        "/api/fs/link",
+        Some(&token),
+        json!({ "path": "/signed.txt" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let download_url = link["data"]["url"].as_str().unwrap();
+    let preview_url = download_url.replacen("/d/", "/p/", 1);
+    for url in [download_url, preview_url.as_str()] {
+        let response = raw_response_request(&app, url).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok()),
+            Some("private, no-store")
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get(header::REFERRER_POLICY)
+                .and_then(|value| value.to_str().ok()),
+            Some("no-referrer")
+        );
+    }
 }
 
 #[tokio::test]

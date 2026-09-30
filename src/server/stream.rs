@@ -3,8 +3,8 @@ use std::path::Path;
 use axum::body::Body;
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::header::{
-    ACCEPT_RANGES, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_SECURITY_POLICY,
-    CONTENT_TYPE,
+    ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE,
+    CONTENT_SECURITY_POLICY, CONTENT_TYPE, REFERRER_POLICY,
 };
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -30,7 +30,9 @@ pub async fn raw_download_handler(
     Query(query): Query<SignQuery>,
     headers: HeaderMap,
 ) -> Response {
-    stream_file(state, path, query.sign, query.uid, headers, true).await
+    let mut response = stream_file(state, path, query.sign, query.uid, headers, true).await;
+    apply_private_stream_headers(&mut response);
+    response
 }
 
 pub async fn raw_preview_handler(
@@ -39,7 +41,15 @@ pub async fn raw_preview_handler(
     Query(query): Query<SignQuery>,
     headers: HeaderMap,
 ) -> Response {
-    stream_file(state, path, query.sign, query.uid, headers, false).await
+    let mut response = stream_file(state, path, query.sign, query.uid, headers, false).await;
+    apply_private_stream_headers(&mut response);
+    response
+}
+
+fn apply_private_stream_headers(response: &mut Response) {
+    let headers = response.headers_mut();
+    headers.insert(CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
+    headers.insert(REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
 }
 
 pub fn percent_decode(s: &str) -> String {
