@@ -9,6 +9,13 @@ use crate::permissions::ALLOW_EMPTY_PASSWORD;
 
 pub const ROLE_ADMIN: i32 = 2;
 
+fn current_timestamp() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
+
 fn canonical_local_path(path: &str) -> Result<String> {
     let path = Path::new(path.trim());
     if !path.is_absolute() {
@@ -120,10 +127,7 @@ pub(crate) async fn seed_admin(pool: &DbPool) -> Result<()> {
 
     let home_path = initial_home_path()?;
     let initial_pwd = rand_string(16);
-    let now_ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
+    let now_ts = current_timestamp();
     sqlx::query("INSERT INTO `users` (`username`, `pwd_hash`, `pwd_ts`, `local_path`, `role`, `disabled`, `permission`, `password_unset`) VALUES ('admin', ?, ?, ?, ?, 0, 0, 0)")
         .bind(hash_password(&initial_pwd)).bind(now_ts).bind(home_path.to_string_lossy().into_owned()).bind(ROLE_ADMIN).execute(pool).await?;
     println!(
@@ -171,10 +175,7 @@ pub async fn set_user_password_and_permission(
     }
     crate::auth::validate_password(new_password, user.is_admin(), permission)
         .map_err(anyhow::Error::msg)?;
-    let now_ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
+    let now_ts = current_timestamp();
     sqlx::query("UPDATE `users` SET `pwd_hash` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?), `password_unset` = ?, `permission` = ? WHERE `id` = ?")
         .bind(hash_password(new_password)).bind(now_ts).bind(new_password.is_empty()).bind(permission).bind(user.id).execute(pool).await?;
     Ok(())
@@ -256,10 +257,7 @@ pub async fn set_user_disabled(pool: &DbPool, user_id: i64, disabled: bool) -> R
         bail!("administrator cannot be disabled");
     }
     let result = if disabled {
-        let now_ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now_ts = current_timestamp();
         sqlx::query(
             "UPDATE `users` SET `disabled` = 1, `pwd_ts` = MAX(`pwd_ts` + 1, ?) WHERE `id` = ?",
         )
@@ -285,8 +283,8 @@ pub async fn enable_user_2fa(
     secret: &str,
     accepted_step: i64,
 ) -> Result<()> {
-    let result = sqlx::query("UPDATE `users` SET `otp_secret` = ?, `last_otp_step` = ? WHERE `id` = ? AND (`otp_secret` IS NULL OR TRIM(`otp_secret`) = '')")
-        .bind(secret).bind(accepted_step).bind(user_id).execute(pool).await?;
+    let result = sqlx::query("UPDATE `users` SET `otp_secret` = ?, `last_otp_step` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?) WHERE `id` = ? AND (`otp_secret` IS NULL OR TRIM(`otp_secret`) = '')")
+        .bind(secret).bind(accepted_step).bind(current_timestamp()).bind(user_id).execute(pool).await?;
     if result.rows_affected() != 1 {
         bail!("user not found or 2FA is already enabled");
     }
@@ -294,11 +292,11 @@ pub async fn enable_user_2fa(
 }
 
 pub async fn disable_user_2fa(pool: &DbPool, user_id: i64) -> Result<()> {
-    let result =
-        sqlx::query("UPDATE `users` SET `otp_secret` = '', `last_otp_step` = -1 WHERE `id` = ?")
-            .bind(user_id)
-            .execute(pool)
-            .await?;
+    let result = sqlx::query("UPDATE `users` SET `otp_secret` = '', `last_otp_step` = -1, `pwd_ts` = MAX(`pwd_ts` + 1, ?) WHERE `id` = ?")
+        .bind(current_timestamp())
+        .bind(user_id)
+        .execute(pool)
+        .await?;
     if result.rows_affected() != 1 {
         bail!("user not found");
     }
@@ -328,11 +326,14 @@ pub async fn set_user_permissions(pool: &DbPool, user_id: i64, permission: i32) 
 
 pub async fn set_user_local_path(pool: &DbPool, user_id: i64, local_path: &str) -> Result<()> {
     let local_path = canonical_local_path(local_path)?;
-    let result = sqlx::query("UPDATE `users` SET `local_path` = ? WHERE `id` = ?")
-        .bind(local_path)
-        .bind(user_id)
-        .execute(pool)
-        .await?;
+    let result = sqlx::query(
+        "UPDATE `users` SET `local_path` = ?, `pwd_ts` = MAX(`pwd_ts` + 1, ?) WHERE `id` = ?",
+    )
+    .bind(local_path)
+    .bind(current_timestamp())
+    .bind(user_id)
+    .execute(pool)
+    .await?;
     if result.rows_affected() != 1 {
         bail!("user not found");
     }
@@ -354,10 +355,7 @@ pub async fn create_user(
     }
     let local_path = canonical_local_path(local_path.context("local_path is required")?)?;
     crate::auth::validate_password(password, false, permission).map_err(anyhow::Error::msg)?;
-    let now_ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
+    let now_ts = current_timestamp();
     let mut tx = pool.begin().await?;
     let result = sqlx::query("INSERT INTO `users` (`username`, `pwd_hash`, `pwd_ts`, `local_path`, `role`, `disabled`, `permission`, `password_unset`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(username.trim()).bind(hash_password(password)).bind(now_ts).bind(local_path).bind(role).bind(if disabled { 1 } else { 0 }).bind(permission).bind(password.is_empty()).execute(&mut *tx).await?;

@@ -232,10 +232,10 @@ pub fn matching_totp_step(secret: &str, code: &str) -> Option<i64> {
         .as_secs();
     let step = now / 30;
     for candidate in [step.saturating_sub(1), step, step + 1] {
-        if let Some(expected) = compute_totp(secret, candidate)
-            && expected.as_bytes().ct_eq(clean_code.as_bytes()).into()
-        {
-            return i64::try_from(candidate).ok();
+        if let Some(expected) = compute_totp(secret, candidate) {
+            if expected.as_bytes().ct_eq(clean_code.as_bytes()).into() {
+                return i64::try_from(candidate).ok();
+            }
         }
     }
     None

@@ -4,12 +4,10 @@ use axum::response::Response;
 
 use crate::filesystem::{FileEntry, sort_files_by, sorted_file_page};
 use crate::server::{
-    SharedState, api_error, api_success, authenticate_user, encode_url_path, permission_denied,
-    user_path,
+    SharedState, api_error, api_success, authenticate_user, normalize_request_path,
 };
-use crate::sign::sign_path;
 
-use super::{filesystem_error_response, user_fs};
+use super::{filesystem_error_response, signed_download_url, signed_preview_url, user_fs};
 
 #[derive(Debug, Clone, serde::Deserialize, Default)]
 pub(crate) struct FsListReq {
@@ -71,9 +69,9 @@ pub(crate) async fn list_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
     };
-    let path = match user_path(&user, &req.path) {
+    let path = match normalize_request_path(&req.path) {
         Ok(path) => path,
-        Err(_) => return permission_denied(),
+        Err(err) => return filesystem_error_response(&err, "normalize path"),
     };
     let fs = match user_fs(&user) {
         Ok(fs) => fs,
@@ -105,26 +103,18 @@ pub(crate) async fn list_handler(
             for item in &mut content {
                 if !item.is_dir {
                     let item_path = format!("{}/{}", path.trim_end_matches('/'), item.name);
-                    let sign =
-                        match sign_path(&state.config.jwt_secret, &item_path, &sign_context(&user))
-                        {
-                            Ok(sign) => sign,
-                            Err(err) => {
-                                tracing::error!(error = %err, "failed to sign file path");
-                                return api_error(
-                                    StatusCode::INTERNAL_SERVER_ERROR,
-                                    500,
-                                    "Signing token is unavailable",
-                                );
-                            }
-                        };
-                    item.sign = sign.clone();
-                    item.raw_url = format!(
-                        "/p{}?sign={}&uid={}",
-                        encode_url_path(&item_path),
-                        sign,
-                        user.id
-                    );
+                    (item.sign, item.raw_url) = match signed_preview_url(&state, &user, &item_path)
+                    {
+                        Ok((sign, url)) => (sign, url),
+                        Err(err) => {
+                            tracing::error!(error = %err, "failed to sign file path");
+                            return api_error(
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                500,
+                                "Signing token is unavailable",
+                            );
+                        }
+                    };
                 }
             }
 
@@ -146,9 +136,9 @@ pub(crate) async fn get_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
     };
-    let path = match user_path(&user, &req.path) {
+    let path = match normalize_request_path(&req.path) {
         Ok(path) => path,
-        Err(_) => return permission_denied(),
+        Err(err) => return filesystem_error_response(&err, "normalize path"),
     };
     let fs = match user_fs(&user) {
         Ok(fs) => fs,
@@ -158,8 +148,8 @@ pub(crate) async fn get_handler(
     match fs.get(&path).await {
         Ok(mut file) => {
             if !file.is_dir {
-                let s = match sign_path(&state.config.jwt_secret, &path, &sign_context(&user)) {
-                    Ok(sign) => sign,
+                let (sign, raw_url) = match signed_preview_url(&state, &user, &path) {
+                    Ok(signed) => signed,
                     Err(err) => {
                         tracing::error!(error = %err, "failed to sign file path");
                         return api_error(
@@ -169,8 +159,8 @@ pub(crate) async fn get_handler(
                         );
                     }
                 };
-                file.sign = s.clone();
-                file.raw_url = format!("/p{}?sign={}&uid={}", encode_url_path(&path), s, user.id);
+                file.sign = sign;
+                file.raw_url = raw_url;
             }
 
             api_success(file)
@@ -190,10 +180,10 @@ pub(crate) async fn dirs_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
     };
-    let path = user_path(&user, &req.path);
+    let path = normalize_request_path(&req.path);
     let path = match path {
         Ok(path) => path,
-        Err(_) => return permission_denied(),
+        Err(err) => return filesystem_error_response(&err, "normalize path"),
     };
     let fs = match user_fs(&user) {
         Ok(fs) => fs,
@@ -228,16 +218,16 @@ pub(crate) async fn link_handler(
         return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
     };
 
-    let clean_path = match user_path(&user, &req.path) {
+    let clean_path = match normalize_request_path(&req.path) {
         Ok(path) => path,
-        Err(_) => return permission_denied(),
+        Err(err) => return filesystem_error_response(&err, "normalize path"),
     };
     let _fs = match user_fs(&user) {
         Ok(fs) => fs,
         Err(_) => return api_error(StatusCode::NOT_FOUND, 404, "File root not found"),
     };
-    let sign = match sign_path(&state.config.jwt_secret, &clean_path, &sign_context(&user)) {
-        Ok(sign) => sign,
+    let url = match signed_download_url(&state, &user, &clean_path) {
+        Ok(url) => url,
         Err(err) => {
             tracing::error!(error = %err, "failed to sign file path");
             return api_error(
@@ -247,11 +237,5 @@ pub(crate) async fn link_handler(
             );
         }
     };
-    let url = format!(
-        "/d{}?sign={}&uid={}",
-        encode_url_path(&clean_path),
-        sign,
-        user.id
-    );
     api_success(FsLinkResp { url })
 }

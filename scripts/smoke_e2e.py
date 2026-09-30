@@ -13,7 +13,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlsplit
@@ -268,7 +267,7 @@ def main():
                     {"path": "/../admin-only.txt"},
                     guest_token,
                 )
-                expect(403, status, "guest root traversal rejection")
+                expect(400, status, "guest root traversal rejection")
 
                 status, guest_link = api(
                     base, "/api/fs/link", {"path": "/signed.txt"}, guest_token
@@ -366,7 +365,7 @@ def main():
                     raise AssertionError("signed download bytes differ from uploaded bytes")
 
                 status, _ = api(base, "/api/fs/list", {"path": "/../smoke.txt"}, token)
-                expect(403, status, "root traversal rejection")
+                expect(400, status, "root traversal rejection")
 
                 unsigned_path = urlsplit(link["data"]["url"]).path
                 status, _ = http(f"{base}{unsigned_path}")

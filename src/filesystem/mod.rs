@@ -4,6 +4,27 @@ mod ops;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FsError {
+    InvalidPath,
+    Forbidden,
+    NotFound,
+    Conflict,
+}
+
+impl std::fmt::Display for FsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::InvalidPath => "invalid filesystem path",
+            Self::Forbidden => "filesystem access denied",
+            Self::NotFound => "filesystem entry not found",
+            Self::Conflict => "filesystem entry already exists",
+        })
+    }
+}
+
+impl std::error::Error for FsError {}
+
 pub fn valid_name(name: &str) -> bool {
     !name.is_empty() && name != "." && name != ".." && !name.contains('/') && !name.contains('\\')
 }

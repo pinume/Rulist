@@ -144,29 +144,29 @@ pub async fn login_handler(
         Err(status) => return password_verify_error(status),
     }
 
-    if let Some(ref secret) = user.otp_secret
-        && !secret.trim().is_empty()
-    {
-        let otp_code = req.otp_code.as_deref().unwrap_or("").trim();
-        if otp_code.is_empty() {
-            return api_error(StatusCode::UNAUTHORIZED, 402, "OTP code is required");
-        }
-        let Some(step) = matching_totp_step(secret, otp_code) else {
-            return api_error(StatusCode::UNAUTHORIZED, 400, "invalid otp code");
-        };
-        let accepted = match crate::db::accept_otp_step(&state.pool, user.id, step).await {
-            Ok(accepted) => accepted,
-            Err(err) => {
-                tracing::error!(error = %err, "failed to record accepted otp step");
-                return api_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    500,
-                    "Internal server error",
-                );
+    if let Some(secret) = user.otp_secret.as_deref() {
+        if !secret.trim().is_empty() {
+            let otp_code = req.otp_code.as_deref().unwrap_or("").trim();
+            if otp_code.is_empty() {
+                return api_error(StatusCode::UNAUTHORIZED, 402, "OTP code is required");
             }
-        };
-        if !accepted {
-            return api_error(StatusCode::UNAUTHORIZED, 400, "invalid otp code");
+            let Some(step) = matching_totp_step(secret, otp_code) else {
+                return api_error(StatusCode::UNAUTHORIZED, 400, "invalid otp code");
+            };
+            let accepted = match crate::db::accept_otp_step(&state.pool, user.id, step).await {
+                Ok(accepted) => accepted,
+                Err(err) => {
+                    tracing::error!(error = %err, "failed to record accepted otp step");
+                    return api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        500,
+                        "Internal server error",
+                    );
+                }
+            };
+            if !accepted {
+                return api_error(StatusCode::UNAUTHORIZED, 400, "invalid otp code");
+            }
         }
     }
 

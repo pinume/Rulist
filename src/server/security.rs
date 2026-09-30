@@ -4,6 +4,7 @@ use axum::http::header::AUTHORIZATION;
 use crate::auth::parse_jwt;
 use crate::db::User;
 use crate::db::get_user_by_id;
+use crate::filesystem::FsError;
 
 use super::AppState;
 
@@ -30,12 +31,12 @@ pub(crate) async fn authenticate_user(headers: &HeaderMap, state: &AppState) -> 
     Some(user)
 }
 
-pub(crate) fn user_path(_user: &User, requested: &str) -> Result<String, &'static str> {
+pub(crate) fn normalize_request_path(requested: &str) -> anyhow::Result<String> {
     if requested
         .split(['/', '\\'])
         .any(|part| part == "." || part == "..")
     {
-        return Err("invalid path");
+        return Err(FsError::InvalidPath.into());
     }
 
     let relative = requested.trim_matches('/');

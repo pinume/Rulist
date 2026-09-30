@@ -2,11 +2,13 @@ use axum::extract::{Json, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 
-use crate::filesystem::local::{LocalFs, RenameError};
+use crate::filesystem::FsError;
+use crate::filesystem::local::LocalFs;
 use crate::filesystem::valid_name;
 use crate::permissions::{COPY, DELETE, MOVE, OVERWRITE, RENAME, WRITE_CONTENT};
 use crate::server::{
-    SharedState, api_error, api_success, authenticate_user, permission_denied, permitted, user_path,
+    SharedState, api_error, api_success, authenticate_user, normalize_request_path,
+    permission_denied, permitted,
 };
 
 use super::{filesystem_error_details, filesystem_error_response, user_fs};
@@ -79,9 +81,9 @@ pub(crate) async fn mkdir_handler(
             "directory path cannot be empty",
         );
     }
-    let path = match user_path(&user, &req.path) {
+    let path = match normalize_request_path(&req.path) {
         Ok(path) => path,
-        Err(_) => return permission_denied(),
+        Err(err) => return filesystem_error_response(&err, "normalize path"),
     };
     let fs = match user_fs(&user) {
         Ok(fs) => fs,
@@ -104,15 +106,12 @@ pub(crate) async fn rename_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "unauthorized");
     };
-    if !permitted(&user, RENAME)
-        || (req.overwrite && !permitted(&user, OVERWRITE))
-        || !valid_name(&req.name)
-    {
+    if !permitted(&user, RENAME) || (req.overwrite && !permitted(&user, OVERWRITE)) {
         return permission_denied();
     }
-    let path = match user_path(&user, &req.path) {
+    let path = match normalize_request_path(&req.path) {
         Ok(path) => path,
-        Err(_) => return permission_denied(),
+        Err(err) => return filesystem_error_response(&err, "normalize path"),
     };
     let fs = match user_fs(&user) {
         Ok(fs) => fs,
@@ -121,30 +120,20 @@ pub(crate) async fn rename_handler(
 
     match fs.rename_safe(&path, &req.name, req.overwrite).await {
         Ok(_) => api_success(serde_json::Value::Null),
-        Err(RenameError::Conflict(msg)) => api_error(StatusCode::CONFLICT, 409, msg),
-        Err(RenameError::NotFound(msg)) => api_error(StatusCode::NOT_FOUND, 404, msg),
-        Err(RenameError::BadRequest(msg)) => api_error(StatusCode::BAD_REQUEST, 400, msg),
-        Err(RenameError::Internal(err)) => {
-            tracing::error!(error = %err, path = %path, name = %req.name, "failed to rename");
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Internal server error",
-            )
-        }
+        Err(err) => filesystem_error_response(&err, "rename"),
     }
 }
 
-fn validate_transfer_paths(src: &str, dst: &str) -> Result<(), &'static str> {
+fn validate_transfer_paths(src: &str, dst: &str) -> anyhow::Result<()> {
     let src = src.trim_end_matches('/');
     let dst = dst.trim_end_matches('/');
 
     if src == dst {
-        return Err("source and destination are identical");
+        return Err(FsError::InvalidPath.into());
     }
 
     if dst.starts_with(&format!("{src}/")) {
-        return Err("destination cannot be inside source");
+        return Err(FsError::InvalidPath.into());
     }
 
     Ok(())
@@ -156,18 +145,20 @@ async fn prepare_transfer(
     dst_dir: &str,
     names: &[String],
     policy: ConflictPolicy,
-) -> Result<Vec<(String, String)>, (StatusCode, i32, String)> {
+) -> anyhow::Result<Vec<(String, String)>> {
+    let mut unique_names = std::collections::HashSet::with_capacity(names.len());
     let mut transfers = Vec::new();
     for name in names {
+        if !unique_names.insert(name) {
+            return Err(FsError::InvalidPath.into());
+        }
         let src = format!("{}/{}", src_dir.trim_end_matches('/'), name);
         let dst = format!("{}/{}", dst_dir.trim_end_matches('/'), name);
-        if let Err(message) = validate_transfer_paths(&src, &dst) {
-            return Err((StatusCode::BAD_REQUEST, 400, message.to_string()));
-        }
-        if fs.get(&dst).await.is_ok() {
+        validate_transfer_paths(&src, &dst)?;
+        if fs.entry_exists(&dst).await? {
             match policy {
                 ConflictPolicy::Cancel => {
-                    return Err((StatusCode::CONFLICT, 409, format!("file [{name}] exists")));
+                    return Err(FsError::Conflict.into());
                 }
                 ConflictPolicy::Skip => continue,
                 ConflictPolicy::Overwrite => {}
@@ -188,16 +179,20 @@ pub(crate) async fn move_handler(
     };
     if !permitted(&user, MOVE)
         || (req.conflict_policy == ConflictPolicy::Overwrite && !permitted(&user, OVERWRITE))
-        || req.names.iter().any(|name| !valid_name(name))
     {
         return permission_denied();
     }
+    if req.names.iter().any(|name| !valid_name(name)) {
+        return filesystem_error_response(&FsError::InvalidPath.into(), "move request");
+    }
     let (src_dir, dst_dir) = match (
-        user_path(&user, &req.src_dir),
-        user_path(&user, &req.dst_dir),
+        normalize_request_path(&req.src_dir),
+        normalize_request_path(&req.dst_dir),
     ) {
         (Ok(src), Ok(dst)) => (src, dst),
-        _ => return permission_denied(),
+        (Err(err), _) | (_, Err(err)) => {
+            return filesystem_error_response(&err, "normalize path");
+        }
     };
     let fs = match user_fs(&user) {
         Ok(fs) => fs,
@@ -207,7 +202,7 @@ pub(crate) async fn move_handler(
     let policy = req.conflict_policy;
     let moves = match prepare_transfer(&fs, &src_dir, &dst_dir, &req.names, policy).await {
         Ok(moves) => moves,
-        Err((status, code, message)) => return api_error(status, code, message),
+        Err(err) => return filesystem_error_response(&err, "prepare move"),
     };
 
     for (completed, (src, dst)) in moves.into_iter().enumerate() {
@@ -236,16 +231,20 @@ pub(crate) async fn copy_handler(
     };
     if !permitted(&user, COPY)
         || (req.conflict_policy == ConflictPolicy::Overwrite && !permitted(&user, OVERWRITE))
-        || req.names.iter().any(|name| !valid_name(name))
     {
         return permission_denied();
     }
+    if req.names.iter().any(|name| !valid_name(name)) {
+        return filesystem_error_response(&FsError::InvalidPath.into(), "copy request");
+    }
     let (src_dir, dst_dir) = match (
-        user_path(&user, &req.src_dir),
-        user_path(&user, &req.dst_dir),
+        normalize_request_path(&req.src_dir),
+        normalize_request_path(&req.dst_dir),
     ) {
         (Ok(src), Ok(dst)) => (src, dst),
-        _ => return permission_denied(),
+        (Err(err), _) | (_, Err(err)) => {
+            return filesystem_error_response(&err, "normalize path");
+        }
     };
     let fs = match user_fs(&user) {
         Ok(fs) => fs,
@@ -255,7 +254,7 @@ pub(crate) async fn copy_handler(
     let policy = req.conflict_policy;
     let copies = match prepare_transfer(&fs, &src_dir, &dst_dir, &req.names, policy).await {
         Ok(copies) => copies,
-        Err((status, code, message)) => return api_error(status, code, message),
+        Err(err) => return filesystem_error_response(&err, "prepare copy"),
     };
 
     for (completed, (src, dst)) in copies.into_iter().enumerate() {
@@ -282,12 +281,15 @@ pub(crate) async fn remove_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "unauthorized");
     };
-    if !permitted(&user, DELETE) || req.names.iter().any(|name| !valid_name(name)) {
+    if !permitted(&user, DELETE) {
         return permission_denied();
     }
-    let dir = match user_path(&user, &req.dir) {
+    if req.names.iter().any(|name| !valid_name(name)) {
+        return filesystem_error_response(&FsError::InvalidPath.into(), "delete request");
+    }
+    let dir = match normalize_request_path(&req.dir) {
         Ok(path) => path,
-        Err(_) => return permission_denied(),
+        Err(err) => return filesystem_error_response(&err, "normalize path"),
     };
     let fs = match user_fs(&user) {
         Ok(fs) => fs,
@@ -320,9 +322,9 @@ pub(crate) async fn batch_rename_handler(
     if !permitted(&user, RENAME) {
         return permission_denied();
     }
-    let src_dir = match user_path(&user, &req.src_dir) {
+    let src_dir = match normalize_request_path(&req.src_dir) {
         Ok(path) => path,
-        Err(_) => return permission_denied(),
+        Err(err) => return filesystem_error_response(&err, "normalize path"),
     };
     let fs = match user_fs(&user) {
         Ok(fs) => fs,
@@ -337,16 +339,6 @@ pub(crate) async fn batch_rename_handler(
 
     match fs.batch_rename(&src_dir, &pairs).await {
         Ok(_) => api_success(()),
-        Err(RenameError::Conflict(msg)) => api_error(StatusCode::CONFLICT, 409, msg),
-        Err(RenameError::NotFound(msg)) => api_error(StatusCode::NOT_FOUND, 404, msg),
-        Err(RenameError::BadRequest(msg)) => api_error(StatusCode::BAD_REQUEST, 400, msg),
-        Err(RenameError::Internal(err)) => {
-            tracing::error!(error = %err, src_dir = %src_dir, "batch rename failed");
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Internal server error",
-            )
-        }
+        Err(err) => filesystem_error_response(&err, "batch rename"),
     }
 }

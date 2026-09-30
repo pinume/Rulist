@@ -6,7 +6,8 @@ use tokio::io::AsyncWriteExt;
 use crate::permissions::{OVERWRITE, WRITE_CONTENT};
 use crate::server::stream::percent_decode;
 use crate::server::{
-    SharedState, api_error, api_success, authenticate_user, permission_denied, permitted, user_path,
+    SharedState, api_error, api_success, authenticate_user, filesystem_error_response,
+    normalize_request_path, permission_denied, permitted,
 };
 
 use super::user_fs;
@@ -27,9 +28,9 @@ pub(crate) async fn upload_handler(
         Some(p) => percent_decode(p),
         None => return api_error(StatusCode::BAD_REQUEST, 400, "missing File-Path header"),
     };
-    let file_path = match user_path(&user, &file_path) {
+    let file_path = match normalize_request_path(&file_path) {
         Ok(path) => path,
-        Err(_) => return permission_denied(),
+        Err(err) => return filesystem_error_response(&err, "normalize upload path"),
     };
     let fs = match user_fs(&user) {
         Ok(fs) => fs,
@@ -45,26 +46,32 @@ pub(crate) async fn upload_handler(
     let target = match fs.safe_resolve(&file_path) {
         Ok(t) => t,
         Err(err) => {
-            tracing::warn!(error = %err, "safe_resolve failed in put");
-            return api_error(StatusCode::BAD_REQUEST, 400, "Invalid file path");
+            return filesystem_error_response(&err, "resolve upload path");
         }
     };
 
     if file_path.trim_matches('/').is_empty() {
-        return permission_denied();
-    }
-    if !overwrite && target.exists() {
-        return api_error(StatusCode::CONFLICT, 409, "file already exists");
-    }
-    if let Some(parent) = target.parent()
-        && let Err(err) = tokio::fs::create_dir_all(parent).await
-    {
-        tracing::error!(error = %err, "failed to create parent dir for upload");
-        return api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            500,
-            "Internal server error",
+        return filesystem_error_response(
+            &crate::filesystem::FsError::InvalidPath.into(),
+            "resolve upload path",
         );
+    }
+    if !overwrite {
+        match fs.entry_exists(&file_path).await {
+            Ok(false) => {}
+            Ok(true) => return api_error(StatusCode::CONFLICT, 409, "file already exists"),
+            Err(err) => return filesystem_error_response(&err, "check upload target"),
+        }
+    }
+    if let Some(parent) = target.parent() {
+        if let Err(err) = tokio::fs::create_dir_all(parent).await {
+            tracing::error!(error = %err, "failed to create parent dir for upload");
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            );
+        }
     }
 
     let temp = target.with_file_name(format!(".rulist-upload-{}", crate::auth::rand_string(24)));
@@ -138,21 +145,23 @@ pub(crate) async fn upload_handler(
     }
     drop(file);
     if !overwrite {
-        if target.exists() {
-            let _ = tokio::fs::remove_file(&temp).await;
-            return api_error(StatusCode::CONFLICT, 409, "file already exists");
+        match fs.entry_exists(&file_path).await {
+            Ok(false) => {}
+            Ok(true) => {
+                let _ = tokio::fs::remove_file(&temp).await;
+                return api_error(StatusCode::CONFLICT, 409, "file already exists");
+            }
+            Err(err) => {
+                let _ = tokio::fs::remove_file(&temp).await;
+                return filesystem_error_response(&err, "check upload target");
+            }
         }
         if let Err(err) = tokio::fs::hard_link(&temp, &target).await {
             let _ = tokio::fs::remove_file(&temp).await;
-            if err.kind() == std::io::ErrorKind::AlreadyExists || target.exists() {
+            if err.kind() == std::io::ErrorKind::AlreadyExists {
                 return api_error(StatusCode::CONFLICT, 409, "file already exists");
             }
-            tracing::error!(error = %err, "failed to finalize upload file via hard_link");
-            return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                500,
-                "Internal server error",
-            );
+            return filesystem_error_response(&err.into(), "finalize upload");
         }
         let _ = tokio::fs::remove_file(&temp).await;
     } else if let Err(err) = tokio::fs::rename(&temp, &target).await {

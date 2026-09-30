@@ -4,36 +4,17 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 use tokio::fs;
 
-use crate::filesystem::{FileEntry, valid_name};
+use crate::filesystem::{FileEntry, FsError, valid_name};
 
-use super::ops::{copy_path_safe, move_path_safe, remove_path_recursive};
+use super::ops::{
+    copy_path_safe, entry_exists, move_path_safe, remove_path_recursive, rename_no_replace,
+};
 
 #[derive(Debug, Clone)]
 pub struct LocalFs {
     pub root_path: PathBuf,
     pub show_hidden: bool,
 }
-
-#[derive(Debug)]
-pub enum RenameError {
-    Conflict(String),
-    NotFound(String),
-    BadRequest(String),
-    Internal(anyhow::Error),
-}
-
-impl std::fmt::Display for RenameError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Conflict(msg) => write!(f, "conflict: {msg}"),
-            Self::NotFound(msg) => write!(f, "not found: {msg}"),
-            Self::BadRequest(msg) => write!(f, "bad request: {msg}"),
-            Self::Internal(err) => write!(f, "{err}"),
-        }
-    }
-}
-
-impl std::error::Error for RenameError {}
 
 impl LocalFs {
     pub fn new(root_path: impl AsRef<Path>, show_hidden: bool) -> Result<Self> {
@@ -63,26 +44,22 @@ impl LocalFs {
             match component {
                 Component::Normal(value) => {
                     if self.hidden_name_denied(&value.to_string_lossy()) {
-                        return Err(anyhow!("access denied: hidden paths are disabled"));
+                        return Err(FsError::Forbidden.into());
                     }
                     target.push(value);
                 }
                 Component::CurDir => {}
                 Component::ParentDir => {
-                    return Err(anyhow!(
-                        "access denied: parent directory traversal is forbidden"
-                    ));
+                    return Err(FsError::InvalidPath.into());
                 }
                 _ => {
-                    return Err(anyhow!(
-                        "access denied: absolute path components are forbidden"
-                    ));
+                    return Err(FsError::InvalidPath.into());
                 }
             }
 
             match std::fs::symlink_metadata(&target) {
                 Ok(meta) if meta.file_type().is_symlink() => {
-                    return Err(anyhow!("access denied: symbolic links are forbidden"));
+                    return Err(FsError::Forbidden.into());
                 }
                 Ok(_) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -91,6 +68,26 @@ impl LocalFs {
         }
 
         Ok(target)
+    }
+
+    pub async fn entry_exists(&self, subpath: &str) -> Result<bool> {
+        let clean = subpath.trim_matches('/');
+        if clean.is_empty() {
+            return entry_exists(&self.root_path).await;
+        }
+
+        let relative = Path::new(clean);
+        let name = relative
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| valid_name(name))
+            .ok_or(FsError::InvalidPath)?;
+        if self.hidden_name_denied(name) {
+            return Err(FsError::Forbidden.into());
+        }
+        let parent = relative.parent().and_then(Path::to_str).unwrap_or_default();
+        let parent = self.safe_resolve(parent)?;
+        entry_exists(&parent.join(name)).await
     }
 
     pub async fn list(&self, subpath: &str) -> Result<Vec<FileEntry>> {
@@ -159,7 +156,7 @@ impl LocalFs {
             .with_context(|| format!("file not found: {:?}", full_path))?;
         let file_type = meta.file_type();
         if !file_type.is_file() && !file_type.is_dir() {
-            anyhow::bail!("unsupported filesystem entry type");
+            return Err(FsError::InvalidPath.into());
         }
         let file_name = match full_path.file_name() {
             Some(name) => name
@@ -189,7 +186,7 @@ impl LocalFs {
             .await
             .with_context(|| format!("failed to inspect file: {:?}", full_path))?;
         if !meta.file_type().is_file() {
-            anyhow::bail!("path is not a regular file");
+            return Err(FsError::InvalidPath.into());
         }
         fs::File::open(&full_path)
             .await
@@ -206,48 +203,38 @@ impl LocalFs {
 
     pub async fn remove(&self, subpath: &str) -> Result<()> {
         if subpath.trim_matches('/').is_empty() {
-            return Err(anyhow!("cannot remove filesystem root"));
+            return Err(FsError::InvalidPath.into());
         }
         let full_path = self.safe_resolve(subpath)?;
         remove_path_recursive(&full_path).await
     }
 
-    pub async fn rename_safe(
-        &self,
-        subpath: &str,
-        new_name: &str,
-        overwrite: bool,
-    ) -> Result<(), RenameError> {
+    pub async fn rename_safe(&self, subpath: &str, new_name: &str, overwrite: bool) -> Result<()> {
         if subpath.trim_matches('/').is_empty() {
-            return Err(RenameError::BadRequest(
-                "cannot rename filesystem root".into(),
-            ));
+            return Err(FsError::InvalidPath.into());
         }
-        if !valid_name(new_name) || self.hidden_name_denied(new_name) {
-            return Err(RenameError::BadRequest(format!(
-                "invalid new name: {new_name}"
-            )));
+        if !valid_name(new_name) {
+            return Err(FsError::InvalidPath.into());
+        }
+        if self.hidden_name_denied(new_name) {
+            return Err(FsError::Forbidden.into());
         }
 
-        let src_path = self.safe_resolve(subpath).map_err(RenameError::Internal)?;
-        let parent = src_path
-            .parent()
-            .ok_or_else(|| RenameError::BadRequest("cannot rename root".into()))?;
+        let src_path = self.safe_resolve(subpath)?;
+        let parent = src_path.parent().ok_or(FsError::InvalidPath)?;
         let dst_path = parent.join(new_name);
         if src_path == dst_path {
             return Ok(());
         }
-        if fs::symlink_metadata(&src_path).await.is_err() {
-            return Err(RenameError::NotFound(format!(
-                "source file [{subpath}] not found"
-            )));
-        }
+        fs::symlink_metadata(&src_path).await?;
 
-        let dst_exists = fs::symlink_metadata(&dst_path).await.is_ok();
+        let dst_exists = entry_exists(&dst_path).await?;
         if !dst_exists {
-            fs::rename(&src_path, &dst_path)
-                .await
-                .map_err(|error| RenameError::Internal(error.into()))?;
+            if overwrite {
+                fs::rename(&src_path, &dst_path).await?;
+            } else {
+                rename_no_replace(&src_path, &dst_path).await?;
+            }
             return Ok(());
         }
 
@@ -258,27 +245,33 @@ impl LocalFs {
                 ".rulist-rename-case-{}",
                 crate::auth::rand_string(24)
             ));
-            fs::rename(&src_path, &temp)
-                .await
-                .map_err(|error| RenameError::Internal(error.into()))?;
-            if let Err(error) = fs::rename(&temp, &dst_path).await {
-                let _ = fs::rename(&temp, &src_path).await;
-                return Err(RenameError::Internal(error.into()));
+            rename_no_replace(&src_path, &temp).await?;
+            let result = if overwrite {
+                fs::rename(&temp, &dst_path).await
+            } else {
+                rename_no_replace(&temp, &dst_path).await
+            };
+            if let Err(error) = result {
+                if let Err(restore_error) = rename_no_replace(&temp, &src_path).await {
+                    tracing::error!(
+                        error = %restore_error,
+                        "CRITICAL: failed to restore source after case rename failure"
+                    );
+                }
+                return Err(error.into());
             }
             return Ok(());
         }
 
         if !overwrite {
-            return Err(RenameError::Conflict(format!("file [{new_name}] exists")));
+            return Err(FsError::Conflict.into());
         }
 
         let backup = parent.join(format!(
             ".rulist-rename-backup-{}",
             crate::auth::rand_string(24)
         ));
-        fs::rename(&dst_path, &backup)
-            .await
-            .map_err(|error| RenameError::Internal(error.into()))?;
+        rename_no_replace(&dst_path, &backup).await?;
 
         match fs::rename(&src_path, &dst_path).await {
             Ok(()) => {
@@ -292,13 +285,13 @@ impl LocalFs {
                 Ok(())
             }
             Err(error) => {
-                if let Err(restore_error) = fs::rename(&backup, &dst_path).await {
+                if let Err(restore_error) = rename_no_replace(&backup, &dst_path).await {
                     tracing::error!(
                         error = %restore_error,
                         "CRITICAL: failed to restore rename backup"
                     );
                 }
-                Err(RenameError::Internal(error.into()))
+                Err(error.into())
             }
         }
     }
@@ -307,53 +300,46 @@ impl LocalFs {
         &self,
         src_dir_subpath: &str,
         pairs: &[(String, String)],
-    ) -> Result<(), RenameError> {
-        let dir_path = self
-            .safe_resolve(src_dir_subpath)
-            .map_err(RenameError::Internal)?;
+    ) -> Result<()> {
+        let dir_path = self.safe_resolve(src_dir_subpath)?;
         if pairs.is_empty() {
             return Ok(());
         }
 
         for (src_name, new_name) in pairs {
-            if !valid_name(src_name)
-                || !valid_name(new_name)
-                || self.hidden_name_denied(src_name)
-                || self.hidden_name_denied(new_name)
-            {
-                return Err(RenameError::BadRequest("invalid filename".into()));
+            if !valid_name(src_name) || !valid_name(new_name) {
+                return Err(FsError::InvalidPath.into());
+            }
+            if self.hidden_name_denied(src_name) || self.hidden_name_denied(new_name) {
+                return Err(FsError::Forbidden.into());
             }
         }
 
         let mut src_set = std::collections::HashSet::new();
         for (src, _) in pairs {
             if !src_set.insert(src.as_str()) {
-                return Err(RenameError::Conflict(format!(
-                    "duplicate source name [{src}]"
-                )));
+                return Err(FsError::Conflict.into());
             }
         }
         let mut dst_set = std::collections::HashSet::new();
         for (_, dst) in pairs {
             if !dst_set.insert(dst.as_str()) {
-                return Err(RenameError::Conflict(format!(
-                    "duplicate target name [{dst}]"
-                )));
+                return Err(FsError::Conflict.into());
             }
         }
 
         for (src, _) in pairs {
-            if fs::symlink_metadata(dir_path.join(src)).await.is_err() {
-                return Err(RenameError::NotFound(format!("source [{src}] not found")));
-            }
+            self.safe_resolve(&format!(
+                "{}/{}",
+                src_dir_subpath.trim_end_matches('/'),
+                src
+            ))?;
+            let src_path = dir_path.join(src);
+            fs::symlink_metadata(src_path).await?;
         }
         for (_, dst) in pairs {
-            if fs::symlink_metadata(dir_path.join(dst)).await.is_ok()
-                && !src_set.contains(dst.as_str())
-            {
-                return Err(RenameError::Conflict(format!(
-                    "target [{dst}] already exists"
-                )));
+            if entry_exists(&dir_path.join(dst)).await? && !src_set.contains(dst.as_str()) {
+                return Err(FsError::Conflict.into());
             }
         }
 
@@ -371,35 +357,35 @@ impl LocalFs {
             ));
             let final_path = dir_path.join(dst);
 
-            if let Err(error) = fs::rename(&src_path, &temp_path).await {
+            if let Err(error) = rename_no_replace(&src_path, &temp_path).await {
                 for (original, staged_temp, _) in staged.iter().rev() {
-                    if let Err(rollback_error) = fs::rename(staged_temp, original).await {
+                    if let Err(rollback_error) = rename_no_replace(staged_temp, original).await {
                         tracing::error!(
                             error = %rollback_error,
                             "CRITICAL: batch rename rollback failed during staging"
                         );
                     }
                 }
-                return Err(RenameError::Internal(error.into()));
+                return Err(error.into());
             }
             staged.push((src_path, temp_path, final_path));
         }
 
         let mut finalized: Vec<(PathBuf, PathBuf)> = Vec::new();
         for (_, temp_path, final_path) in &staged {
-            if let Err(error) = fs::rename(temp_path, final_path).await {
+            if let Err(error) = rename_no_replace(temp_path, final_path).await {
                 for (temp, final_path) in finalized.iter().rev() {
-                    let _ = fs::rename(final_path, temp).await;
+                    let _ = rename_no_replace(final_path, temp).await;
                 }
                 for (original, temp, _) in staged.iter().rev() {
-                    if let Err(rollback_error) = fs::rename(temp, original).await {
+                    if let Err(rollback_error) = rename_no_replace(temp, original).await {
                         tracing::error!(
                             error = %rollback_error,
                             "CRITICAL: batch rename rollback failed restoring original file"
                         );
                     }
                 }
-                return Err(RenameError::Internal(error.into()));
+                return Err(error.into());
             }
             finalized.push((temp_path.clone(), final_path.clone()));
         }
@@ -418,7 +404,7 @@ impl LocalFs {
         overwrite: bool,
     ) -> Result<()> {
         if src_subpath.trim_matches('/').is_empty() || dst_subpath.trim_matches('/').is_empty() {
-            return Err(anyhow!("cannot move filesystem root"));
+            return Err(FsError::InvalidPath.into());
         }
         let src_path = self.safe_resolve(src_subpath)?;
         let dst_path = self.safe_resolve(dst_subpath)?;
@@ -436,7 +422,7 @@ impl LocalFs {
         overwrite: bool,
     ) -> Result<()> {
         if src_subpath.trim_matches('/').is_empty() || dst_subpath.trim_matches('/').is_empty() {
-            return Err(anyhow!("cannot copy filesystem root"));
+            return Err(FsError::InvalidPath.into());
         }
         let src_path = self.safe_resolve(src_subpath)?;
         let dst_path = self.safe_resolve(dst_subpath)?;

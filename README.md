@@ -30,9 +30,9 @@ On first run, Rulist creates `config.json` and `data.db` in the data directory
 default data directory instead. Set a different location with
 `--data-dir /path/to/data` or `RULIST_DATA_DIR`.
 
-The initial `admin` account is bound to the current user's `$HOME`. Add normal
-users through the interactive console and assign each one an existing absolute
-local directory.
+The initial `admin` account is bound to the `$HOME` of the Linux user running
+Rulist. Add normal users through the interactive console and assign each one
+an existing absolute local directory.
 
 `config.json` stores the JWT secret, token lifetime, database path, HTTP scheme,
 and site settings. SQLite stores only users and authentication-security state;

@@ -166,6 +166,46 @@ async fn overwrite_is_explicit_for_copy_and_rename() {
         b"new"
     );
 
+    driver
+        .copy_to_safe("source.txt", "copy-no-overwrite.txt", false)
+        .await
+        .unwrap();
+    driver
+        .move_to_safe("copy-no-overwrite.txt", "move-no-overwrite.txt", false)
+        .await
+        .unwrap();
+    assert_eq!(
+        tokio::fs::read(temp.path().join("move-no-overwrite.txt"))
+            .await
+            .unwrap(),
+        b"new"
+    );
+
+    tokio::fs::write(temp.path().join("move-source.txt"), b"source remains")
+        .await
+        .unwrap();
+    tokio::fs::write(temp.path().join("move-target.txt"), b"existing target")
+        .await
+        .unwrap();
+    assert!(
+        driver
+            .move_to_safe("move-source.txt", "move-target.txt", false)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        tokio::fs::read(temp.path().join("move-source.txt"))
+            .await
+            .unwrap(),
+        b"source remains"
+    );
+    assert_eq!(
+        tokio::fs::read(temp.path().join("move-target.txt"))
+            .await
+            .unwrap(),
+        b"existing target"
+    );
+
     tokio::fs::write(temp.path().join("rename-source.txt"), b"renamed")
         .await
         .unwrap();
@@ -184,5 +224,22 @@ async fn overwrite_is_explicit_for_copy_and_rename() {
             .await
             .unwrap(),
         b"renamed"
+    );
+
+    tokio::fs::write(
+        temp.path().join("rename-no-overwrite.txt"),
+        b"renamed safely",
+    )
+    .await
+    .unwrap();
+    driver
+        .rename_safe("rename-no-overwrite.txt", "renamed-no-overwrite.txt", false)
+        .await
+        .unwrap();
+    assert_eq!(
+        tokio::fs::read(temp.path().join("renamed-no-overwrite.txt"))
+            .await
+            .unwrap(),
+        b"renamed safely"
     );
 }

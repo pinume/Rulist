@@ -6,12 +6,10 @@ use crate::filesystem::local::LocalFs;
 use crate::preview::{
     PreviewMeta, PreviewReq, PreviewResponse, PreviewStrategy, detect_from_path, processor,
 };
-use crate::server::files::sign_context;
 use crate::server::{
-    SharedState, api_error, api_success, authenticate_user, encode_url_path, permission_denied,
-    user_path,
+    SharedState, api_error, api_success, authenticate_user, filesystem_error_response,
+    normalize_request_path, signed_preview_url,
 };
-use crate::sign::sign_path;
 
 pub async fn preview_handler(
     headers: HeaderMap,
@@ -21,9 +19,9 @@ pub async fn preview_handler(
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
     };
-    let path = match user_path(&user, &req.path) {
+    let path = match normalize_request_path(&req.path) {
         Ok(path) => path,
-        Err(_) => return permission_denied(),
+        Err(err) => return filesystem_error_response(&err, "normalize path"),
     };
     let fs = match LocalFs::new(&user.local_path, false) {
         Ok(fs) => fs,
@@ -40,8 +38,8 @@ pub async fn preview_handler(
                 );
             }
 
-            let sign = match sign_path(&state.config.jwt_secret, &path, &sign_context(&user)) {
-                Ok(s) => s,
+            let (_, raw_url) = match signed_preview_url(&state, &user, &path) {
+                Ok(signed) => signed,
                 Err(err) => {
                     tracing::error!(error = %err, "failed to sign file path for preview");
                     return api_error(
@@ -52,7 +50,6 @@ pub async fn preview_handler(
                 }
             };
 
-            let raw_url = format!("/p{}?sign={}&uid={}", encode_url_path(&path), sign, user.id);
             let (preview_type, mime_type) = detect_from_path(&file.name);
             let strategy = preview_type.strategy();
 
@@ -83,9 +80,6 @@ pub async fn preview_handler(
                 error,
             })
         }
-        Err(err) => {
-            tracing::error!(error = %err, path = %path, "failed to get file for preview");
-            api_error(StatusCode::NOT_FOUND, 404, "File not found")
-        }
+        Err(err) => filesystem_error_response(&err, "preview"),
     }
 }

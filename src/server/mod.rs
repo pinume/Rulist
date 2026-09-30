@@ -41,8 +41,9 @@ impl<T> ApiResponse<T> {
     }
 }
 
+pub(crate) use files::{filesystem_error_response, signed_preview_url};
 pub use routes::build_app;
-pub(crate) use security::{authenticate_user, encode_url_path, permitted, user_path};
+pub(crate) use security::{authenticate_user, encode_url_path, normalize_request_path, permitted};
 
 pub struct AppState {
     pub pool: DbPool,

@@ -1,30 +1,69 @@
 use std::path::Path;
+use std::{ffi::CString, io};
 
 use anyhow::{Context, Result, anyhow};
 use tokio::fs;
 
+pub(super) async fn entry_exists(path: &Path) -> Result<bool> {
+    match fs::symlink_metadata(path).await {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub(super) async fn rename_no_replace(src: &Path, dst: &Path) -> io::Result<()> {
+    let src = src.to_path_buf();
+    let dst = dst.to_path_buf();
+    tokio::task::spawn_blocking(move || rename_no_replace_sync(&src, &dst))
+        .await
+        .map_err(io::Error::other)?
+}
+
+fn rename_no_replace_sync(src: &Path, dst: &Path) -> io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let src = CString::new(src.as_os_str().as_bytes())
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    let dst = CString::new(dst.as_os_str().as_bytes())
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    // RENAME_NOREPLACE keeps the absent-target check and rename in one kernel operation.
+    // SAFETY: both paths are NUL-terminated and AT_FDCWD is a valid dirfd.
+    let result = unsafe {
+        libc::syscall(
+            libc::SYS_renameat2,
+            libc::AT_FDCWD as libc::c_long,
+            src.as_ptr(),
+            libc::AT_FDCWD as libc::c_long,
+            dst.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
 pub(super) async fn copy_path_safe(src: &Path, dst: &Path, overwrite: bool) -> Result<()> {
     if src == dst {
-        return Err(anyhow!("source and destination are identical: {:?}", src));
+        return Err(crate::filesystem::FsError::InvalidPath.into());
     }
 
     let meta = fs::symlink_metadata(src)
         .await
         .with_context(|| format!("source path does not exist: {:?}", src))?;
     if meta.file_type().is_symlink() {
-        return Err(anyhow!("symlinks are not supported: {:?}", src));
+        return Err(crate::filesystem::FsError::Forbidden.into());
     }
     if meta.is_dir() && dst.starts_with(src) {
-        return Err(anyhow!(
-            "cannot copy directory into itself: {:?} -> {:?}",
-            src,
-            dst
-        ));
+        return Err(crate::filesystem::FsError::InvalidPath.into());
     }
 
-    let dst_exists = fs::symlink_metadata(dst).await.is_ok();
+    let dst_exists = entry_exists(dst).await?;
     if dst_exists && !overwrite {
-        return Err(anyhow!("destination path already exists: {:?}", dst));
+        return Err(crate::filesystem::FsError::Conflict.into());
     }
 
     let parent = dst.parent().ok_or_else(|| anyhow!("cannot copy to root"))?;
@@ -39,7 +78,7 @@ pub(super) async fn copy_path_safe(src: &Path, dst: &Path, overwrite: bool) -> R
     }
 
     if dst_exists {
-        if let Err(error) = fs::rename(dst, &backup).await {
+        if let Err(error) = rename_no_replace(dst, &backup).await {
             let _ = remove_path_recursive(&stage).await;
             return Err(anyhow!(
                 "failed to backup existing destination {:?}: {}",
@@ -49,23 +88,32 @@ pub(super) async fn copy_path_safe(src: &Path, dst: &Path, overwrite: bool) -> R
         }
     }
 
-    if let Err(error) = fs::rename(&stage, dst).await {
-        if dst_exists && let Err(restore_error) = fs::rename(&backup, dst).await {
-            tracing::error!(
-                error = %restore_error,
-                "CRITICAL: failed to restore backup after copy promotion failure"
-            );
+    let promotion = if overwrite {
+        fs::rename(&stage, dst).await
+    } else {
+        rename_no_replace(&stage, dst).await
+    };
+    if let Err(error) = promotion {
+        if dst_exists {
+            if let Err(restore_error) = rename_no_replace(&backup, dst).await {
+                tracing::error!(
+                    error = %restore_error,
+                    "CRITICAL: failed to restore backup after copy promotion failure"
+                );
+            }
         }
         let _ = remove_path_recursive(&stage).await;
-        return Err(anyhow!("failed to replace destination with stage: {error}"));
+        return Err(anyhow::Error::from(error).context("failed to promote copy stage"));
     }
 
-    if dst_exists && let Err(error) = remove_path_recursive(&backup).await {
-        tracing::warn!(
-            error = %error,
-            path = ?backup,
-            "failed to remove backup after successful copy overwrite"
-        );
+    if dst_exists {
+        if let Err(error) = remove_path_recursive(&backup).await {
+            tracing::warn!(
+                error = %error,
+                path = ?backup,
+                "failed to remove backup after successful copy overwrite"
+            );
+        }
     }
 
     Ok(())
@@ -73,29 +121,30 @@ pub(super) async fn copy_path_safe(src: &Path, dst: &Path, overwrite: bool) -> R
 
 pub(super) async fn move_path_safe(src: &Path, dst: &Path, overwrite: bool) -> Result<()> {
     if src == dst {
-        return Err(anyhow!("source and destination are identical: {:?}", src));
+        return Err(crate::filesystem::FsError::InvalidPath.into());
     }
 
     let meta = fs::symlink_metadata(src)
         .await
         .with_context(|| format!("source path does not exist: {:?}", src))?;
     if meta.file_type().is_symlink() {
-        return Err(anyhow!("symlinks are not supported: {:?}", src));
+        return Err(crate::filesystem::FsError::Forbidden.into());
     }
     if meta.is_dir() && dst.starts_with(src) {
-        return Err(anyhow!(
-            "cannot move directory into itself: {:?} -> {:?}",
-            src,
-            dst
-        ));
+        return Err(crate::filesystem::FsError::InvalidPath.into());
     }
 
-    let dst_exists = fs::symlink_metadata(dst).await.is_ok();
+    let dst_exists = entry_exists(dst).await?;
     if !dst_exists {
         if let Some(parent) = dst.parent() {
             fs::create_dir_all(parent).await?;
         }
-        return match fs::rename(src, dst).await {
+        let rename = if overwrite {
+            fs::rename(src, dst).await
+        } else {
+            rename_no_replace(src, dst).await
+        };
+        return match rename {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => {
                 move_cross_device_safe(src, dst, overwrite).await
@@ -107,7 +156,7 @@ pub(super) async fn move_path_safe(src: &Path, dst: &Path, overwrite: bool) -> R
     }
 
     if !overwrite {
-        return Err(anyhow!("destination path already exists: {:?}", dst));
+        return Err(crate::filesystem::FsError::Conflict.into());
     }
 
     let parent = dst.parent().ok_or_else(|| anyhow!("cannot move to root"))?;
@@ -129,7 +178,7 @@ pub(super) async fn move_path_safe(src: &Path, dst: &Path, overwrite: bool) -> R
     }
 
     let backup = parent.join(format!(".rulist-backup-{}", crate::auth::rand_string(24)));
-    fs::rename(dst, &backup)
+    rename_no_replace(dst, &backup)
         .await
         .with_context(|| format!("failed to backup existing destination {:?}", dst))?;
 
@@ -145,7 +194,7 @@ pub(super) async fn move_path_safe(src: &Path, dst: &Path, overwrite: bool) -> R
             Ok(())
         }
         Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => {
-            if let Err(restore_error) = fs::rename(&backup, dst).await {
+            if let Err(restore_error) = rename_no_replace(&backup, dst).await {
                 tracing::error!(
                     error = %restore_error,
                     "CRITICAL: failed to restore backup before cross-device move fallback"
@@ -155,7 +204,7 @@ pub(super) async fn move_path_safe(src: &Path, dst: &Path, overwrite: bool) -> R
             move_cross_device_safe(src, dst, overwrite).await
         }
         Err(error) => {
-            if let Err(restore_error) = fs::rename(&backup, dst).await {
+            if let Err(restore_error) = rename_no_replace(&backup, dst).await {
                 tracing::error!(
                     error = %restore_error,
                     "CRITICAL: failed to restore backup after move failure"
@@ -172,9 +221,9 @@ async fn move_cross_device_safe(src: &Path, dst: &Path, overwrite: bool) -> Resu
         .ok_or_else(|| anyhow!("destination has no parent"))?;
     fs::create_dir_all(parent).await?;
 
-    let had_destination = fs::symlink_metadata(dst).await.is_ok();
+    let had_destination = entry_exists(dst).await?;
     if had_destination && !overwrite {
-        return Err(anyhow!("destination path already exists: {:?}", dst));
+        return Err(crate::filesystem::FsError::Conflict.into());
     }
 
     let nonce = crate::auth::rand_string(24);
@@ -187,20 +236,27 @@ async fn move_cross_device_safe(src: &Path, dst: &Path, overwrite: bool) -> Resu
     }
 
     if had_destination {
-        if let Err(error) = fs::rename(dst, &backup).await {
+        if let Err(error) = rename_no_replace(dst, &backup).await {
             let _ = remove_path_recursive(&stage).await;
             return Err(error).with_context(|| format!("failed to backup destination {:?}", dst));
         }
     }
 
-    if let Err(error) = fs::rename(&stage, dst).await {
-        if had_destination && let Err(restore_error) = fs::rename(&backup, dst).await {
-            tracing::error!(
-                error = %restore_error,
-                backup = ?backup,
-                dst = ?dst,
-                "CRITICAL: failed to restore destination backup"
-            );
+    let promotion = if overwrite {
+        fs::rename(&stage, dst).await
+    } else {
+        rename_no_replace(&stage, dst).await
+    };
+    if let Err(error) = promotion {
+        if had_destination {
+            if let Err(restore_error) = rename_no_replace(&backup, dst).await {
+                tracing::error!(
+                    error = %restore_error,
+                    backup = ?backup,
+                    dst = ?dst,
+                    "CRITICAL: failed to restore destination backup"
+                );
+            }
         }
         let _ = remove_path_recursive(&stage).await;
         return Err(error.into());
@@ -217,12 +273,14 @@ async fn move_cross_device_safe(src: &Path, dst: &Path, overwrite: bool) -> Resu
         return Err(error.context("destination was copied successfully but source cleanup failed"));
     }
 
-    if had_destination && let Err(error) = remove_path_recursive(&backup).await {
-        tracing::warn!(
-            error = %error,
-            backup = ?backup,
-            "failed to remove move backup after successful operation"
-        );
+    if had_destination {
+        if let Err(error) = remove_path_recursive(&backup).await {
+            tracing::warn!(
+                error = %error,
+                backup = ?backup,
+                "failed to remove move backup after successful operation"
+            );
+        }
     }
 
     Ok(())
@@ -230,14 +288,14 @@ async fn move_cross_device_safe(src: &Path, dst: &Path, overwrite: bool) -> Resu
 
 async fn copy_path_recursive(src: &Path, dst: &Path) -> Result<()> {
     if src == dst {
-        return Err(anyhow!("source and destination are identical: {:?}", src));
+        return Err(crate::filesystem::FsError::InvalidPath.into());
     }
 
     let meta = fs::symlink_metadata(src)
         .await
         .with_context(|| format!("source path does not exist: {:?}", src))?;
     if meta.file_type().is_symlink() {
-        return Err(anyhow!("symlinks are not supported: {:?}", src));
+        return Err(crate::filesystem::FsError::Forbidden.into());
     }
 
     if meta.is_file() {
@@ -252,11 +310,7 @@ async fn copy_path_recursive(src: &Path, dst: &Path) -> Result<()> {
 
     if meta.is_dir() {
         if dst.starts_with(src) {
-            return Err(anyhow!(
-                "cannot copy directory into itself: {:?} -> {:?}",
-                src,
-                dst
-            ));
+            return Err(crate::filesystem::FsError::InvalidPath.into());
         }
 
         fs::create_dir_all(dst).await?;
@@ -269,7 +323,7 @@ async fn copy_path_recursive(src: &Path, dst: &Path) -> Result<()> {
                 let path = entry.path();
                 let file_type = entry.file_type().await?;
                 if file_type.is_symlink() {
-                    return Err(anyhow!("symlinks are not supported: {:?}", path));
+                    return Err(crate::filesystem::FsError::Forbidden.into());
                 }
 
                 let target = current_dst.join(entry.file_name());
@@ -289,7 +343,7 @@ async fn copy_path_recursive(src: &Path, dst: &Path) -> Result<()> {
         return Ok(());
     }
 
-    Err(anyhow!("unsupported file type for {:?}", src))
+    Err(crate::filesystem::FsError::InvalidPath.into())
 }
 
 pub(super) async fn remove_path_recursive(path: &Path) -> Result<()> {
@@ -297,7 +351,7 @@ pub(super) async fn remove_path_recursive(path: &Path) -> Result<()> {
         .await
         .with_context(|| format!("target does not exist: {:?}", path))?;
     if meta.file_type().is_symlink() {
-        return Err(anyhow!("symlinks are not supported: {:?}", path));
+        return Err(crate::filesystem::FsError::Forbidden.into());
     }
 
     if meta.is_dir() {
@@ -310,4 +364,48 @@ pub(super) async fn remove_path_recursive(path: &Path) -> Result<()> {
             .with_context(|| format!("failed to remove file: {:?}", path))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rename_no_replace_sync;
+    use std::sync::{Arc, Barrier};
+
+    #[test]
+    fn concurrent_no_replace_renames_preserve_the_losing_source() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = temp.path().join("first");
+        let second = temp.path().join("second");
+        let target = temp.path().join("target");
+        std::fs::write(&first, b"first").unwrap();
+        std::fs::write(&second, b"second").unwrap();
+
+        let barrier = Arc::new(Barrier::new(3));
+        let workers = [first.clone(), second.clone()].map(|source| {
+            let barrier = barrier.clone();
+            let target = target.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                rename_no_replace_sync(&source, &target)
+            })
+        });
+        barrier.wait();
+
+        let results: Vec<_> = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect();
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter_map(|result| result.as_ref().err())
+                .next()
+                .unwrap()
+                .kind(),
+            std::io::ErrorKind::AlreadyExists
+        );
+        assert!(target.exists());
+        assert_ne!(first.exists(), second.exists());
+    }
 }

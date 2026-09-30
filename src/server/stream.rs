@@ -47,14 +47,14 @@ pub fn percent_decode(s: &str) -> String {
     let input = s.as_bytes();
     let mut i = 0;
     while i < input.len() {
-        if input[i] == b'%'
-            && i + 2 < input.len()
-            && let Ok(hex) = std::str::from_utf8(&input[i + 1..i + 3])
-            && let Ok(byte) = u8::from_str_radix(hex, 16)
-        {
-            bytes.push(byte);
-            i += 3;
-            continue;
+        if input[i] == b'%' && i + 2 < input.len() {
+            if let Ok(hex) = std::str::from_utf8(&input[i + 1..i + 3]) {
+                if let Ok(byte) = u8::from_str_radix(hex, 16) {
+                    bytes.push(byte);
+                    i += 3;
+                    continue;
+                }
+            }
         }
         bytes.push(input[i]);
         i += 1;
