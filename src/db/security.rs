@@ -11,16 +11,13 @@ fn now_ts() -> i64 {
         .as_secs() as i64
 }
 
-pub async fn reserve_login_attempt(
+pub async fn record_login_failure(
     pool: &DbPool,
     key: &str,
     window_secs: i64,
     cap: i64,
 ) -> Result<Option<i64>, Error> {
-    sqlx::query("DELETE FROM `login_attempts` WHERE `window_started` < ?")
-        .bind(now_ts() - window_secs)
-        .execute(pool)
-        .await?;
+    delete_expired_login_attempts(pool, window_secs).await?;
     let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `login_attempts`")
         .fetch_one(pool)
         .await?;
@@ -29,6 +26,29 @@ pub async fn reserve_login_attempt(
     }
     sqlx::query_scalar("INSERT INTO `login_attempts` (`username_hash`, `failed_count`, `window_started`) SELECT ?, 1, ? WHERE EXISTS (SELECT 1 FROM `login_attempts` WHERE `username_hash` = ?) OR (SELECT COUNT(*) FROM `login_attempts`) < ? ON CONFLICT(`username_hash`) DO UPDATE SET `failed_count` = `failed_count` + 1 RETURNING `failed_count`")
         .bind(key).bind(now_ts()).bind(key).bind(cap).fetch_optional(pool).await
+}
+
+pub async fn check_login_limit(
+    pool: &DbPool,
+    key: &str,
+    window_secs: i64,
+    limit: i64,
+) -> Result<bool, Error> {
+    delete_expired_login_attempts(pool, window_secs).await?;
+    let count: Option<i64> =
+        sqlx::query_scalar("SELECT `failed_count` FROM `login_attempts` WHERE `username_hash` = ?")
+            .bind(key)
+            .fetch_optional(pool)
+            .await?;
+    Ok(count.is_some_and(|count| count > limit))
+}
+
+async fn delete_expired_login_attempts(pool: &DbPool, window_secs: i64) -> Result<(), Error> {
+    sqlx::query("DELETE FROM `login_attempts` WHERE `window_started` < ?")
+        .bind(now_ts() - window_secs)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 pub async fn clear_login_attempt(pool: &DbPool, key: &str) -> Result<(), Error> {

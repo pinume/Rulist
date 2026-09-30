@@ -109,7 +109,7 @@ async fn two_factor_login_is_enforced_and_replay_safe() {
 }
 
 #[tokio::test]
-async fn unknown_user_login_is_recorded_before_password_verification() {
+async fn unknown_user_login_failure_is_recorded() {
     let temp = tempfile::tempdir().unwrap();
     let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
     let app = app_for(&pool).await;
@@ -130,6 +130,54 @@ async fn unknown_user_login_is_recorded_before_password_verification() {
         .await
         .unwrap();
     assert_eq!(attempts, 1);
+}
+
+#[tokio::test]
+async fn username_attempt_limit_does_not_block_valid_admin_login() {
+    let temp = tempfile::tempdir().unwrap();
+    let pool = db::init_db(&temp.path().join("rulist.db")).await.unwrap();
+    db::set_admin_password(&pool, "AdminPass123!")
+        .await
+        .unwrap();
+    let app = app_for(&pool).await;
+
+    for attempt in 1..=6 {
+        let (status, _) = json_request(
+            &app,
+            "POST",
+            "/api/auth/login",
+            None,
+            json!({ "username": " admin ", "password": "wrong password" }),
+        )
+        .await;
+        let expected = if attempt <= 5 {
+            StatusCode::UNAUTHORIZED
+        } else {
+            StatusCode::TOO_MANY_REQUESTS
+        };
+        assert_eq!(status, expected, "attempt {attempt}");
+    }
+
+    let (status, body) = json_request(
+        &app,
+        "POST",
+        "/api/auth/login",
+        None,
+        json!({ "username": "admin", "password": "AdminPass123!" }),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "valid credentials must bypass failure throttling"
+    );
+    assert!(body["data"]["token"].is_string());
+
+    let attempts: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `login_attempts`")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(attempts, 0);
 }
 
 #[tokio::test]

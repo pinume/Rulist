@@ -50,43 +50,76 @@ fn password_verify_error(status: StatusCode) -> Response {
     }
 }
 
-pub async fn login_handler(
-    State(state): State<SharedState>,
-    Json(req): Json<LoginReq>,
+async fn login_failure_response(
+    state: &SharedState,
+    attempt_key: &str,
+    already_limited: bool,
+    status: StatusCode,
+    code: i32,
+    message: &'static str,
 ) -> Response {
-    let attempt_key = login_attempt_key(&req.username);
-    match crate::db::reserve_login_attempt(
+    if already_limited {
+        return api_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            429,
+            "Too many login attempts",
+        );
+    }
+
+    match crate::db::record_login_failure(
         &state.pool,
-        &attempt_key,
+        attempt_key,
         LOGIN_FAILURE_WINDOW_SECS,
         LOGIN_ATTEMPT_CAP,
     )
     .await
     {
-        Ok(Some(count)) if count > LOGIN_FAILURE_LIMIT => {
-            return api_error(
-                StatusCode::TOO_MANY_REQUESTS,
-                429,
-                "Too many login attempts",
-            );
-        }
-        Ok(Some(_)) => {}
+        Ok(Some(count)) if count > LOGIN_FAILURE_LIMIT => api_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            429,
+            "Too many login attempts",
+        ),
+        Ok(Some(_)) => api_error(status, code, message),
         Ok(None) => {
-            tracing::warn!(
-                username = %req.username,
-                "rate limit store at capacity, proceeding with bounded credential verification"
-            );
+            tracing::warn!("login failure store at capacity; failure was not recorded");
+            api_error(status, code, message)
         }
         Err(err) => {
-            tracing::error!(error = %err, "failed to reserve login attempt");
+            tracing::error!(error = %err, "failed to record login failure");
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                500,
+                "Internal server error",
+            )
+        }
+    }
+}
+
+pub async fn login_handler(
+    State(state): State<SharedState>,
+    Json(req): Json<LoginReq>,
+) -> Response {
+    let attempt_key = login_attempt_key(&req.username);
+    let already_limited = match crate::db::check_login_limit(
+        &state.pool,
+        &attempt_key,
+        LOGIN_FAILURE_WINDOW_SECS,
+        LOGIN_FAILURE_LIMIT,
+    )
+    .await
+    {
+        Ok(already_limited) => already_limited,
+        Err(err) => {
+            tracing::error!(error = %err, "failed to check login limit");
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 500,
                 "Internal server error",
             );
         }
-    }
+    };
 
+    // The counter is attacker-controlled; it may shape failed responses but must not skip valid credential checks.
     let user = match get_user_by_name(&state.pool, &req.username).await {
         Ok(Some(user)) => user,
         Ok(None) => {
@@ -94,11 +127,15 @@ pub async fn login_handler(
                 return password_verify_error(status);
             }
             tracing::warn!(username = %req.username, "login failed: user not found");
-            return api_error(
+            return login_failure_response(
+                &state,
+                &attempt_key,
+                already_limited,
                 StatusCode::UNAUTHORIZED,
                 401,
                 "invalid username or password",
-            );
+            )
+            .await;
         }
         Err(err) => {
             tracing::error!(error = %err, "login database error");
@@ -112,11 +149,15 @@ pub async fn login_handler(
 
     if user.disabled {
         tracing::warn!(username = %user.username, "login failed: user is disabled");
-        return api_error(
+        return login_failure_response(
+            &state,
+            &attempt_key,
+            already_limited,
             StatusCode::UNAUTHORIZED,
             401,
             "invalid username or password",
-        );
+        )
+        .await;
     }
 
     if !user.is_admin()
@@ -124,22 +165,30 @@ pub async fn login_handler(
         && user.permission & (1 << ALLOW_EMPTY_PASSWORD) == 0
     {
         tracing::warn!(username = %user.username, "login failed: empty password is not permitted");
-        return api_error(
+        return login_failure_response(
+            &state,
+            &attempt_key,
+            already_limited,
             StatusCode::UNAUTHORIZED,
             401,
             "invalid username or password",
-        );
+        )
+        .await;
     }
 
     match verify_password_bounded(&req.password, &user.pwd_hash).await {
         Ok(true) => {}
         Ok(false) => {
             tracing::warn!(username = %user.username, "login failed: invalid password");
-            return api_error(
+            return login_failure_response(
+                &state,
+                &attempt_key,
+                already_limited,
                 StatusCode::UNAUTHORIZED,
                 401,
                 "invalid username or password",
-            );
+            )
+            .await;
         }
         Err(status) => return password_verify_error(status),
     }
@@ -148,10 +197,26 @@ pub async fn login_handler(
         if !secret.trim().is_empty() {
             let otp_code = req.otp_code.as_deref().unwrap_or("").trim();
             if otp_code.is_empty() {
-                return api_error(StatusCode::UNAUTHORIZED, 402, "OTP code is required");
+                return login_failure_response(
+                    &state,
+                    &attempt_key,
+                    already_limited,
+                    StatusCode::UNAUTHORIZED,
+                    402,
+                    "OTP code is required",
+                )
+                .await;
             }
             let Some(step) = matching_totp_step(secret, otp_code) else {
-                return api_error(StatusCode::UNAUTHORIZED, 400, "invalid otp code");
+                return login_failure_response(
+                    &state,
+                    &attempt_key,
+                    already_limited,
+                    StatusCode::UNAUTHORIZED,
+                    400,
+                    "invalid otp code",
+                )
+                .await;
             };
             let accepted = match crate::db::accept_otp_step(&state.pool, user.id, step).await {
                 Ok(accepted) => accepted,
@@ -165,7 +230,15 @@ pub async fn login_handler(
                 }
             };
             if !accepted {
-                return api_error(StatusCode::UNAUTHORIZED, 400, "invalid otp code");
+                return login_failure_response(
+                    &state,
+                    &attempt_key,
+                    already_limited,
+                    StatusCode::UNAUTHORIZED,
+                    400,
+                    "invalid otp code",
+                )
+                .await;
             }
         }
     }
