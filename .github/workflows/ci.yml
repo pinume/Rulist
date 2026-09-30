@@ -26,8 +26,18 @@ jobs:
       - name: Test frontend
         working-directory: web
         run: pnpm install --frozen-lockfile && pnpm test
+      - name: Frontend typecheck
+        working-directory: web
+        run: pnpm lint
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
       - run: ./scripts/build-release.sh
       - run: python3 scripts/smoke_e2e.py target/release/rulist
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85.0
+      - run: cargo check --locked
