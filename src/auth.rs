@@ -46,7 +46,13 @@ pub fn rand_string(n: usize) -> String {
 }
 
 fn hex_encode(bytes: impl AsRef<[u8]>) -> String {
-    bytes.as_ref().iter().map(|b| format!("{b:02x}")).collect()
+    use std::fmt::Write;
+    let bytes = bytes.as_ref();
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        let _ = write!(&mut s, "{b:02x}");
+    }
+    s
 }
 
 pub fn hash_identifier(value: &str) -> String {

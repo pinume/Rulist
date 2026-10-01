@@ -28,6 +28,17 @@ test("resetSessionState clears all user-scoped browser state", async () => {
     )
     const generationBefore = files.getFileRequestGeneration()
 
+    files.FileStore.setState(files.ViewState.Folder)
+    for (let index = 0; index < 50; index++) history.recordHistory(`/history-${index}`)
+    await history.recoverHistory("/history-0")
+    history.recordHistory("/history-50")
+    assert.equal(history.HistoryMap.size, 50)
+    assert.equal(history.hasHistory("/history-0"), true)
+    assert.equal(history.hasHistory("/history-1"), false)
+    history.recordHistory("/history-0")
+    assert.equal(history.HistoryMap.size, 50)
+    history.clearAllHistory()
+
     session.setCurrentUser({
       id: 1,
       username: "alice",
@@ -62,9 +73,11 @@ test("resetSessionState clears all user-scoped browser state", async () => {
     files.rememberDirectoryPath("/old", true)
     files.setUploadConfig({ overwrite: true })
     files.setShouldKeepState(true)
-    history.HistoryMap.set("/old", { state: {}, scroll: 12 })
+    history.recordHistory("/old")
+    const recovering = history.recoverHistory("/old")
 
     resetSessionState()
+    await recovering
 
     assert.equal(session.currentUser(), null)
     assert.equal(files.fileStore.state, files.ViewState.Initial)

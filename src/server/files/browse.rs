@@ -22,21 +22,12 @@ pub(crate) struct FsListReq {
     #[serde(default)]
     reverse: Option<bool>,
 }
+use super::PathReq;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct FsListResp {
     content: Vec<FileEntry>,
     total: i64,
-}
-#[derive(Debug, Clone, serde::Deserialize, Default)]
-pub(crate) struct FsGetReq {
-    #[serde(default)]
-    path: String,
-}
-
-#[derive(Debug, Clone, serde::Deserialize, Default)]
-pub(crate) struct FsDirsReq {
-    #[serde(default)]
-    path: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -45,10 +36,6 @@ pub(crate) struct DirItem {
     modified: String,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
-pub(crate) struct FsLinkReq {
-    path: String,
-}
 #[derive(Debug, Clone, serde::Serialize)]
 pub(crate) struct FsLinkResp {
     url: String,
@@ -131,7 +118,7 @@ pub(crate) async fn list_handler(
 pub(crate) async fn get_handler(
     headers: HeaderMap,
     State(state): State<SharedState>,
-    Json(req): Json<FsGetReq>,
+    Json(req): Json<PathReq>,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
@@ -175,7 +162,7 @@ pub(crate) async fn get_handler(
 pub(crate) async fn dirs_handler(
     headers: HeaderMap,
     State(state): State<SharedState>,
-    Json(req): Json<FsDirsReq>,
+    Json(req): Json<PathReq>,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");
@@ -212,7 +199,7 @@ pub(crate) async fn dirs_handler(
 pub(crate) async fn link_handler(
     headers: HeaderMap,
     State(state): State<SharedState>,
-    Json(req): Json<FsLinkReq>,
+    Json(req): Json<PathReq>,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "Authentication required");

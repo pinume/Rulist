@@ -13,7 +13,11 @@ export const Content = () => {
   let lastPathname: string
   createEffect(
     on(pathname, async (pathname) => {
-      if (lastPathname) recordHistory(lastPathname)
+      try {
+        if (lastPathname) recordHistory(lastPathname)
+      } catch (err) {
+        console.warn("failed to record history:", err)
+      }
       lastPathname = pathname
       useFileTitle()
       await loadPath(pathname)

@@ -195,11 +195,14 @@ pub fn sorted_file_page(
     if start >= files.len() {
         return Vec::new();
     }
-    let end = (start + per_page).min(files.len());
+    let end = start.saturating_add(per_page).min(files.len());
 
     if end < files.len() {
         files.select_nth_unstable_by(end, |a, b| compare_files(a, b, order_by, reverse));
     }
-    files[..end].sort_unstable_by(|a, b| compare_files(a, b, order_by, reverse));
+    if start > 0 {
+        files[..end].select_nth_unstable_by(start, |a, b| compare_files(a, b, order_by, reverse));
+    }
+    files[start..end].sort_unstable_by(|a, b| compare_files(a, b, order_by, reverse));
     files[start..end].to_vec()
 }

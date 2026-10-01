@@ -1,7 +1,7 @@
 import "~/utils/zip-stream.js"
 import streamSaver from "streamsaver"
 import { useRouter } from "~/hooks"
-import { api, fsLink, fsList, pathBase, pathJoin } from "~/utils"
+import { api, collectDownloadFiles, fsLink, pathBase, pathJoin } from "~/utils"
 import { selectedFiles } from "~/store"
 import { createSignal, For, Show } from "solid-js"
 import {
@@ -15,69 +15,34 @@ import {
   Text,
   VStack,
 } from "@hope-ui/solid"
-import { FileEntry } from "~/types"
 
 streamSaver.mitm = "/streamer/mitm.html"
 const trimSlash = (str: string) => str.replace(/^\/+|\/+$/g, "")
-
-interface FileItem {
-  path: string
-}
 
 const PackageDownload = (props: { onClose: () => void }) => {
   const [cur, setCur] = createSignal("Initializing")
   const [status, setStatus] = createSignal(0)
   const [progress, setProgress] = createSignal({ current: 0, total: 0 })
   const { pathname } = useRouter()
+  const rootPath = pathname()
   const selected = selectedFiles()
-
-  const fetchFolderStructure = async (
-    pre: string,
-    obj: FileEntry,
-  ): Promise<FileItem[] | string> => {
-    if (!obj.is_dir) return [{ path: pathJoin(pre, obj.name) }]
-    const dirPath = pathJoin(pathname(), pre, obj.name)
-    const resp = await fsList(dirPath)
-    if (resp.code !== 200) return resp.message
-    const files: FileItem[] = []
-    const subTasks: Promise<FileItem[] | string>[] = []
-    for (const item of resp.data.content ?? []) {
-      if (item.is_dir) {
-        subTasks.push(fetchFolderStructure(pathJoin(pre, obj.name), item))
-      } else {
-        files.push({ path: pathJoin(pre, obj.name, item.name) })
-      }
-    }
-    if (subTasks.length > 0) {
-      const results = await Promise.all(subTasks)
-      for (const res of results) {
-        if (typeof res === "string") return res
-        files.push(...res)
-      }
-    }
-    return files
-  }
 
   const [fetchings, setFetchings] = createSignal<string[]>([])
 
   const run = async () => {
-    let saveName = pathBase(pathname())
+    let saveName = pathBase(rootPath)
     if (selected.length === 1) saveName = selected[0].name
     if (!saveName) saveName = "Home"
 
     setCur("Fetching folder structure")
     setStatus(2)
-    const downFiles: FileItem[] = []
-    const rootResults = await Promise.all(
-      selected.map((obj) => fetchFolderStructure("", obj)),
-    )
-    for (const res of rootResults) {
-      if (typeof res === "string") {
-        setCur(`Failed to fetch folder structure: ${res}`)
-        setStatus(1)
-        return res
-      }
-      downFiles.push(...res)
+    let downFiles: { path: string }[]
+    try {
+      downFiles = await collectDownloadFiles(rootPath, selected)
+    } catch (error) {
+      setCur(`Failed to fetch folder structure: ${error instanceof Error ? error.message : String(error)}`)
+      setStatus(1)
+      return
     }
 
     if (downFiles.length === 0) {
@@ -99,7 +64,7 @@ const PackageDownload = (props: { onClose: () => void }) => {
       if (!request) {
         const file = downFiles[index]
         request = (async () => {
-          const filePath = pathJoin(pathname(), file.path)
+          const filePath = pathJoin(rootPath, file.path)
           const linkResp = await fsLink(filePath)
           if (linkResp.code !== 200) {
             throw new Error(

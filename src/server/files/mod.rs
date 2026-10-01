@@ -11,6 +11,12 @@ mod browse;
 mod mutate;
 mod upload;
 
+#[derive(Debug, Clone, serde::Deserialize, Default)]
+pub(crate) struct PathReq {
+    #[serde(default)]
+    pub path: String,
+}
+
 pub(crate) use browse::{dirs_handler, get_handler, link_handler, list_handler, sign_context};
 pub(crate) use mutate::{
     batch_rename_handler, copy_handler, mkdir_handler, move_handler, remove_handler, rename_handler,

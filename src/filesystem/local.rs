@@ -1,7 +1,10 @@
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tokio::fs;
 
 use crate::filesystem::{FileEntry, FsError, valid_name};
@@ -9,6 +12,49 @@ use crate::filesystem::{FileEntry, FsError, valid_name};
 use super::ops::{
     copy_path_safe, entry_exists, move_path_safe, remove_path_recursive, rename_no_replace,
 };
+
+const LISTING_CACHE_TTL: Duration = Duration::from_secs(2);
+const LISTING_CACHE_MAX_ENTRIES: usize = 100_000;
+
+struct CachedListing {
+    path: PathBuf,
+    show_hidden: bool,
+    stamp: (u64, u64, i64, i64, i64, i64),
+    created: Instant,
+    files: Vec<FileEntry>,
+}
+
+struct ListingCache {
+    generation: u64,
+    entry: Option<CachedListing>,
+}
+
+// ponytail: cache one directory; use a bounded per-directory cache if concurrent browsing needs it.
+static LISTING_CACHE: Mutex<ListingCache> = Mutex::new(ListingCache {
+    generation: 0,
+    entry: None,
+});
+
+pub(crate) struct ListingMutation;
+
+impl ListingMutation {
+    pub(crate) fn new() -> Self {
+        invalidate_listing_cache();
+        Self
+    }
+}
+
+impl Drop for ListingMutation {
+    fn drop(&mut self) {
+        invalidate_listing_cache();
+    }
+}
+
+fn invalidate_listing_cache() {
+    let mut cache = LISTING_CACHE.lock().unwrap();
+    cache.generation = cache.generation.wrapping_add(1);
+    cache.entry = None;
+}
 
 #[derive(Debug, Clone)]
 pub struct LocalFs {
@@ -93,10 +139,33 @@ impl LocalFs {
     pub async fn list(&self, subpath: &str) -> Result<Vec<FileEntry>> {
         let full_path = self.safe_resolve(subpath)?;
         let show_hidden = self.show_hidden;
+        let meta = fs::metadata(&full_path).await?;
+        let stamp = (
+            meta.dev(),
+            meta.ino(),
+            meta.mtime(),
+            meta.mtime_nsec(),
+            meta.ctime(),
+            meta.ctime_nsec(),
+        );
+        let generation = {
+            let cache = LISTING_CACHE.lock().unwrap();
+            if let Some(entry) = &cache.entry {
+                if entry.path == full_path
+                    && entry.show_hidden == show_hidden
+                    && entry.stamp == stamp
+                    && entry.created.elapsed() < LISTING_CACHE_TTL
+                {
+                    return Ok(entry.files.clone());
+                }
+            }
+            cache.generation
+        };
+        let scan_path = full_path.clone();
 
-        tokio::task::spawn_blocking(move || -> Result<Vec<FileEntry>> {
-            let read_dir = std::fs::read_dir(&full_path)
-                .with_context(|| format!("failed to read directory: {:?}", full_path))?;
+        let items = tokio::task::spawn_blocking(move || -> Result<Vec<FileEntry>> {
+            let read_dir = std::fs::read_dir(&scan_path)
+                .with_context(|| format!("failed to read directory: {:?}", scan_path))?;
             let mut items = Vec::new();
 
             for entry in read_dir.flatten() {
@@ -146,7 +215,20 @@ impl LocalFs {
             Ok(items)
         })
         .await
-        .context("directory scan task panicked or failed")?
+        .context("directory scan task panicked or failed")??;
+        if items.len() <= LISTING_CACHE_MAX_ENTRIES {
+            let mut cache = LISTING_CACHE.lock().unwrap();
+            if cache.generation == generation {
+                cache.entry = Some(CachedListing {
+                    path: full_path,
+                    show_hidden,
+                    stamp,
+                    created: Instant::now(),
+                    files: items.clone(),
+                });
+            }
+        }
+        Ok(items)
     }
 
     pub async fn get(&self, subpath: &str) -> Result<FileEntry> {
@@ -194,6 +276,7 @@ impl LocalFs {
     }
 
     pub async fn mkdir(&self, subpath: &str) -> Result<()> {
+        let _mutation = ListingMutation::new();
         let full_path = self.safe_resolve(subpath)?;
         fs::create_dir_all(&full_path)
             .await
@@ -202,6 +285,7 @@ impl LocalFs {
     }
 
     pub async fn remove(&self, subpath: &str) -> Result<()> {
+        let _mutation = ListingMutation::new();
         if subpath.trim_matches('/').is_empty() {
             return Err(FsError::InvalidPath.into());
         }
@@ -210,6 +294,7 @@ impl LocalFs {
     }
 
     pub async fn rename_safe(&self, subpath: &str, new_name: &str, overwrite: bool) -> Result<()> {
+        let _mutation = ListingMutation::new();
         if subpath.trim_matches('/').is_empty() {
             return Err(FsError::InvalidPath.into());
         }
@@ -301,6 +386,7 @@ impl LocalFs {
         src_dir_subpath: &str,
         pairs: &[(String, String)],
     ) -> Result<()> {
+        let _mutation = ListingMutation::new();
         let dir_path = self.safe_resolve(src_dir_subpath)?;
         if pairs.is_empty() {
             return Ok(());
@@ -403,6 +489,7 @@ impl LocalFs {
         dst_subpath: &str,
         overwrite: bool,
     ) -> Result<()> {
+        let _mutation = ListingMutation::new();
         if src_subpath.trim_matches('/').is_empty() || dst_subpath.trim_matches('/').is_empty() {
             return Err(FsError::InvalidPath.into());
         }
@@ -421,11 +508,67 @@ impl LocalFs {
         dst_subpath: &str,
         overwrite: bool,
     ) -> Result<()> {
+        let _mutation = ListingMutation::new();
         if src_subpath.trim_matches('/').is_empty() || dst_subpath.trim_matches('/').is_empty() {
             return Err(FsError::InvalidPath.into());
         }
         let src_path = self.safe_resolve(src_subpath)?;
         let dst_path = self.safe_resolve(dst_subpath)?;
         copy_path_safe(&src_path, &dst_path, overwrite).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn listing_cache_reuses_scans_and_refreshes_after_changes() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("visible.txt"), b"old").unwrap();
+        std::fs::write(temp.path().join(".hidden.txt"), b"hidden").unwrap();
+        let fs = LocalFs::new(temp.path(), false).unwrap();
+
+        assert_eq!(fs.list("/").await.unwrap().len(), 1);
+        let created = LISTING_CACHE
+            .lock()
+            .unwrap()
+            .entry
+            .as_ref()
+            .unwrap()
+            .created;
+        assert_eq!(fs.list("/").await.unwrap()[0].size, 3);
+        assert_eq!(
+            LISTING_CACHE
+                .lock()
+                .unwrap()
+                .entry
+                .as_ref()
+                .unwrap()
+                .created,
+            created
+        );
+
+        // Updating an existing file does not change its parent's timestamp.
+        std::fs::write(temp.path().join("visible.txt"), b"updated contents").unwrap();
+        assert_eq!(fs.list("/").await.unwrap()[0].size, 3);
+        tokio::time::sleep(LISTING_CACHE_TTL + Duration::from_millis(10)).await;
+        assert_eq!(fs.list("/").await.unwrap()[0].size, 16);
+
+        let hidden = LocalFs::new(temp.path(), true).unwrap();
+        assert_eq!(hidden.list("/").await.unwrap().len(), 2);
+        assert_eq!(fs.list("/").await.unwrap().len(), 1);
+        std::fs::write(temp.path().join("external.txt"), b"external").unwrap();
+        assert_eq!(fs.list("/").await.unwrap().len(), 2);
+
+        fs.mkdir("nested").await.unwrap();
+        assert!(LISTING_CACHE.lock().unwrap().entry.is_none());
+        assert_eq!(fs.list("/").await.unwrap().len(), 3);
+        fs.rename_safe("external.txt", "renamed.txt", false)
+            .await
+            .unwrap();
+        let entries = fs.list("/").await.unwrap();
+        assert!(entries.iter().any(|entry| entry.name == "renamed.txt"));
+        assert!(!entries.iter().any(|entry| entry.name == "external.txt"));
     }
 }

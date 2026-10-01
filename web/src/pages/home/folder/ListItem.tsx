@@ -89,19 +89,29 @@ export const ListItem = (props: { obj: FileItem; index: number }) => {
         onClick={(e: MouseEvent) => {
           const target = e.target as HTMLElement | null
           if (target?.closest(".actions, .hope-menu__trigger, .hope-menu__content, .hope-menu__item")) return
-          e.preventDefault()
 
           if (e.shiftKey) {
+            e.preventDefault()
             selectRange(props.index)
             return
           }
           if (e.ctrlKey || e.metaKey) {
+            e.preventDefault()
             selectIndex(props.index, !props.obj.selected)
             setLastClickedIndex(props.index)
             return
           }
 
           setLastClickedIndex(props.index)
+          if (props.obj.is_dir) {
+            rememberDirectory(props.obj.name, true, true)
+          }
+
+          if (target?.closest("a")) {
+            return
+          }
+
+          e.preventDefault()
           to(pushHref(props.obj.name))
         }}
         onMouseEnter={() =>

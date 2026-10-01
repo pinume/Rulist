@@ -12,6 +12,7 @@ import {
   shouldKeepState,
   fileStore,
   getFileRequestGeneration,
+  invalidateFileRequests,
   isKnownDirectoryPath,
   rememberDirectoryPath as rememberKnownDirectoryPath,
 } from "~/store"
@@ -67,6 +68,7 @@ export const useFiles = () => {
   // if confirm current path is dir, fetch List directly
   // if not, fetch get then determine if it is dir or file
   const loadPath = (path: string, page = 1) => {
+    invalidateFileRequests()
     cancelFile?.()
     cancelList?.()
     FileStore.setErr("")
@@ -94,15 +96,16 @@ export const useFiles = () => {
       resp,
       (data) => {
         FileStore.setFile(data)
-        if (data.is_dir) {
-          rememberDirectory(path)
-          loadFolder(path)
-        } else {
+        if (!data.is_dir) {
           shouldKeepState() || FileStore.setState(ViewState.File)
         }
       },
       handleErr,
     )
+    if (resp.code === 200 && resp.data.is_dir) {
+      rememberDirectory(path)
+      await loadFolder(path)
+    }
   }
 
   // enter a folder
@@ -112,17 +115,26 @@ export const useFiles = () => {
     orderBy = fileStore.orderBy,
     reverse = fileStore.reverse,
   ) => {
+    invalidateFileRequests()
     shouldKeepState() || FileStore.setState(ViewState.Loading)
     const generation = getFileRequestGeneration()
     const resp = await listFiles({ path, page, orderBy, reverse })
     if (generation !== getFileRequestGeneration()) return
+    if (resp.code === 200) {
+      const lastPage = Math.max(1, Math.ceil(resp.data.total / LIST_PAGE_SIZE))
+      if (page > lastPage) {
+        await loadFolder(path, lastPage, orderBy, reverse)
+        return
+      }
+    }
     handleRespWithoutNotify(
       resp,
       (data) => {
-        const lastPage = Math.max(1, Math.ceil(data.total / LIST_PAGE_SIZE))
-        if (page > lastPage) {
-          void loadFolder(path, lastPage, orderBy, reverse)
-          return
+        rememberKnownDirectoryPath(path, true)
+        for (const item of data.content ?? []) {
+          if (item.is_dir) {
+            rememberKnownDirectoryPath(pathJoin(path, item.name), true)
+          }
         }
         FileStore.setListing(data.content ?? [], data.total, page)
         shouldKeepState() || FileStore.setState(ViewState.Folder)

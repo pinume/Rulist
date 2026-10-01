@@ -8,7 +8,7 @@ export const StreamUpload = async (
   setUpload: SetUpload,
   overwrite = false,
 ): Promise<undefined> => {
-  let oldTimestamp = new Date().valueOf()
+  let oldTimestamp = Date.now()
   let oldLoaded = 0
   const headers: { [k: string]: any } = {
     "File-Path": encodeURIComponent(uploadPath),
@@ -24,7 +24,7 @@ export const StreamUpload = async (
           ((progressEvent.loaded / progressEvent.total) * 100) | 0
         setUpload("progress", complete)
 
-        const timestamp = new Date().valueOf()
+        const timestamp = Date.now()
         const duration = (timestamp - oldTimestamp) / 1000
         if (duration > 1) {
           const loaded = progressEvent.loaded - oldLoaded

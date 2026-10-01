@@ -47,10 +47,7 @@ pub(crate) struct FsMoveCopyReq {
     conflict_policy: ConflictPolicy,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
-pub(crate) struct FsMkdirReq {
-    path: String,
-}
+use super::PathReq;
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub(crate) struct BatchRenameItem {
@@ -66,7 +63,7 @@ pub(crate) struct BatchRenameReq {
 pub(crate) async fn mkdir_handler(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    Json(req): Json<FsMkdirReq>,
+    Json(req): Json<PathReq>,
 ) -> Response {
     let Some(user) = authenticate_user(&headers, &state).await else {
         return api_error(StatusCode::UNAUTHORIZED, 401, "unauthorized");

@@ -1,4 +1,10 @@
-import { shouldKeepState, FileStore, fileStore, ViewState } from "~/store/files"
+import {
+  shouldKeepState,
+  FileStore,
+  fileStore,
+  ViewState,
+  getFileRequestGeneration,
+} from "~/store/files"
 import { encodePath } from "~/utils/path"
 
 interface History {
@@ -7,6 +13,7 @@ interface History {
 }
 
 export const HistoryMap = new Map<string, History>()
+const HISTORY_LIMIT = 50
 
 const waitForNextFrame = () => {
   return new Promise((resolve) => setTimeout(resolve))
@@ -15,27 +22,46 @@ const waitForNextFrame = () => {
 export const getHistoryKey = (path: string) => encodePath(path)
 
 export const recordHistory = (path: string) => {
-  if (![ViewState.Folder, ViewState.File].includes(fileStore.state)) {
-    return
+  try {
+    if (![ViewState.Folder, ViewState.File].includes(fileStore.state)) {
+      return
+    }
+    const state = JSON.parse(JSON.stringify(fileStore))
+    const key = getHistoryKey(path)
+    const history = {
+      state,
+      scroll: typeof window !== "undefined" ? window.scrollY : 0,
+    }
+    HistoryMap.delete(key)
+    HistoryMap.set(key, history)
+    if (HistoryMap.size > HISTORY_LIMIT) {
+      HistoryMap.delete(HistoryMap.keys().next().value!)
+    }
+  } catch (err) {
+    console.warn("failed to record history:", err)
   }
-  const state = JSON.parse(JSON.stringify(fileStore))
-  const key = getHistoryKey(path)
-  const history = {
-    state,
-    scroll: window.scrollY,
-  }
-  HistoryMap.set(key, history)
 }
 
 export const recoverHistory = async (path: string) => {
-  const key = getHistoryKey(path)
-  const history = HistoryMap.get(key)
-  if (!history) return
-  shouldKeepState() || FileStore.setState(ViewState.Initial)
-  await waitForNextFrame()
-  FileStore.set(JSON.parse(JSON.stringify(history.state)))
-  await waitForNextFrame()
-  window.scroll({ top: history.scroll })
+  try {
+    const key = getHistoryKey(path)
+    const history = HistoryMap.get(key)
+    if (!history) return
+    const generation = getFileRequestGeneration()
+    shouldKeepState() || FileStore.setState(ViewState.Initial)
+    await waitForNextFrame()
+    if (generation !== getFileRequestGeneration() || HistoryMap.get(key) !== history) return
+    HistoryMap.delete(key)
+    HistoryMap.set(key, history)
+    FileStore.set(JSON.parse(JSON.stringify(history.state)))
+    await waitForNextFrame()
+    if (generation !== getFileRequestGeneration() || HistoryMap.get(key) !== history) return
+    if (typeof window !== "undefined") {
+      window.scroll({ top: history.scroll })
+    }
+  } catch (err) {
+    console.warn("failed to recover history:", err)
+  }
 }
 
 export const hasHistory = (path: string) => {

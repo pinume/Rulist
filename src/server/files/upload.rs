@@ -40,6 +40,7 @@ pub(crate) async fn upload_handler(
     if overwrite && !permitted(&user, OVERWRITE) {
         return permission_denied();
     }
+    let _mutation = crate::filesystem::local::ListingMutation::new();
 
     let mut body = request.into_body();
     // Stream body to file
